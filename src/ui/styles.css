@@ -480,6 +480,79 @@ pre {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.emptyDiff p {
+  margin: 0;
+}
+
+.diffViewer {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.diffViewer label {
+  display: grid;
+  gap: 0.35rem;
+  color: #485961;
+  font-size: 0.82rem;
+}
+
+.diffViewer input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #b7c3c9;
+  border-radius: 6px;
+  padding: 0.48rem 0.6rem;
+}
+
+.diffViewerBody {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.diffFileList {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.diffFileList button {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: center;
+  text-align: left;
+}
+
+.diffFileList button[aria-selected="true"] {
+  border-color: #1f6feb;
+  box-shadow: inset 0 0 0 1px #1f6feb;
+}
+
+.diffFileList span {
+  color: #485961;
+  font-size: 0.78rem;
+}
+
+.diffFileList code,
+.diffMeta code {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.diffMeta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.diffMeta div {
+  min-width: 0;
+  padding: 0.45rem;
+  border: 1px solid #e1e6e9;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
 .settingsPanel {
   display: grid;
   gap: 0.75rem;
@@ -619,7 +692,8 @@ pre {
   }
 
   .metricGrid,
-  .approvalMeta {
+  .approvalMeta,
+  .diffMeta {
     grid-template-columns: 1fr;
   }
 }

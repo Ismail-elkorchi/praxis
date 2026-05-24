@@ -487,6 +487,7 @@ function projectCard(project: ProjectSnapshot, snapshot: AppSnapshot): ProjectCa
     badges: badges(project),
     primaryAction: primaryAction(project, provider?.capabilities.canStartSession ?? false),
     secondaryActions: secondaryActions(project),
+    diffFiles: diffFiles(project),
     evidence: projectEvidence(project)
   };
 }
@@ -745,6 +746,37 @@ function secondaryActions(project: ProjectSnapshot): DashboardAction[] {
     { id: "explain-state", label: "Explain state", method: "dashboard.explainMode" },
     ...(project.git.isRepo ? [{ id: "open-diff", label: "Open diff review", method: "git.openDiff" }] : [])
   ];
+}
+
+function diffFiles(project: ProjectSnapshot): ProjectCardViewModel["diffFiles"] {
+  const fromProvider = project.fileChanges.map((change) => ({
+    path: change.path,
+    changeKind: change.changeKind,
+    source: "provider" as const,
+    sourceSessionId: change.sessionId,
+    sourceTurnId: change.turnId,
+    binary: false,
+    summary: change.diffRef ?? `${change.changeKind} file change`,
+    evidence: change.evidence
+  }));
+  const knownPaths = new Set(fromProvider.map((change) => change.path));
+  const gitEvidence: EvidenceRef[] = [{ type: "git", repoPath: project.project.rootPath, sha: project.git.headSha }];
+  const fromGit = [
+    ...project.git.stagedFiles,
+    ...project.git.unstagedFiles,
+    ...project.git.untrackedFiles
+  ]
+    .filter((file, index, files) => !knownPaths.has(file) && files.indexOf(file) === index)
+    .map((file) => ({
+      path: file,
+      changeKind: project.git.untrackedFiles.includes(file) ? ("created" as const) : ("modified" as const),
+      source: "git" as const,
+      binary: false,
+      summary: project.git.untrackedFiles.includes(file) ? "Untracked file" : "Git working tree change",
+      evidence: gitEvidence
+    }));
+
+  return [...fromProvider, ...fromGit].sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function urgency(state: ProjectRuntimeState): 0 | 1 | 2 | 3 | 4 | 5 {

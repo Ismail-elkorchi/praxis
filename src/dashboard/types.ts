@@ -2,6 +2,7 @@ import type {
   AgentProvider,
   AgentSession,
   AgentSessionId,
+  AgentTurnId,
   AgentTurn,
   ApprovalDecision,
   ApprovalKind,
@@ -65,6 +66,18 @@ export type DashboardBadge = {
   tone: "idle" | "active" | "waiting" | "review" | "passed" | "failed" | "blocked" | "stale" | "unsafe" | "unknown";
 };
 
+export type ProjectDiffFileViewModel = {
+  path: string;
+  oldPath?: string;
+  changeKind: FileChange["changeKind"] | "binary";
+  source: "provider" | "git";
+  sourceSessionId?: AgentSessionId;
+  sourceTurnId?: AgentTurnId;
+  binary: boolean;
+  summary: string;
+  evidence: EvidenceRef[];
+};
+
 export type ProjectCardViewModel = {
   projectId: ProjectId;
   title: string;
@@ -83,6 +96,7 @@ export type ProjectCardViewModel = {
   badges: DashboardBadge[];
   primaryAction: DashboardAction;
   secondaryActions: DashboardAction[];
+  diffFiles: ProjectDiffFileViewModel[];
   evidence: EvidenceRef[];
 };
 

@@ -937,13 +937,93 @@ function DetailPanel({
       </section>
       <section>
         <h2>Diff review</h2>
-        <div className="diffPreview" role="region" aria-label="Diff preview" tabIndex={0}>
-          <span>created</span>
-          <code>src/new-file.ts</code>
-          <pre>+export const value = 1;</pre>
-        </div>
+        <DiffReviewPanel selectedProject={selectedProject} />
       </section>
     </aside>
+  );
+}
+
+function DiffReviewPanel({ selectedProject }: { selectedProject?: ProjectCardViewModel }) {
+  const [query, setQuery] = useState("");
+  const [selectedPath, setSelectedPath] = useState<string | undefined>(selectedProject?.diffFiles[0]?.path);
+  const diffFiles = selectedProject?.diffFiles ?? [];
+  const filteredFiles = diffFiles.filter((file) => file.path.toLowerCase().includes(query.trim().toLowerCase()));
+  const selectedFile =
+    filteredFiles.find((file) => file.path === selectedPath) ?? filteredFiles[0] ?? diffFiles.find((file) => file.path === selectedPath);
+
+  useEffect(() => {
+    setSelectedPath(selectedProject?.diffFiles[0]?.path);
+  }, [selectedProject?.projectId, selectedProject?.diffFiles]);
+
+  if (!selectedProject || diffFiles.length === 0) {
+    return (
+      <div className="diffPreview emptyDiff" role="region" aria-label="Diff preview" tabIndex={0}>
+        <p>No diff files available.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="diffViewer" role="region" aria-label="Diff preview">
+      <label>
+        File search
+        <input
+          aria-label="Search diff files"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Filter files"
+        />
+      </label>
+      <div className="diffViewerBody">
+        <div className="diffFileList" role="listbox" aria-label="Diff files">
+          {filteredFiles.map((file) => (
+            <button
+              key={`${file.oldPath ?? ""}:${file.path}`}
+              type="button"
+              role="option"
+              aria-selected={file.path === selectedFile?.path}
+              data-kind={file.changeKind}
+              onClick={() => setSelectedPath(file.path)}
+            >
+              <span>{file.changeKind}</span>
+              <code>{file.path}</code>
+            </button>
+          ))}
+          {filteredFiles.length === 0 ? <p className="emptyText">No diff files match the search.</p> : null}
+        </div>
+        {selectedFile ? (
+          <div className="diffPreview" tabIndex={0}>
+            <span>{selectedFile.changeKind}</span>
+            {selectedFile.oldPath ? (
+              <p>
+                <code>{selectedFile.oldPath}</code> renamed to <code>{selectedFile.path}</code>
+              </p>
+            ) : (
+              <code>{selectedFile.path}</code>
+            )}
+            <dl className="diffMeta">
+              <div>
+                <dt>Source</dt>
+                <dd>{selectedFile.source}</dd>
+              </div>
+              <div>
+                <dt>Session</dt>
+                <dd>{selectedFile.sourceSessionId ?? "not linked"}</dd>
+              </div>
+              <div>
+                <dt>Turn</dt>
+                <dd>{selectedFile.sourceTurnId ?? "not linked"}</dd>
+              </div>
+            </dl>
+            {selectedFile.binary ? (
+              <p>Binary file metadata only.</p>
+            ) : (
+              <pre>{selectedFile.summary}</pre>
+            )}
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -1007,6 +1087,37 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
         ? { id: "open-approvals", label: "Open approvals", method: "agents.respondToApproval" }
         : { id: "review-diff", label: "Review diff", method: "git.openDiff" },
       secondaryActions: [{ id: "explain-state", label: "Explain state", method: "dashboard.explainMode" }],
+      diffFiles: [
+        {
+          path: "src/new-file.ts",
+          changeKind: "created",
+          source: "provider",
+          sourceSessionId: "session-alpha" as ProjectCardViewModel["diffFiles"][number]["sourceSessionId"],
+          sourceTurnId: "turn-alpha" as ProjectCardViewModel["diffFiles"][number]["sourceTurnId"],
+          binary: false,
+          summary: "+export const value = 1;",
+          evidence: []
+        },
+        {
+          path: "assets/logo.bin",
+          changeKind: "binary",
+          source: "git",
+          binary: true,
+          summary: "Binary file metadata only.",
+          evidence: []
+        },
+        {
+          path: "src/current-name.ts",
+          oldPath: "src/old-name.ts",
+          changeKind: "renamed",
+          source: "provider",
+          sourceSessionId: "session-alpha" as ProjectCardViewModel["diffFiles"][number]["sourceSessionId"],
+          sourceTurnId: "turn-alpha" as ProjectCardViewModel["diffFiles"][number]["sourceTurnId"],
+          binary: false,
+          summary: "Renamed file from src/old-name.ts.",
+          evidence: []
+        }
+      ],
       evidence: []
     },
     {
@@ -1026,6 +1137,16 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       badges: [{ label: "Required check failed", tone: "failed" }],
       primaryAction: { id: "rerun-checks", label: "Rerun failed checks", method: "checks.run" },
       secondaryActions: [{ id: "open-diff", label: "Open diff review", method: "git.openDiff" }],
+      diffFiles: [
+        {
+          path: "package.json",
+          changeKind: "modified",
+          source: "git",
+          binary: false,
+          summary: "Changed package metadata.",
+          evidence: []
+        }
+      ],
       evidence: []
     }
   ];

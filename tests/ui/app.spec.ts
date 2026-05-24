@@ -88,6 +88,24 @@ test("project cards support keyboard navigation and provider-neutral action mapp
   await expect(page.getByRole("button", { name: "Explain state" }).first()).toHaveAttribute("data-method", "dashboard.explainMode");
 });
 
+test("diff review supports file search, source links, renames, and binary metadata", async ({ page }) => {
+  await page.goto("/");
+
+  const diffRegion = page.getByRole("region", { name: "Diff preview" });
+  await expect(diffRegion).toContainText("src/new-file.ts");
+  await expect(diffRegion).toContainText("session-alpha");
+  await expect(diffRegion).toContainText("turn-alpha");
+
+  await page.getByLabel("Search diff files").fill("logo");
+  await page.getByRole("option", { name: /assets\/logo\.bin/ }).click();
+  await expect(diffRegion).toContainText("Binary file metadata only.");
+
+  await page.getByLabel("Search diff files").fill("current-name");
+  await page.getByRole("option", { name: /src\/current-name\.ts/ }).click();
+  await expect(diffRegion).toContainText("src/old-name.ts");
+  await expect(diffRegion).toContainText("renamed to");
+});
+
 test("command palette opens from global search and runs provider-neutral commands", async ({ page }) => {
   await page.goto("/");
 
