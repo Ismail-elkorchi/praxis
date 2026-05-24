@@ -265,7 +265,7 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
     case "approval.expired": {
       const project = touchProject(next, event);
       const payload = event.payload as { approvalId: ApprovalRequest["id"]; decision?: ApprovalDecision; resolvedAt?: string };
-      if (project) {
+      if (project && approvalResolutionIsAuthoritative(event)) {
         project.approvals = project.approvals.map((approval) =>
           approval.id === payload.approvalId
             ? {
@@ -639,6 +639,12 @@ function approvalStatusFromEvent(type: string): ApprovalRequest["status"] {
   if (type === "approval.declined") return "declined";
   if (type === "approval.cancelled") return "cancelled";
   return "expired";
+}
+
+function approvalResolutionIsAuthoritative(event: DomainEvent): boolean {
+  if (event.source === "user") return true;
+  if (event.source === "system" && (event.type === "approval.cancelled" || event.type === "approval.expired")) return true;
+  return false;
 }
 
 function hasReviewableChanges(project: ProjectSnapshot): boolean {
