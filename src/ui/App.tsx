@@ -19,7 +19,8 @@ import {
   Search,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ApprovalDecision } from "../core";
 import type {
   ApprovalCardViewModel,
@@ -254,19 +255,53 @@ function ProjectGrid({
   onSelectProject(projectId: string): void;
   compact?: boolean;
 }) {
+  const gridRef = useRef<HTMLElement>(null);
+
+  function selectProjectByOffset(offset: number) {
+    const currentIndex = Math.max(
+      dashboard.projectCards.findIndex((project) => project.projectId === selectedProjectId),
+      0
+    );
+    const nextProject = dashboard.projectCards[(currentIndex + offset + dashboard.projectCards.length) % dashboard.projectCards.length];
+    if (!nextProject) return;
+    onSelectProject(nextProject.projectId);
+    window.requestAnimationFrame(() => {
+      gridRef.current?.querySelector<HTMLButtonElement>(`[data-project-card="${nextProject.projectId}"]`)?.focus();
+    });
+  }
+
+  function handleProjectGridKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (isEditableTarget(event.target) || dashboard.projectCards.length === 0) return;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      selectProjectByOffset(1);
+    }
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      selectProjectByOffset(-1);
+    }
+  }
+
   if (dashboard.projectCards.length === 0) {
     return (
       <section className="emptyPanel" aria-label="Projects">
         <GitBranch size={28} aria-hidden="true" />
         <h2>No projects registered</h2>
         <p>Register a local project to start tracking sessions, approvals, file changes, checks, and review state.</p>
-        <button type="button">Register project</button>
+        <button type="button" data-method="projects.register">
+          Register project
+        </button>
       </section>
     );
   }
 
   return (
-    <section className={compact ? "cardGrid compact" : "cardGrid"} aria-label="Projects">
+    <section
+      ref={gridRef}
+      className={compact ? "cardGrid compact" : "cardGrid"}
+      aria-label="Projects"
+      onKeyDown={handleProjectGridKeyDown}
+    >
       {dashboard.projectCards.map((project) => (
         <ProjectCard
           key={project.projectId}
@@ -290,7 +325,13 @@ function ProjectCard({
 }) {
   return (
     <article className={`projectCard urgency-${project.urgency} ${selected ? "selected" : ""}`}>
-      <button type="button" className="cardHeader" onClick={onOpenProject}>
+      <button
+        type="button"
+        className="cardHeader"
+        onClick={onOpenProject}
+        aria-pressed={selected}
+        data-project-card={project.projectId}
+      >
         <span>
           <strong>{project.title}</strong>
           <small>{project.branchLabel ?? "No branch"}</small>
@@ -320,14 +361,29 @@ function ProjectCard({
         </div>
       </dl>
       <div className="actionRow">
-        <button type="button" disabled={project.primaryAction.disabled} title={project.primaryAction.disabledReason}>
+        <button
+          type="button"
+          data-method={project.primaryAction.method}
+          disabled={project.primaryAction.disabled}
+          title={project.primaryAction.disabledReason}
+        >
           {project.primaryAction.label}
         </button>
-        <button type="button">Explain state</button>
+        {project.secondaryActions.map((action) => (
+          <button key={action.id} type="button" data-method={action.method} disabled={action.disabled} title={action.disabledReason}>
+            {action.label}
+          </button>
+        ))}
       </div>
     </article>
   );
 }
+
+type ApprovalDecisionOption = ApprovalCardViewModel["decisionOptions"][number];
+type PendingApprovalDecision = {
+  approval: ApprovalCardViewModel;
+  option: ApprovalDecisionOption;
+};
 
 function ApprovalPanel({
   approvals,
@@ -336,6 +392,69 @@ function ApprovalPanel({
   approvals: ApprovalCardViewModel[];
   onDecision(approvalId: string, decision: ApprovalDecision): void;
 }) {
+  const panelRef = useRef<HTMLElement>(null);
+  const [selectedApprovalId, setSelectedApprovalId] = useState<string | undefined>(approvals[0]?.approvalId);
+  const [pendingDecision, setPendingDecision] = useState<PendingApprovalDecision | undefined>();
+  const selectedApproval = approvals.find((approval) => approval.approvalId === selectedApprovalId) ?? approvals[0];
+
+  useEffect(() => {
+    if (approvals.length === 0) {
+      setSelectedApprovalId(undefined);
+      setPendingDecision(undefined);
+      return;
+    }
+    if (!selectedApprovalId || !approvals.some((approval) => approval.approvalId === selectedApprovalId)) {
+      setSelectedApprovalId(approvals[0]?.approvalId);
+    }
+  }, [approvals, selectedApprovalId]);
+
+  function requestDecision(approval: ApprovalCardViewModel, option: ApprovalDecisionOption) {
+    if (option.requiresConfirmation) {
+      setPendingDecision({ approval, option });
+      return;
+    }
+    onDecision(approval.approvalId, option.decision);
+  }
+
+  function moveApprovalSelection(offset: number) {
+    const currentIndex = Math.max(
+      approvals.findIndex((approval) => approval.approvalId === selectedApproval?.approvalId),
+      0
+    );
+    const nextApproval = approvals[(currentIndex + offset + approvals.length) % approvals.length];
+    if (!nextApproval) return;
+    setSelectedApprovalId(nextApproval.approvalId);
+    window.requestAnimationFrame(() => {
+      panelRef.current?.querySelector<HTMLElement>(`[data-approval-card="${nextApproval.approvalId}"]`)?.focus();
+    });
+  }
+
+  function handleApprovalKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (isEditableTarget(event.target) || approvals.length === 0 || pendingDecision) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+      event.preventDefault();
+      moveApprovalSelection(1);
+    }
+    if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      moveApprovalSelection(-1);
+    }
+    if (event.key.toLowerCase() === "a" && selectedApproval) {
+      const option = selectedApproval.decisionOptions.find((item) => item.decision === "accept_once");
+      if (option) {
+        event.preventDefault();
+        requestDecision(selectedApproval, option);
+      }
+    }
+    if (event.key.toLowerCase() === "d" && selectedApproval) {
+      const option = selectedApproval.decisionOptions.find((item) => item.decision === "decline");
+      if (option) {
+        event.preventDefault();
+        requestDecision(selectedApproval, option);
+      }
+    }
+  }
+
   if (approvals.length === 0) {
     return (
       <section className="emptyPanel" aria-label="Approval center">
@@ -347,7 +466,7 @@ function ApprovalPanel({
   }
 
   return (
-    <section className="approvalPanel" aria-label="Approval center">
+    <section ref={panelRef} className="approvalPanel" aria-label="Approval center" tabIndex={0} onKeyDown={handleApprovalKeyDown}>
       <div className="sectionHeader">
         <ShieldAlert size={22} aria-hidden="true" />
         <div>
@@ -356,11 +475,25 @@ function ApprovalPanel({
         </div>
       </div>
       {approvals.map((approval) => (
-        <article key={approval.approvalId} className={`approvalCard risk-${approval.risk}`}>
+        <article
+          key={approval.approvalId}
+          className={`approvalCard risk-${approval.risk}`}
+          data-approval-card={approval.approvalId}
+          data-selected={approval.approvalId === selectedApproval?.approvalId ? "true" : undefined}
+          tabIndex={approval.approvalId === selectedApproval?.approvalId ? 0 : -1}
+          aria-label={`${approval.title}, ${approval.risk} risk`}
+        >
           <div>
             <span className="stateBadge waiting">{approval.risk} risk</span>
             <h3>{approval.title}</h3>
             <p>{approval.summary}</p>
+            {approval.riskSignals.length > 0 ? (
+              <ul className="riskSignalList" aria-label="Risk signals">
+                {approval.riskSignals.map((signal) => (
+                  <li key={signal}>{signal.replaceAll("_", " ")}</li>
+                ))}
+              </ul>
+            ) : null}
             <dl className="approvalMeta">
               <div>
                 <dt>Project</dt>
@@ -382,7 +515,9 @@ function ApprovalPanel({
                 key={option.decision}
                 type="button"
                 className={option.decision === "decline" ? "secondaryDanger" : undefined}
-                onClick={() => onDecision(approval.approvalId, option.decision)}
+                data-method="agents.respondToApproval"
+                data-decision={option.decision}
+                onClick={() => requestDecision(approval, option)}
               >
                 {option.label}
               </button>
@@ -390,11 +525,95 @@ function ApprovalPanel({
           </div>
         </article>
       ))}
+      {pendingDecision ? (
+        <DecisionConfirmationDialog
+          pendingDecision={pendingDecision}
+          onCancel={() => setPendingDecision(undefined)}
+          onConfirm={() => {
+            setPendingDecision(undefined);
+            onDecision(pendingDecision.approval.approvalId, pendingDecision.option.decision);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
 
+function DecisionConfirmationDialog({
+  pendingDecision,
+  onCancel,
+  onConfirm
+}: {
+  pendingDecision: PendingApprovalDecision;
+  onCancel(): void;
+  onConfirm(): void;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    dialogRef.current?.querySelector<HTMLButtonElement>("[data-autofocus]")?.focus();
+  }, []);
+
+  return (
+    <div className="modalBackdrop" role="presentation" onMouseDown={onCancel}>
+      <section
+        ref={dialogRef}
+        className="confirmationDialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="decision-confirmation-title"
+        onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => handleDialogKeyDown(event, dialogRef.current, onCancel)}
+      >
+        <div>
+          <span className="stateBadge waiting">{pendingDecision.approval.risk} risk</span>
+          <h2 id="decision-confirmation-title">Confirm approval decision</h2>
+          <p>
+            {pendingDecision.option.label} for {pendingDecision.approval.title}. This decision will be stored before the
+            provider receives a response.
+          </p>
+        </div>
+        <dl className="approvalMeta">
+          <div>
+            <dt>Project</dt>
+            <dd>{pendingDecision.approval.projectTitle}</dd>
+          </div>
+          <div>
+            <dt>Provider</dt>
+            <dd>{pendingDecision.approval.providerLabel}</dd>
+          </div>
+          <div>
+            <dt>Kind</dt>
+            <dd>{pendingDecision.approval.kind.replace("_", " ")}</dd>
+          </div>
+        </dl>
+        <div className="actionRow">
+          <button type="button" onClick={onCancel}>
+            Keep pending
+          </button>
+          <button type="button" data-autofocus data-method="agents.respondToApproval" onClick={onConfirm}>
+            Confirm decision
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function ProviderGrid({ providers }: { providers: ProviderStatusViewModel[] }) {
+  if (providers.length === 0) {
+    return (
+      <section className="emptyPanel" aria-label="Provider status">
+        <SlidersHorizontal size={26} aria-hidden="true" />
+        <h2>No providers configured</h2>
+        <p>The fake provider remains available for development and test workflows without requiring a real runtime provider.</p>
+        <button type="button" data-method="providers.list">
+          Configure provider
+        </button>
+      </section>
+    );
+  }
+
   return (
     <section className="cardGrid" aria-label="Provider status">
       {providers.map((provider) => (
@@ -410,7 +629,9 @@ function ProviderGrid({ providers }: { providers: ProviderStatusViewModel[] }) {
             {provider.availability.status}
           </span>
           <p>Capabilities determine which session, turn, approval, and interrupt actions are available.</p>
-          <button type="button">Check availability</button>
+          <button type="button" data-method="providers.checkAvailability">
+            Check availability
+          </button>
         </article>
       ))}
     </section>
@@ -507,6 +728,39 @@ function matchesFilter(value: string | undefined, filter: string): boolean {
   return filter === "all" || value === filter;
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName);
+}
+
+function handleDialogKeyDown(event: ReactKeyboardEvent<HTMLElement>, container: HTMLElement | null, onClose: () => void) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    onClose();
+    return;
+  }
+  if (event.key !== "Tab" || !container) return;
+  const focusable = Array.from(
+    container.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+  ).filter((element) => !element.hasAttribute("disabled") && element.offsetParent !== null);
+  if (focusable.length === 0) {
+    event.preventDefault();
+    container.focus();
+    return;
+  }
+  const first = focusable[0]!;
+  const last = focusable[focusable.length - 1]!;
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 type CommandItem = {
   id: string;
   label: string;
@@ -524,6 +778,7 @@ function CommandPalette({
   onClose(): void;
   onRoute(route: Route): void;
 }) {
+  const dialogRef = useRef<HTMLElement>(null);
   const [query, setQuery] = useState("");
   const commands: CommandItem[] = [
     { id: "register-project", label: "Register project", method: "projects.register", route: "Projects" },
@@ -552,11 +807,13 @@ function CommandPalette({
   return (
     <div className="modalBackdrop" role="presentation" onMouseDown={onClose}>
       <section
+        ref={dialogRef}
         className="commandPalette"
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
         onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => handleDialogKeyDown(event, dialogRef.current, onClose)}
       >
         <div className="commandSearch">
           <Command size={18} aria-hidden="true" />
@@ -598,7 +855,9 @@ function CheckRunPanel() {
       <div>
         <h2>Failed check triage</h2>
         <p>Failed output is linked to changed files and source turns.</p>
-        <button type="button">Rerun failed checks</button>
+        <button type="button" data-method="checks.run">
+          Rerun failed checks
+        </button>
       </div>
       <pre tabIndex={0}>src/example.ts: expected value to pass</pre>
     </section>
@@ -615,8 +874,12 @@ function FailureTriage() {
         </div>
         <p>One required check failed after file changes. Review the output before asking the agent to continue.</p>
         <div className="actionRow">
-          <button type="button">Rerun failed checks</button>
-          <button type="button">Send instruction</button>
+          <button type="button" data-method="checks.run">
+            Rerun failed checks
+          </button>
+          <button type="button" data-method="agents.sendTurn">
+            Send instruction
+          </button>
         </div>
       </div>
       <pre tabIndex={0}>Changed file: src/example.ts{"\n"}Output: expected fake assertion to pass</pre>
@@ -709,6 +972,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
           providerLabel: "Fake provider",
           kind: "command",
           risk: "high",
+          riskSignals: ["runs_package_script"],
           title: "Run project command",
           summary: "The agent requests permission to run a required project check.",
           requestedAt: now,

@@ -22,7 +22,8 @@ import type {
   ProviderAvailability,
   ProviderCapabilities,
   ProviderId,
-  RiskLevel
+  RiskLevel,
+  RiskSignal
 } from "../core";
 
 export type ProviderSnapshot = {
@@ -91,6 +92,7 @@ export type ApprovalCardViewModel = {
   providerLabel: string;
   kind: ApprovalKind;
   risk: RiskLevel;
+  riskSignals: RiskSignal[];
   title: string;
   summary: string;
   requestedAt: string;

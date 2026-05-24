@@ -29,3 +29,4 @@
 - Added durable project discovery metadata for package manager, scripts, metadata files, worktree refs, and refreshed check definitions.
 - Added a local runtime host for SQLite startup, provider availability checks, local server launch, restart restore, and coordinated shutdown.
 - Added a provider-neutral command palette with global search shortcut and API-method command mappings.
+- Hardened provider-neutral UI interactions with risky approval confirmation, approval/project keyboard navigation, modal focus trapping, and action method mappings.

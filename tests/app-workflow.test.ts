@@ -1,8 +1,11 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { providerId } from "../src/core";
+import { agentTurnId, approvalRequestId, providerId, type ApprovalRequest, type DomainEvent, type ProviderCapabilities } from "../src/core";
 import { createPraxisApp } from "../src/composition/createPraxisApp";
+import { createDomainEvent } from "../src/events/eventFactory";
+import { fakeProviderCapabilities } from "../src/providers/fake/FakeProviderAdapter";
+import type { ProviderAdapter } from "../src/providers/interface";
 import { createTempProject } from "./helpers/tempProject";
 
 describe("provider-neutral application workflow", () => {
@@ -76,6 +79,30 @@ describe("provider-neutral application workflow", () => {
     await expect(app.replay()).resolves.toEqual(app.snapshot());
     expect(app.snapshot().approvals.pending).toHaveLength(0);
     expect(app.snapshot().approvals.history[0]?.status).toBe("accepted");
+  });
+
+  it("hides session-scoped approval decisions when provider capabilities do not allow them", async () => {
+    const limitedProvider = sessionApprovalLimitedProvider();
+    const app = await createPraxisApp({ providerAdapters: [limitedProvider], fakeScenario: "happy_path" });
+    const rootPath = await createTempProject({ git: true });
+    const project = await app.projects.registerProject({ rootPath });
+    const sessionId = await app.providers.startSession({
+      providerId: limitedProvider.id,
+      projectId: project.id,
+      cwd: rootPath,
+      goal: "Request approval"
+    });
+
+    await app.providers.sendTurn({
+      providerId: limitedProvider.id,
+      projectId: project.id,
+      sessionId,
+      instruction: "Run a project command"
+    });
+
+    const approval = app.snapshot().dashboard.approvals[0];
+    expect(approval?.decisionOptions.map((option) => option.decision)).toEqual(["accept_once", "decline", "cancel"]);
+    expect(approval?.riskSignals).toEqual(["runs_package_script"]);
   });
 
   it("applies fake file changes and makes the project reviewable when checks are not required", async () => {
@@ -200,3 +227,93 @@ describe("provider-neutral application workflow", () => {
     expect(app.snapshot().dashboard.mode).toBe("failure_triage");
   });
 });
+
+function sessionApprovalLimitedProvider(): ProviderAdapter {
+  const id = providerId("session-approval-limited");
+  const capabilities: ProviderCapabilities = {
+    ...fakeProviderCapabilities,
+    supportsPermissionProfiles: false
+  };
+  const events: DomainEvent[] = [];
+
+  return {
+    id,
+    kind: "contract-test",
+    displayName: "Session approval limited provider",
+    adapterVersion: "0.1.0",
+    async getCapabilities() {
+      return capabilities;
+    },
+    async checkAvailability() {
+      return { status: "available", version: "0.1.0" };
+    },
+    async startSession(input) {
+      const sessionId = input.sessionId!;
+      const event = createDomainEvent({
+        type: "agent.session.started",
+        projectId: input.projectId,
+        sessionId,
+        providerId: id,
+        source: "provider",
+        payload: { cwd: input.cwd, goal: input.goal },
+        evidence: [{ type: "provider", providerId: id }]
+      });
+      events.push(event);
+      return { sessionId, events: [event] };
+    },
+    async stopSession() {
+      return undefined;
+    },
+    async sendTurn(input) {
+      const turnId = input.turnId ?? agentTurnId();
+      const approvalId = approvalRequestId();
+      const now = new Date().toISOString();
+      const approval: ApprovalRequest = {
+        id: approvalId,
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        turnId,
+        providerId: id,
+        kind: "command",
+        risk: "medium",
+        riskSignals: ["runs_package_script"],
+        title: "Run project command",
+        description: "The agent requests permission to run a project command.",
+        requestedAction: { command: ["npm", "test"] },
+        status: "pending",
+        createdAt: now,
+        evidence: [{ type: "approval", approvalId }]
+      };
+      const turnStarted = createDomainEvent({
+        type: "agent.turn.started",
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        turnId,
+        providerId: id,
+        source: "provider",
+        payload: { input: input.input },
+        evidence: [{ type: "provider", providerId: id }]
+      });
+      const approvalRequested = createDomainEvent({
+        type: "approval.requested",
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        turnId,
+        providerId: id,
+        source: "provider",
+        payload: approval,
+        evidence: approval.evidence
+      });
+      events.push(turnStarted, approvalRequested);
+      return { turnId, events: [turnStarted, approvalRequested] };
+    },
+    async respondToApproval() {
+      return undefined;
+    },
+    async *watchEvents() {
+      for (const event of events) {
+        yield event;
+      }
+    }
+  };
+}

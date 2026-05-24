@@ -495,18 +495,25 @@ function approvalCards(snapshot: AppSnapshot): ApprovalCardViewModel[] {
   return snapshot.approvals.pending.map((approval) => {
     const project = snapshot.projects[approval.projectId];
     const provider = snapshot.providers[approval.providerId]?.provider;
+    const allowSessionApproval =
+      provider?.capabilities.supportsPermissionProfiles === true &&
+      approval.kind !== "permission_escalation" &&
+      approval.risk !== "critical";
     return {
       approvalId: approval.id,
       projectTitle: project?.project.name ?? "Project",
       providerLabel: provider?.displayName ?? "Provider",
       kind: approval.kind,
       risk: approval.risk,
+      riskSignals: approval.riskSignals,
       title: approval.title,
       summary: approval.description,
       requestedAt: approval.createdAt,
       decisionOptions: [
         { decision: "accept_once", label: "Accept once", requiresConfirmation: approval.risk === "critical" },
-        { decision: "accept_for_session", label: "Accept for session", requiresConfirmation: approval.risk !== "low" },
+        ...(allowSessionApproval
+          ? [{ decision: "accept_for_session" as const, label: "Accept for session", requiresConfirmation: approval.risk !== "low" }]
+          : []),
         { decision: "decline", label: "Decline", requiresConfirmation: false },
         { decision: "cancel", label: "Cancel", requiresConfirmation: false }
       ],

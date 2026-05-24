@@ -16,8 +16,38 @@ test("dashboard shell uses provider-neutral language and keyboard focus", async 
 test("approval center can be resolved with keyboard", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Accept once" }).focus();
+  await page.getByRole("button", { name: "Decline" }).focus();
   await page.keyboard.press("Enter");
+
+  await expect(page.getByRole("heading", { name: "Diff review" }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Accept once" })).toHaveCount(0);
+});
+
+test("risky approval decisions require confirmation and stay keyboard usable", async ({ page }) => {
+  await page.goto("/");
+
+  const acceptOnce = page.getByRole("button", { name: "Accept once" });
+  await expect(acceptOnce).toHaveAttribute("data-method", "agents.respondToApproval");
+  await acceptOnce.focus();
+  await page.keyboard.press("a");
+
+  const dialog = page.getByRole("dialog", { name: "Confirm approval decision" });
+  await expect(dialog).toBeVisible();
+  const confirm = page.getByRole("button", { name: "Confirm decision" });
+  await expect(confirm).toHaveAttribute("data-method", "agents.respondToApproval");
+  await expect(confirm).toBeFocused();
+
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Keep pending" })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(confirm).toBeFocused();
+  await page.keyboard.press("Escape");
+
+  await expect(dialog).toHaveCount(0);
+  await expect(acceptOnce).toBeVisible();
+  await acceptOnce.click();
+  await expect(dialog).toBeVisible();
+  await confirm.click();
 
   await expect(page.getByRole("heading", { name: "Diff review" }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Accept once" })).toHaveCount(0);
@@ -43,6 +73,21 @@ test("activity timeline filters by event type", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "approval.requested" })).toHaveCount(0);
 });
 
+test("project cards support keyboard navigation and provider-neutral action mappings", async ({ page }) => {
+  await page.goto("/");
+
+  const controlPlane = page.getByRole("button", { name: /Control Plane/ }).first();
+  const packageMetadata = page.getByRole("button", { name: /Package Metadata/ }).first();
+  await controlPlane.focus();
+  await expect(controlPlane).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("ArrowRight");
+
+  await expect(packageMetadata).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("complementary", { name: "Details" })).toContainText("Package Metadata");
+  await expect(page.getByRole("button", { name: "Rerun failed checks" }).first()).toHaveAttribute("data-method", "checks.run");
+  await expect(page.getByRole("button", { name: "Explain state" }).first()).toHaveAttribute("data-method", "dashboard.explainMode");
+});
+
 test("command palette opens from global search and runs provider-neutral commands", async ({ page }) => {
   await page.goto("/");
 
@@ -60,6 +105,9 @@ test("command palette opens from global search and runs provider-neutral command
 
   await page.keyboard.press("Control+K");
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.locator(":focus")).toHaveAttribute("data-method", "events.query");
+  await page.getByLabel("Search commands").focus();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
 });
