@@ -1,0 +1,43 @@
+{
+  "name": "praxis",
+  "version": "0.1.0",
+  "description": "Provider-neutral local control plane for coordinating agent work across software projects.",
+  "type": "module",
+  "private": false,
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "preview": "vite preview --host 127.0.0.1",
+    "server": "tsx src/server/index.ts",
+    "build": "tsc -p tsconfig.json && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:ui": "playwright test",
+    "check:bias": "vitest run tests/provider-neutrality.test.ts",
+    "check:leaks": "node scripts/public-surface-leak-check.mjs",
+    "package:verify": "npm pack --dry-run",
+    "verify": "npm run typecheck && npm run test && npm run test:ui && npm run build && npm run package:verify && npm run check:leaks"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "lucide-react": "^0.475.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8"
+  }
+}
