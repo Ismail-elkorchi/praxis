@@ -194,6 +194,16 @@ export class GenericProcessProviderAdapter implements ProviderAdapter {
           source: "provider",
           payload: { reason: "Provider process failed." },
           evidence: []
+        }),
+        createDomainEvent({
+          type: "agent.session.stale",
+          projectId: input.projectId,
+          sessionId: input.sessionId,
+          turnId,
+          providerId: this.id,
+          source: "provider",
+          payload: { reason: "Provider process failed." },
+          evidence: []
         })
       ];
       this.events.push(...failed);

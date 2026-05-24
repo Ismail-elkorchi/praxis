@@ -184,14 +184,19 @@ export class ProviderService {
   }): Promise<AgentTurnId> {
     const adapter = this.requireAdapter(input.providerId);
     const turnId = agentTurnId();
-    const result = await adapter.sendTurn({
-      sessionId: input.sessionId,
-      projectId: input.projectId,
-      turnId,
-      input: input.instruction
-    });
-    await this.recordProviderEvents(result.events);
-    return result.turnId ?? turnId;
+    try {
+      const result = await adapter.sendTurn({
+        sessionId: input.sessionId,
+        projectId: input.projectId,
+        turnId,
+        input: input.instruction
+      });
+      await this.recordProviderEvents(result.events);
+      return result.turnId ?? turnId;
+    } catch (error) {
+      await this.events.appendMany(providerTurnCrashEvents({ ...input, turnId, error }));
+      return turnId;
+    }
   }
 
   async resumeSession(input: { providerId: ProviderId; sessionId: AgentSessionId }): Promise<void> {
@@ -513,5 +518,59 @@ function ensureSessionStartedEvent(
       evidence: []
     }),
     ...events
+  ];
+}
+
+function providerTurnCrashEvents(input: {
+  providerId: ProviderId;
+  projectId: ProjectId;
+  sessionId: AgentSessionId;
+  turnId: AgentTurnId;
+  instruction: string;
+  error: unknown;
+}): DomainEvent[] {
+  const message = input.error instanceof Error ? input.error.message : "Provider failed while sending a turn.";
+  const payload = { reason: "Provider failed while sending a turn.", message };
+  return [
+    createDomainEvent({
+      type: "agent.turn.started",
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      providerId: input.providerId,
+      source: "system",
+      payload: { inputSummary: input.instruction },
+      evidence: [{ type: "provider", providerId: input.providerId }]
+    }),
+    createDomainEvent({
+      type: "provider.error",
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      providerId: input.providerId,
+      source: "provider",
+      payload,
+      evidence: [{ type: "provider", providerId: input.providerId }]
+    }),
+    createDomainEvent({
+      type: "agent.turn.failed",
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      providerId: input.providerId,
+      source: "system",
+      payload,
+      evidence: [{ type: "provider", providerId: input.providerId }]
+    }),
+    createDomainEvent({
+      type: "agent.session.stale",
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      providerId: input.providerId,
+      source: "system",
+      payload,
+      evidence: [{ type: "provider", providerId: input.providerId }]
+    })
   ];
 }

@@ -73,7 +73,9 @@ describe("GenericProcessProviderAdapter", () => {
     const events = await app.events.queryEvents({ providerId: providerId("generic-process-crash-test") });
     expect(events.some((event) => event.type === "provider.error")).toBe(true);
     expect(events.some((event) => event.type === "agent.turn.failed")).toBe(true);
-    expect(app.snapshot().projects[project.id]?.runtimeState).toBe("error");
+    expect(events.some((event) => event.type === "agent.session.stale")).toBe(true);
+    expect(app.snapshot().projects[project.id]?.sessions[sessionId]?.state).toBe("stale_or_disconnected");
+    expect(app.snapshot().projects[project.id]?.runtimeState).toBe("stale");
   });
 });
 

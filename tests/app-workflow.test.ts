@@ -141,6 +141,30 @@ describe("provider-neutral application workflow", () => {
     expect(app.snapshot().dashboard.mode).toBe("stale_sessions");
   });
 
+  it("normalizes thrown provider turn crashes into stale sessions", async () => {
+    const crashingProvider = throwingTurnProvider();
+    const app = await createPraxisApp({ providerAdapters: [crashingProvider] });
+    const rootPath = await createTempProject({ packageJson: false });
+    const project = await app.projects.registerProject({ rootPath });
+    const sessionId = await app.providers.startSession({ providerId: crashingProvider.id, projectId: project.id, cwd: rootPath });
+
+    const turnId = await app.providers.sendTurn({
+      providerId: crashingProvider.id,
+      projectId: project.id,
+      sessionId,
+      instruction: "Trigger provider crash"
+    });
+
+    const events = await app.events.queryEvents({ providerId: crashingProvider.id });
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining(["provider.error", "agent.turn.failed", "agent.session.stale"])
+    );
+    expect(app.snapshot().projects[project.id]?.turns[turnId]?.status).toBe("failed");
+    expect(app.snapshot().projects[project.id]?.sessions[sessionId]?.state).toBe("stale_or_disconnected");
+    expect(app.snapshot().projects[project.id]?.runtimeState).toBe("stale");
+    await expect(app.replay()).resolves.toEqual(app.snapshot());
+  });
+
   it("records user input before provider continuation events", async () => {
     const app = await createPraxisApp({ fakeScenario: "user_input_path" });
     const rootPath = await createTempProject();
@@ -317,6 +341,52 @@ function sessionApprovalLimitedProvider(): ProviderAdapter {
       });
       events.push(turnStarted, approvalRequested);
       return { turnId, events: [turnStarted, approvalRequested] };
+    },
+    async respondToApproval() {
+      return undefined;
+    },
+    async *watchEvents() {
+      for (const event of events) {
+        yield event;
+      }
+    }
+  };
+}
+
+function throwingTurnProvider(): ProviderAdapter {
+  const id = providerId("throwing-turn-provider");
+  const events: DomainEvent[] = [];
+
+  return {
+    id,
+    kind: "contract-test",
+    displayName: "Throwing turn provider",
+    adapterVersion: "0.1.0",
+    async getCapabilities() {
+      return fakeProviderCapabilities;
+    },
+    async checkAvailability() {
+      return { status: "available", version: "0.1.0" };
+    },
+    async startSession(input) {
+      const sessionId = input.sessionId!;
+      const event = createDomainEvent({
+        type: "agent.session.started",
+        projectId: input.projectId,
+        sessionId,
+        providerId: id,
+        source: "provider",
+        payload: { cwd: input.cwd, goal: input.goal },
+        evidence: [{ type: "provider", providerId: id }]
+      });
+      events.push(event);
+      return { sessionId, events: [event] };
+    },
+    async stopSession() {
+      return undefined;
+    },
+    async sendTurn() {
+      throw new Error("Provider process crashed before returning events.");
     },
     async respondToApproval() {
       return undefined;
