@@ -1,6 +1,7 @@
 import { createReadStream, existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse as HttpResponse } from "node:http";
+import { performance } from "node:perf_hooks";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import type { PraxisRuntime } from "../app/PraxisApp";
@@ -44,7 +45,13 @@ export function createLocalServer(options: LocalServerOptions) {
         const body = await readBody(request);
         const clientRequest = JSON.parse(body) as ClientRequest;
         const beforeSequence = await latestEventSequence();
+        const started = performance.now();
         const result = await api.handle(clientRequest);
+        options.app.observability.recordApiRequest({
+          method: clientRequest.method,
+          durationMs: performance.now() - started,
+          ok: !("error" in result)
+        });
         writeJson(response, "error" in result ? 400 : 200, result);
         if (!("error" in result)) {
           await broadcastPushes(clientRequest.method, beforeSequence);
@@ -71,7 +78,13 @@ export function createLocalServer(options: LocalServerOptions) {
     socket.on("message", async (message) => {
       const clientRequest = JSON.parse(String(message)) as ClientRequest;
       const beforeSequence = await latestEventSequence();
+      const started = performance.now();
       const result = await api.handle(clientRequest);
+      options.app.observability.recordApiRequest({
+        method: clientRequest.method,
+        durationMs: performance.now() - started,
+        ok: !("error" in result)
+      });
       socket.send(JSON.stringify(result));
       if (!("error" in result)) {
         await broadcastPushes(clientRequest.method, beforeSequence);

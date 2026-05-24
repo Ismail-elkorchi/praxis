@@ -325,7 +325,7 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
 function rebuildDerived(snapshot: AppSnapshot): AppSnapshot {
   for (const project of Object.values(snapshot.projects)) {
     project.runtimeState = deriveProjectRuntimeState(project);
-    project.propositions = deriveProjectPropositions(project);
+    project.propositions = deriveProjectPropositions(project, snapshot.events);
   }
 
   const approvals = Object.values(snapshot.projects).flatMap((project) => project.approvals);
@@ -377,9 +377,9 @@ function deriveProjectRuntimeState(project: ProjectSnapshot): ProjectRuntimeStat
   return "idle";
 }
 
-function deriveProjectPropositions(project: ProjectSnapshot): Proposition[] {
+function deriveProjectPropositions(project: ProjectSnapshot, events: DomainEvent[]): Proposition[] {
   const checkedAt = project.lastActivityAt ?? project.project.updatedAt;
-  const evidence = projectEvidence(project);
+  const evidence = projectEvidence(project, events);
   return [
     {
       id: `project:${project.project.id}:pending-approval`,
@@ -424,7 +424,7 @@ function buildDashboard(snapshot: AppSnapshot): DashboardProjection {
   const mode = selectDashboardMode(visibleProjects, snapshot.activeTurns.length);
   const propositions = [
     ...Object.values(snapshot.projects).flatMap((project) => project.propositions),
-    dashboardModeProposition(mode, snapshot)
+    dashboardModeProposition(mode, projectCards)
   ];
   return {
     mode,
@@ -557,13 +557,13 @@ function globalStatus(snapshot: AppSnapshot): GlobalStatusViewModel {
   };
 }
 
-function dashboardModeProposition(mode: DashboardMode, snapshot: AppSnapshot): Proposition {
+function dashboardModeProposition(mode: DashboardMode, projectCards: ProjectCardViewModel[]): Proposition {
   return {
     id: `dashboard:mode:${mode}`,
     subject: "dashboard",
     predicate: "selected_mode",
     value: "true",
-    evidence: snapshot.dashboard?.projectCards?.flatMap((card) => card.evidence) ?? [],
+    evidence: projectCards.flatMap((card) => card.evidence),
     checkedAt: new Date(0).toISOString()
   };
 }
@@ -664,8 +664,11 @@ function isUnsafeRisk(risk: ApprovalRequest["risk"]): boolean {
   return risk === "critical" || risk === "unknown";
 }
 
-function projectEvidence(project: ProjectSnapshot): EvidenceRef[] {
-  const eventEvidence = project.propositions.flatMap((proposition) => proposition.evidence);
+function projectEvidence(project: ProjectSnapshot, events: DomainEvent[] = []): EvidenceRef[] {
+  const eventEvidence = events
+    .filter((event) => event.projectId === project.project.id)
+    .slice(-8)
+    .map((event) => ({ type: "event" as const, eventId: event.id }));
   const approvalEvidence = project.approvals.flatMap((approval) => approval.evidence);
   const fileEvidence = project.fileChanges.flatMap((change) => change.evidence);
   const checkEvidence = project.checkRuns.map((run) => ({ type: "check" as const, runId: run.id, status: run.status }));

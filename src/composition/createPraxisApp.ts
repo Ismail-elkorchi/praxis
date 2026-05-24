@@ -2,6 +2,7 @@ import { CheckService } from "../checks/CheckService";
 import { GitService } from "../git/GitService";
 import { AppEventLog } from "../events/AppEventLog";
 import { InMemoryEventStore, type EventStore } from "../events/EventStore";
+import { ObservabilityService } from "../observability/ObservabilityService";
 import { PolicyService } from "../policies/PolicyService";
 import { PluginRegistry } from "../plugins/PluginRegistry";
 import { SettingsService, type SettingsRepository } from "../settings/SettingsService";
@@ -35,6 +36,7 @@ export async function createPraxisApp(
   const policies = new PolicyService();
   const plugins = new PluginRegistry(events);
   const settings = new SettingsService(isSettingsRepository(eventStore) ? eventStore : undefined);
+  const observability = new ObservabilityService(events, settings, policies, () => events.snapshot());
 
   await providers.registerAvailableProviders();
 
@@ -48,6 +50,7 @@ export async function createPraxisApp(
     git,
     checks,
     policies,
+    observability,
     plugins,
     settings,
     snapshot: () => events.snapshot(),

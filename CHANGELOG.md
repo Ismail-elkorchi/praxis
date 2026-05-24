@@ -21,3 +21,4 @@
 - Added provider-neutral project settings for default provider, default checks, worktree mode, auto-refresh, and dashboard visibility, with restart restore coverage.
 - Added a fake-provider user-input workflow, waiting-for-user-input projection, and ordered user-input response persistence before provider continuation.
 - Derived local WebSocket push channels from newly appended domain events so approval, provider, check, git, project, and agent updates reach subscribed clients consistently.
+- Added provider-neutral observability diagnostics for provider logs, event logs, projection/proposition/safety inspectors, replay health, redaction, and runtime timing metrics.
