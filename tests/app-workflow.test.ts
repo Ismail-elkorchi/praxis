@@ -111,6 +111,29 @@ describe("provider-neutral application workflow", () => {
     expect(app.snapshot().dashboard.mode).toBe("stale_sessions");
   });
 
+  it("records user input before provider continuation events", async () => {
+    const app = await createPraxisApp({ fakeScenario: "user_input_path" });
+    const rootPath = await createTempProject();
+    const project = await app.projects.registerProject({ rootPath });
+    const sessionId = await app.providers.startSession({ providerId: providerId("fake"), projectId: project.id, cwd: rootPath });
+    const turnId = await app.providers.sendTurn({ providerId: providerId("fake"), projectId: project.id, sessionId, instruction: "Ask" });
+
+    expect(app.snapshot().projects[project.id]?.sessions[sessionId]?.state).toBe("waiting_for_user_input");
+    expect(app.snapshot().projects[project.id]?.runtimeState).toBe("waiting_for_user_input");
+    expect((await app.events.queryEvents()).map((event) => event.type)).toContain("agent.userInput.requested");
+
+    await app.providers.respondToUserInput({ providerId: providerId("fake"), sessionId, turnId, input: "Use the durable path." });
+
+    const events = await app.events.queryEvents();
+    const responseIndex = events.findIndex((event) => event.type === "agent.userInput.responded");
+    const completionIndex = events.findIndex((event) => event.type === "agent.turn.completed");
+    expect(responseIndex).toBeGreaterThan(-1);
+    expect(completionIndex).toBeGreaterThan(responseIndex);
+    expect(app.snapshot().projects[project.id]?.sessions[sessionId]?.state).toBe("idle");
+    expect(app.snapshot().projects[project.id]?.turns[turnId]?.status).toBe("completed");
+    await expect(app.replay()).resolves.toEqual(app.snapshot());
+  });
+
   it("projects command run failures from provider events", async () => {
     const app = await createPraxisApp({ fakeScenario: "failure_path" });
     const rootPath = await createTempProject();

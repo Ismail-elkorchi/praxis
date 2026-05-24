@@ -19,3 +19,4 @@
 - Projected provider command-run events into first-class project state with replay coverage.
 - Added provider-neutral Activity timeline filters for project, provider, session, and event type.
 - Added provider-neutral project settings for default provider, default checks, worktree mode, auto-refresh, and dashboard visibility, with restart restore coverage.
+- Added a fake-provider user-input workflow, waiting-for-user-input projection, and ordered user-input response persistence before provider continuation.

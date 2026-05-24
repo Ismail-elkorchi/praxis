@@ -228,6 +228,24 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
       }
       break;
     }
+    case "agent.userInput.requested": {
+      const project = touchProject(next, event);
+      const session = project && event.sessionId ? project.sessions[event.sessionId] : undefined;
+      if (session) {
+        session.state = "waiting_for_user_input";
+        session.updatedAt = event.timestamp;
+      }
+      break;
+    }
+    case "agent.userInput.responded": {
+      const project = touchProject(next, event);
+      const session = project && event.sessionId ? project.sessions[event.sessionId] : undefined;
+      if (session) {
+        session.state = "active";
+        session.updatedAt = event.timestamp;
+      }
+      break;
+    }
     case "approval.requested": {
       const project = touchProject(next, event);
       const approval = event.payload as ApprovalRequest;
@@ -337,6 +355,9 @@ function deriveProjectRuntimeState(project: ProjectSnapshot): ProjectRuntimeStat
   }
   if (project.approvals.some((approval) => approval.status === "pending")) {
     return "waiting_for_approval";
+  }
+  if (Object.values(project.sessions).some((session) => session.state === "waiting_for_user_input")) {
+    return "waiting_for_user_input";
   }
   if (project.checkRuns.some((run) => run.status === "failed" && isRequiredCheck(project, run))) {
     return "checks_failed";
@@ -693,7 +714,7 @@ function secondaryActions(project: ProjectSnapshot): DashboardAction[] {
 
 function urgency(state: ProjectRuntimeState): 0 | 1 | 2 | 3 | 4 | 5 {
   if (state === "unsafe_mode") return 5;
-  if (state === "waiting_for_approval" || state === "blocked") return 4;
+  if (state === "waiting_for_approval" || state === "waiting_for_user_input" || state === "blocked") return 4;
   if (state === "checks_failed" || state === "stale") return 3;
   if (state === "agent_running" || state === "dirty_worktree" || state === "ready_for_review") return 2;
   if (state === "agent_ready") return 1;
@@ -709,6 +730,7 @@ function stateLabel(state: ProjectRuntimeState): string {
 
 function stateReason(project: ProjectSnapshot, changedFiles: number, approvals: number, failedChecks: number): string {
   if (project.runtimeState === "waiting_for_approval") return `${approvals} approval request needs a decision.`;
+  if (project.runtimeState === "waiting_for_user_input") return "A session is waiting for user input.";
   if (project.runtimeState === "checks_failed") return `${failedChecks} required check failed.`;
   if (project.runtimeState === "ready_for_review") return `${changedFiles} changed file(s) are ready for review.`;
   if (project.runtimeState === "stale") return "A session is stale or disconnected.";
@@ -720,7 +742,7 @@ function stateReason(project: ProjectSnapshot, changedFiles: number, approvals: 
 
 function badgeTone(state: ProjectRuntimeState): DashboardBadge["tone"] {
   if (state === "unsafe_mode") return "unsafe";
-  if (state === "waiting_for_approval") return "waiting";
+  if (state === "waiting_for_approval" || state === "waiting_for_user_input") return "waiting";
   if (state === "checks_failed") return "failed";
   if (state === "blocked") return "blocked";
   if (state === "stale") return "stale";
@@ -732,6 +754,7 @@ function badgeTone(state: ProjectRuntimeState): DashboardBadge["tone"] {
 function timelineKind(type: string): TimelineItemViewModel["kind"] {
   if (type.startsWith("agent.turn")) return "turn";
   if (type.startsWith("agent.command")) return "command";
+  if (type.startsWith("agent.userInput")) return "message";
   if (type.startsWith("agent.fileChange")) return "file_change";
   if (type.startsWith("approval")) return "approval";
   if (type.startsWith("check")) return "check";

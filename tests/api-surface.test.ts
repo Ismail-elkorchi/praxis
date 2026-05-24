@@ -174,6 +174,24 @@ describe("provider-neutral API surface", () => {
     ).resolves.toMatchObject({ id: "read", result: expect.objectContaining({ session: expect.objectContaining({ id: sessionId }) }) });
   });
 
+  it("responds to pending user input through the API when the provider supports it", async () => {
+    const app = await createPraxisApp({ fakeScenario: "user_input_path" });
+    const api = new PraxisApi(app);
+    const rootPath = await createTempProject({ packageJson: false });
+    const project = await app.projects.registerProject({ rootPath });
+    const sessionId = await app.providers.startSession({ providerId: providerId("fake"), projectId: project.id, cwd: rootPath });
+    const turnId = await app.providers.sendTurn({ providerId: providerId("fake"), projectId: project.id, sessionId, instruction: "Ask" });
+
+    await expect(
+      api.handle({
+        id: "input",
+        method: "agents.respondToUserInput",
+        params: { providerId: providerId("fake"), sessionId, turnId, input: "Continue with the smallest durable design." }
+      })
+    ).resolves.toMatchObject({ id: "input", result: undefined });
+    expect(app.snapshot().projects[project.id]?.sessions[sessionId]?.state).toBe("idle");
+  });
+
   it("returns targeted provider status and emits availability events", async () => {
     const app = await createPraxisApp();
     const api = new PraxisApi(app);

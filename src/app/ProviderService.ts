@@ -322,8 +322,50 @@ export class ProviderService {
     if (!adapter.respondToUserInput) {
       throw capabilityError("Provider does not support user input responses.", { providerId: input.providerId });
     }
-    await adapter.respondToUserInput(input);
-    await this.ingestProviderEvents(adapter, input.sessionId);
+    const session = findSession(this.getSnapshot(), input.sessionId);
+    if (!session) {
+      throw notFoundError("Session was not found.", { sessionId: input.sessionId });
+    }
+    if (session.state !== "waiting_for_user_input") {
+      throw new PraxisError("user_input_not_pending", "Session is not waiting for user input.", { sessionId: input.sessionId });
+    }
+
+    const turnId = input.turnId ?? session.activeTurnId;
+    const responseEvent = await this.events.append(
+      createDomainEvent({
+        type: "agent.userInput.responded",
+        projectId: session.projectId,
+        sessionId: input.sessionId,
+        turnId,
+        providerId: input.providerId,
+        source: "user",
+        payload: {
+          inputSummary: summarizeUserInput(input.input),
+          respondedAt: new Date().toISOString()
+        },
+        evidence: [{ type: "user", commandId: `user-input:${input.sessionId}` }]
+      })
+    );
+
+    try {
+      await adapter.respondToUserInput({ ...input, turnId });
+      await this.ingestProviderEvents(adapter, input.sessionId);
+    } catch (error) {
+      await this.events.append(
+        createDomainEvent({
+          type: "provider.error",
+          projectId: session.projectId,
+          sessionId: input.sessionId,
+          turnId,
+          providerId: input.providerId,
+          source: "provider",
+          causationId: responseEvent.id,
+          payload: { message: error instanceof Error ? error.message : "Provider failed to receive user input." },
+          evidence: [{ type: "event", eventId: responseEvent.id }]
+        })
+      );
+      throw error;
+    }
   }
 
   async readSession(input: { providerId: ProviderId; sessionId: AgentSessionId }): Promise<unknown> {
@@ -431,6 +473,10 @@ function findSession(snapshot: AppSnapshot, sessionId: AgentSessionId): AgentSes
   return Object.values(snapshot.projects)
     .flatMap((project) => Object.values(project.sessions))
     .find((session) => session.id === sessionId);
+}
+
+function summarizeUserInput(input: string): string {
+  return input.length > 160 ? `${input.slice(0, 157)}...` : input;
 }
 
 function approvalEventType(decision: ApprovalDecision): "approval.accepted" | "approval.declined" | "approval.cancelled" {

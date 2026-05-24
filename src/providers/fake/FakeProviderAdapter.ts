@@ -29,6 +29,7 @@ import type {
   StartSessionInput,
   StartSessionResult,
   StopSessionInput,
+  UserInputDecisionInput,
   WatchProviderEventsInput
 } from "../interface";
 import { fakeProviderScenarios, type FakeProviderScenarioName } from "./FakeProviderScenarios";
@@ -69,13 +70,17 @@ export class FakeProviderAdapter implements ProviderAdapter {
   private activeProjectId?: ProjectId;
   private activeTurnId?: AgentTurnId;
   private pendingApproval?: ApprovalRequest;
+  private pendingUserInput?: { projectId: ProjectId; sessionId: AgentSessionId; turnId: AgentTurnId };
+  respondToUserInput?: (input: UserInputDecisionInput) => Promise<void>;
 
   constructor(input: { scenario?: FakeProviderScenarioName } = {}) {
     this.scenario = input.scenario ?? "happy_path";
+    this.configureOptionalMethods();
   }
 
   setScenario(scenario: FakeProviderScenarioName): void {
     this.scenario = scenario;
+    this.configureOptionalMethods();
   }
 
   setCapabilities(capabilities: Partial<ProviderCapabilities>): void {
@@ -207,6 +212,38 @@ export class FakeProviderAdapter implements ProviderAdapter {
         evidence: []
       })
     );
+  }
+
+  private configureOptionalMethods(): void {
+    this.respondToUserInput =
+      this.scenario === "user_input_path" ? (input: UserInputDecisionInput) => this.handleUserInput(input) : undefined;
+  }
+
+  private async handleUserInput(input: UserInputDecisionInput): Promise<void> {
+    if (!this.pendingUserInput || input.sessionId !== this.pendingUserInput.sessionId) return;
+    this.events.push(
+      createDomainEvent({
+        type: "agent.turn.delta",
+        projectId: this.pendingUserInput.projectId,
+        sessionId: input.sessionId,
+        turnId: input.turnId ?? this.pendingUserInput.turnId,
+        providerId: this.id,
+        source: "provider",
+        payload: { text: `Received user input: ${input.input}` },
+        evidence: []
+      }),
+      createDomainEvent({
+        type: "agent.turn.completed",
+        projectId: this.pendingUserInput.projectId,
+        sessionId: input.sessionId,
+        turnId: input.turnId ?? this.pendingUserInput.turnId,
+        providerId: this.id,
+        source: "provider",
+        payload: { result: "User input received." },
+        evidence: []
+      })
+    );
+    this.pendingUserInput = undefined;
   }
 
   async *watchEvents(_input: WatchProviderEventsInput): AsyncIterable<DomainEvent> {
@@ -368,6 +405,26 @@ export class FakeProviderAdapter implements ProviderAdapter {
           providerId: this.id,
           source: "provider",
           payload: { reason: "Command failed." },
+          evidence: []
+        })
+      ];
+    }
+
+    if (this.scenario === "user_input_path") {
+      this.pendingUserInput = { projectId, sessionId, turnId };
+      return [
+        started,
+        createDomainEvent({
+          type: "agent.userInput.requested",
+          projectId,
+          sessionId,
+          turnId,
+          providerId: this.id,
+          source: "provider",
+          payload: {
+            title: "Clarify task",
+            prompt: "Which implementation detail should the agent use?"
+          },
           evidence: []
         })
       ];
