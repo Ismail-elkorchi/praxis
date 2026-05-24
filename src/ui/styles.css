@@ -52,6 +52,14 @@ button:disabled {
   background: #eef1f2;
 }
 
+.iconButton {
+  width: 2.25rem;
+  height: 2.25rem;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+}
+
 .appShell {
   min-height: 100vh;
   display: grid;
@@ -458,6 +466,75 @@ pre {
   display: flex;
   gap: 0.55rem;
   align-items: center;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: start center;
+  padding: min(12vh, 5rem) 1rem 1rem;
+  background: rgba(23, 32, 42, 0.36);
+}
+
+.commandPalette {
+  width: min(680px, 100%);
+  max-height: min(720px, calc(100vh - 2rem));
+  overflow: hidden;
+  border: 1px solid #9dadb6;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 48px rgba(23, 32, 42, 0.22);
+}
+
+.commandSearch {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 36px;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.75rem;
+  border-bottom: 1px solid #d7e0e4;
+}
+
+.commandSearch input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  color: #17202a;
+  font-size: 1rem;
+}
+
+.commandSearch input:focus {
+  outline: 0;
+}
+
+.commandList {
+  display: grid;
+  max-height: min(560px, calc(100vh - 12rem));
+  overflow: auto;
+  padding: 0.5rem;
+}
+
+.commandList button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 0.75rem;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.commandList button:hover,
+.commandList button:focus-visible {
+  background: #e7f0f8;
+}
+
+.commandList small {
+  color: #64737b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
 }
 
 @media (max-width: 1100px) {

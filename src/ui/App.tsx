@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardCheck,
+  Command,
   FileDiff,
   GitBranch,
   KeyRound,
@@ -14,7 +15,9 @@ import {
   Settings,
   ShieldAlert,
   ShieldCheck,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Search,
+  X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ApprovalDecision } from "../core";
@@ -34,6 +37,7 @@ export function App() {
   const [route, setRoute] = useState<Route>("Dashboard");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("project-alpha");
   const [resolvedApprovalIds, setResolvedApprovalIds] = useState<string[]>([]);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [liveDashboard, setLiveDashboard] = useState<DashboardProjection | undefined>();
   const [apiStatus, setApiStatus] = useState<ApiStatus>("connecting");
   const fallbackDashboard = useMemo(() => demoDashboard(resolvedApprovalIds), [resolvedApprovalIds]);
@@ -64,6 +68,20 @@ export function App() {
     });
   }, [apiStatus, selectedProjectId]);
 
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandPaletteOpen(true);
+      }
+      if (event.key === "Escape") {
+        setCommandPaletteOpen(false);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   async function decideApproval(approvalId: string, decision: ApprovalDecision) {
     const approval = dashboard.approvals.find((item) => item.approvalId === approvalId);
     const provider = dashboard.providerStatus[0];
@@ -82,7 +100,7 @@ export function App() {
     <main className={`appShell mode-${dashboard.mode}`}>
       <LeftNav route={route} dashboard={dashboard} onRoute={setRoute} />
       <section className="mainPanel" id="dashboard" aria-label={`${route} workspace`}>
-        <TopBar dashboard={dashboard} apiStatus={apiStatus} />
+        <TopBar dashboard={dashboard} apiStatus={apiStatus} onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
         {route === "Dashboard" && (
           <DashboardView
             dashboard={dashboard}
@@ -101,6 +119,16 @@ export function App() {
         {route === "Settings" && <SettingsPanel />}
       </section>
       <DetailPanel dashboard={dashboard} selectedProject={selectedProject} />
+      {commandPaletteOpen ? (
+        <CommandPalette
+          dashboard={dashboard}
+          onClose={() => setCommandPaletteOpen(false)}
+          onRoute={(nextRoute) => {
+            setRoute(nextRoute);
+            setCommandPaletteOpen(false);
+          }}
+        />
+      ) : null}
     </main>
   );
 }
@@ -147,7 +175,15 @@ function LeftNav({
   );
 }
 
-function TopBar({ dashboard, apiStatus }: { dashboard: DashboardProjection; apiStatus: ApiStatus }) {
+function TopBar({
+  dashboard,
+  apiStatus,
+  onOpenCommandPalette
+}: {
+  dashboard: DashboardProjection;
+  apiStatus: ApiStatus;
+  onOpenCommandPalette(): void;
+}) {
   return (
     <header className="topBar">
       <div>
@@ -155,6 +191,9 @@ function TopBar({ dashboard, apiStatus }: { dashboard: DashboardProjection; apiS
         <h1>{modeTitle(dashboard.mode)}</h1>
       </div>
       <div className="statusRail" aria-label="Global status">
+        <button type="button" className="iconButton" aria-label="Open command palette" onClick={onOpenCommandPalette}>
+          <Search size={16} aria-hidden="true" />
+        </button>
         <span>
           <Activity size={16} /> {apiStatus === "live" ? "live runtime" : apiStatus === "fallback" ? "fallback state" : "connecting"}
         </span>
@@ -466,6 +505,91 @@ function optionsFor(values: Array<string | undefined>): string[] {
 
 function matchesFilter(value: string | undefined, filter: string): boolean {
   return filter === "all" || value === filter;
+}
+
+type CommandItem = {
+  id: string;
+  label: string;
+  method: string;
+  route: Route;
+  disabled?: boolean;
+};
+
+function CommandPalette({
+  dashboard,
+  onClose,
+  onRoute
+}: {
+  dashboard: DashboardProjection;
+  onClose(): void;
+  onRoute(route: Route): void;
+}) {
+  const [query, setQuery] = useState("");
+  const commands: CommandItem[] = [
+    { id: "register-project", label: "Register project", method: "projects.register", route: "Projects" },
+    {
+      id: "start-agent-task",
+      label: "Start agent task",
+      method: "agents.startSession",
+      route: "Dashboard",
+      disabled: dashboard.providerStatus.every((provider) => !provider.capabilities.canStartSession)
+    },
+    { id: "open-approvals", label: "Open approvals", method: "agents.respondToApproval", route: "Approvals" },
+    { id: "run-checks", label: "Run checks", method: "checks.run", route: "Checks" },
+    { id: "open-diff-review", label: "Open diff review", method: "git.openDiff", route: "Dashboard" },
+    { id: "explain-dashboard-mode", label: "Explain dashboard mode", method: "dashboard.explainMode", route: "Dashboard" },
+    { id: "show-provider-status", label: "Show provider status", method: "providers.getStatus", route: "Providers" },
+    { id: "open-event-log", label: "Open event log", method: "events.query", route: "Activity" }
+  ];
+  const normalizedQuery = query.trim().toLowerCase();
+  const filtered = commands.filter(
+    (command) =>
+      normalizedQuery.length === 0 ||
+      command.label.toLowerCase().includes(normalizedQuery) ||
+      command.method.toLowerCase().includes(normalizedQuery)
+  );
+
+  return (
+    <div className="modalBackdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="commandPalette"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="commandSearch">
+          <Command size={18} aria-hidden="true" />
+          <input
+            autoFocus
+            aria-label="Search commands"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search commands"
+          />
+          <button type="button" className="iconButton" aria-label="Close command palette" onClick={onClose}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="commandList" role="listbox" aria-label="Commands">
+          {filtered.map((command) => (
+            <button
+              key={command.id}
+              type="button"
+              role="option"
+              data-method={command.method}
+              disabled={command.disabled}
+              onClick={() => onRoute(command.route)}
+            >
+              <span>{command.label}</span>
+              <small>{command.method}</small>
+            </button>
+          ))}
+          {filtered.length === 0 ? <p className="emptyText">No commands match the search.</p> : null}
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function CheckRunPanel() {

@@ -42,3 +42,24 @@ test("activity timeline filters by event type", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "agent.turn.started" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "approval.requested" })).toHaveCount(0);
 });
+
+test("command palette opens from global search and runs provider-neutral commands", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("button", { name: "Open command palette" })).toBeVisible();
+  await page.keyboard.press("Control+K");
+  await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+  await page.getByLabel("Search commands").fill("provider");
+
+  const providerCommand = page.getByRole("option", { name: /Show provider status/ });
+  await expect(providerCommand).toHaveAttribute("data-method", "providers.getStatus");
+  await providerCommand.click();
+
+  await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Providers" })).toHaveAttribute("aria-current", "page");
+
+  await page.keyboard.press("Control+K");
+  await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
+});
