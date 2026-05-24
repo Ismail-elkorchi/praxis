@@ -1,14 +1,23 @@
 import path from "node:path";
-import { createPraxisApp } from "../composition/createPraxisApp";
-import { SqliteEventStore } from "../events/SqliteEventStore";
 import { defaultAppSettings } from "../settings/SettingsService";
-import { createLocalServer } from "./createLocalServer";
+import { startPraxisRuntime } from "../runtime/PraxisRuntimeHost";
 
 const port = Number(process.env.PORT ?? 4187);
 const databasePath = process.env.PRAXIS_DATABASE_PATH ?? defaultAppSettings.databasePath;
-const app = await createPraxisApp({ eventStore: new SqliteEventStore(databasePath) });
-const { server } = createLocalServer({ app, staticRoot: path.resolve("dist") });
+const runtime = await startPraxisRuntime({
+  databasePath,
+  port,
+  host: "127.0.0.1",
+  staticRoot: path.resolve("dist"),
+  listen: true,
+  deploymentMode: "local_browser"
+});
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Praxis local server listening on http://127.0.0.1:${port}`);
+console.log(`Praxis local server listening on ${runtime.url}`);
+
+process.once("SIGINT", () => {
+  void runtime.shutdown().finally(() => process.exit(0));
+});
+process.once("SIGTERM", () => {
+  void runtime.shutdown().finally(() => process.exit(0));
 });
