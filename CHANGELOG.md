@@ -36,3 +36,4 @@
 - Added dashboard check-run view models and Checks UI for active/recent runs, commands, durations, exit codes, output, and failed-file triage links.
 - Hardened the activity timeline with turn grouping, lazy details expansion, event-kind coverage, and hidden raw provider payloads.
 - Expanded provider status cards with availability, compatibility, capability support details, and provider-neutral actions.
+- Wired project-card evidence actions to the detail panel with proposition and evidence-reference display.

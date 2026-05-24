@@ -103,7 +103,16 @@ test("project cards support keyboard navigation and provider-neutral action mapp
   await expect(packageMetadata).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("complementary", { name: "Details" })).toContainText("Package Metadata");
   await expect(page.getByRole("button", { name: "Rerun failed checks" }).first()).toHaveAttribute("data-method", "checks.run");
-  await expect(page.getByRole("button", { name: "Explain state" }).first()).toHaveAttribute("data-method", "dashboard.explainMode");
+  const packageCard = page.getByRole("article").filter({ hasText: "Package Metadata" });
+  const openEvidence = packageCard.getByRole("button", { name: "Open evidence" });
+  await expect(openEvidence).toHaveAttribute("data-method", "dashboard.explainMode");
+  await openEvidence.click();
+
+  const projectEvidence = page.getByRole("region", { name: "Project evidence" });
+  await expect(projectEvidence).toBeFocused();
+  await expect(projectEvidence).toContainText("Evidence for Package Metadata");
+  await expect(projectEvidence).toContainText("failed required check blocks review");
+  await expect(projectEvidence.getByRole("list", { name: "Evidence references" })).toContainText("Check check-run-beta failed");
 });
 
 test("diff review supports file search, source links, renames, and binary metadata", async ({ page }) => {

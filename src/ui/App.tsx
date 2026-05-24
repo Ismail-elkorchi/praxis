@@ -21,9 +21,10 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { ApprovalDecision } from "../core";
+import type { ApprovalDecision, ApprovalRequestId, CheckRunId, EventId, EvidenceRef } from "../core";
 import type {
   ApprovalCardViewModel,
+  DashboardAction,
   CheckRunViewModel,
   DashboardProjection,
   ProjectCardViewModel,
@@ -34,12 +35,15 @@ import { callApi, decideApprovalThroughApi, subscribeDashboard, type ApiStatus }
 import "./styles.css";
 
 type Route = "Dashboard" | "Projects" | "Approvals" | "Activity" | "Checks" | "Providers" | "Settings";
+type DetailFocusTarget = "project" | "evidence" | "diff";
+type DetailFocusRequest = { target: DetailFocusTarget; nonce: number };
 
 export function App() {
   const [route, setRoute] = useState<Route>("Dashboard");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("project-alpha");
   const [resolvedApprovalIds, setResolvedApprovalIds] = useState<string[]>([]);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [detailFocusRequest, setDetailFocusRequest] = useState<DetailFocusRequest>({ target: "project", nonce: 0 });
   const [liveDashboard, setLiveDashboard] = useState<DashboardProjection | undefined>();
   const [apiStatus, setApiStatus] = useState<ApiStatus>("connecting");
   const fallbackDashboard = useMemo(() => demoDashboard(resolvedApprovalIds), [resolvedApprovalIds]);
@@ -98,6 +102,32 @@ export function App() {
     setResolvedApprovalIds((current) => [...new Set([...current, approvalId])]);
   }
 
+  function requestDetailFocus(target: DetailFocusTarget) {
+    setDetailFocusRequest((current) => ({ target, nonce: current.nonce + 1 }));
+  }
+
+  function handleProjectAction(project: ProjectCardViewModel, action: DashboardAction) {
+    if (action.disabled) return;
+    setSelectedProjectId(project.projectId);
+    if (action.id === "open-approvals") {
+      setRoute("Approvals");
+      return;
+    }
+    if (action.id === "run-checks" || action.id === "rerun-checks") {
+      setRoute("Checks");
+      return;
+    }
+    if (action.id === "open-evidence") {
+      requestDetailFocus("evidence");
+      return;
+    }
+    if (action.id === "review-diff" || action.id === "open-diff") {
+      requestDetailFocus("diff");
+      return;
+    }
+    requestDetailFocus("project");
+  }
+
   return (
     <main className={`appShell mode-${dashboard.mode}`}>
       <LeftNav route={route} dashboard={dashboard} onRoute={setRoute} />
@@ -108,11 +138,17 @@ export function App() {
             dashboard={dashboard}
             selectedProjectId={selectedProjectId}
             onSelectProject={setSelectedProjectId}
+            onProjectAction={handleProjectAction}
             onDecision={decideApproval}
           />
         )}
         {route === "Projects" && (
-          <ProjectGrid dashboard={dashboard} selectedProjectId={selectedProjectId} onSelectProject={setSelectedProjectId} />
+          <ProjectGrid
+            dashboard={dashboard}
+            selectedProjectId={selectedProjectId}
+            onSelectProject={setSelectedProjectId}
+            onProjectAction={handleProjectAction}
+          />
         )}
         {route === "Approvals" && <ApprovalPanel approvals={dashboard.approvals} onDecision={decideApproval} />}
         {route === "Activity" && <ActivityTimeline items={dashboard.timeline} />}
@@ -120,7 +156,7 @@ export function App() {
         {route === "Providers" && <ProviderGrid providers={dashboard.providerStatus} />}
         {route === "Settings" && <SettingsPanel />}
       </section>
-      <DetailPanel dashboard={dashboard} selectedProject={selectedProject} />
+      <DetailPanel dashboard={dashboard} selectedProject={selectedProject} focusRequest={detailFocusRequest} />
       {commandPaletteOpen ? (
         <CommandPalette
           dashboard={dashboard}
@@ -217,18 +253,26 @@ function DashboardView({
   dashboard,
   selectedProjectId,
   onSelectProject,
+  onProjectAction,
   onDecision
 }: {
   dashboard: DashboardProjection;
   selectedProjectId: string;
   onSelectProject(projectId: string): void;
+  onProjectAction(project: ProjectCardViewModel, action: DashboardAction): void;
   onDecision(approvalId: string, decision: ApprovalDecision): void;
 }) {
   if (dashboard.mode === "approval_center") {
     return (
       <div className="dashboardMode">
         <ApprovalPanel approvals={dashboard.approvals} onDecision={onDecision} />
-        <ProjectGrid dashboard={dashboard} selectedProjectId={selectedProjectId} onSelectProject={onSelectProject} compact />
+        <ProjectGrid
+          dashboard={dashboard}
+          selectedProjectId={selectedProjectId}
+          onSelectProject={onSelectProject}
+          onProjectAction={onProjectAction}
+          compact
+        />
       </div>
     );
   }
@@ -237,23 +281,38 @@ function DashboardView({
     return (
       <div className="dashboardMode">
         <FailureTriage />
-        <ProjectGrid dashboard={dashboard} selectedProjectId={selectedProjectId} onSelectProject={onSelectProject} compact />
+        <ProjectGrid
+          dashboard={dashboard}
+          selectedProjectId={selectedProjectId}
+          onSelectProject={onSelectProject}
+          onProjectAction={onProjectAction}
+          compact
+        />
       </div>
     );
   }
 
-  return <ProjectGrid dashboard={dashboard} selectedProjectId={selectedProjectId} onSelectProject={onSelectProject} />;
+  return (
+    <ProjectGrid
+      dashboard={dashboard}
+      selectedProjectId={selectedProjectId}
+      onSelectProject={onSelectProject}
+      onProjectAction={onProjectAction}
+    />
+  );
 }
 
 function ProjectGrid({
   dashboard,
   selectedProjectId,
   onSelectProject,
+  onProjectAction,
   compact = false
 }: {
   dashboard: DashboardProjection;
   selectedProjectId: string;
   onSelectProject(projectId: string): void;
+  onProjectAction(project: ProjectCardViewModel, action: DashboardAction): void;
   compact?: boolean;
 }) {
   const gridRef = useRef<HTMLElement>(null);
@@ -309,6 +368,7 @@ function ProjectGrid({
           project={project}
           selected={project.projectId === selectedProjectId}
           onOpenProject={() => onSelectProject(project.projectId)}
+          onAction={(action) => onProjectAction(project, action)}
         />
       ))}
     </section>
@@ -318,11 +378,13 @@ function ProjectGrid({
 function ProjectCard({
   project,
   selected,
-  onOpenProject
+  onOpenProject,
+  onAction
 }: {
   project: ProjectCardViewModel;
   selected: boolean;
   onOpenProject(): void;
+  onAction(action: DashboardAction): void;
 }) {
   return (
     <article className={`projectCard urgency-${project.urgency} ${selected ? "selected" : ""}`}>
@@ -367,11 +429,19 @@ function ProjectCard({
           data-method={project.primaryAction.method}
           disabled={project.primaryAction.disabled}
           title={project.primaryAction.disabledReason}
+          onClick={() => onAction(project.primaryAction)}
         >
           {project.primaryAction.label}
         </button>
         {project.secondaryActions.map((action) => (
-          <button key={action.id} type="button" data-method={action.method} disabled={action.disabled} title={action.disabledReason}>
+          <button
+            key={action.id}
+            type="button"
+            data-method={action.method}
+            disabled={action.disabled}
+            title={action.disabledReason}
+            onClick={() => onAction(action)}
+          >
             {action.label}
           </button>
         ))}
@@ -1090,42 +1160,124 @@ function SettingsPanel() {
 
 function DetailPanel({
   dashboard,
-  selectedProject
+  selectedProject,
+  focusRequest
 }: {
   dashboard: DashboardProjection;
   selectedProject?: ProjectCardViewModel;
+  focusRequest: DetailFocusRequest;
 }) {
+  const projectRef = useRef<HTMLElement>(null);
+  const evidenceRef = useRef<HTMLElement>(null);
+  const diffRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (focusRequest.nonce === 0) return;
+    const target = {
+      project: projectRef.current,
+      evidence: evidenceRef.current,
+      diff: diffRef.current
+    }[focusRequest.target];
+    target?.focus();
+  }, [focusRequest]);
+
+  const relevantPropositions = selectedProject
+    ? dashboard.explanation.propositions.filter(
+        (proposition) => proposition.subject === selectedProject.projectId || proposition.subject === "dashboard"
+      )
+    : dashboard.explanation.propositions;
+
   return (
     <aside className="detailPanel" aria-label="Details">
-      <section>
-        <h2>Explain state</h2>
-        <p>{modeTitle(dashboard.mode)} is selected from project state, approvals, checks, risk, and recency.</p>
-        <ul className="evidenceList">
-          {dashboard.explanation.propositions.slice(0, 5).map((proposition) => (
-            <li key={proposition.id}>
-              <span>{proposition.predicate.replaceAll("_", " ")}</span>
-              <strong>{proposition.value}</strong>
-            </li>
-          ))}
-        </ul>
-      </section>
-      <section>
+      <section
+        ref={projectRef}
+        aria-label="Project details"
+        tabIndex={-1}
+        data-active={focusRequest.target === "project" ? "true" : undefined}
+      >
         <h2>Selected project</h2>
         {selectedProject ? (
           <>
             <p>{selectedProject.title}</p>
             <span className={`stateBadge ${selectedProject.badges[0]?.tone ?? "unknown"}`}>{selectedProject.stateLabel}</span>
+            <p>{selectedProject.stateReason}</p>
+            <dl className="metricGrid">
+              <div>
+                <dt>Files</dt>
+                <dd>{selectedProject.changedFileCount}</dd>
+              </div>
+              <div>
+                <dt>Approvals</dt>
+                <dd>{selectedProject.pendingApprovalCount}</dd>
+              </div>
+              <div>
+                <dt>Checks</dt>
+                <dd>{selectedProject.failedCheckCount}</dd>
+              </div>
+            </dl>
           </>
         ) : (
           <p>No project selected.</p>
         )}
       </section>
-      <section>
+      <section
+        ref={evidenceRef}
+        aria-label="Project evidence"
+        tabIndex={-1}
+        data-active={focusRequest.target === "evidence" ? "true" : undefined}
+      >
+        <h2>Explain state</h2>
+        <p>
+          {selectedProject ? `Evidence for ${selectedProject.title}. ` : ""}
+          {modeTitle(dashboard.mode)} is selected from project state, approvals, checks, risk, and recency.
+        </p>
+        <ul className="evidenceList" aria-label="Propositions">
+          {relevantPropositions.slice(0, 5).map((proposition) => (
+            <li key={proposition.id}>
+              <span>{proposition.predicate.replaceAll("_", " ")}</span>
+              <strong>{proposition.value}</strong>
+              <small>{proposition.evidence.length} evidence refs</small>
+            </li>
+          ))}
+        </ul>
+        {selectedProject ? <EvidenceList evidence={selectedProject.evidence} /> : null}
+      </section>
+      <section
+        ref={diffRef}
+        aria-label="Diff review details"
+        tabIndex={-1}
+        data-active={focusRequest.target === "diff" ? "true" : undefined}
+      >
         <h2>Diff review</h2>
         <DiffReviewPanel selectedProject={selectedProject} />
       </section>
     </aside>
   );
+}
+
+function EvidenceList({ evidence }: { evidence: EvidenceRef[] }) {
+  if (evidence.length === 0) {
+    return <p className="emptyText">No evidence references recorded.</p>;
+  }
+
+  return (
+    <ul className="evidenceRefList" aria-label="Evidence references">
+      {evidence.map((item, index) => (
+        <li key={`${item.type}-${index}`}>
+          <span>{formatEvidenceRef(item)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function formatEvidenceRef(evidence: EvidenceRef): string {
+  if (evidence.type === "event") return `Event ${evidence.eventId}`;
+  if (evidence.type === "check") return `Check ${evidence.runId} ${evidence.status}`;
+  if (evidence.type === "approval") return `Approval ${evidence.approvalId}${evidence.decision ? ` ${evidence.decision}` : ""}`;
+  if (evidence.type === "git") return `Git ${evidence.sha ?? evidence.statusHash ?? evidence.repoPath}`;
+  if (evidence.type === "provider") return `Provider ${evidence.providerId}${evidence.externalId ? ` ${evidence.externalId}` : ""}`;
+  return `User ${evidence.commandId}`;
 }
 
 function DiffReviewPanel({ selectedProject }: { selectedProject?: ProjectCardViewModel }) {
@@ -1228,6 +1380,14 @@ function modeTitle(mode: DashboardProjection["mode"]) {
 
 function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
   const now = new Date().toISOString();
+  const alphaEvidence: EvidenceRef[] = [
+    { type: "event", eventId: "event-approval" as EventId },
+    { type: "approval", approvalId: "approval-alpha" as ApprovalRequestId }
+  ];
+  const betaEvidence: EvidenceRef[] = [
+    { type: "event", eventId: "event-check" as EventId },
+    { type: "check", runId: "check-run-beta" as CheckRunId, status: "failed" }
+  ];
   const approvals: ApprovalCardViewModel[] = resolvedApprovalIds.includes("approval-alpha")
     ? []
     : [
@@ -1247,7 +1407,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
             { decision: "decline", label: "Decline", requiresConfirmation: false },
             { decision: "cancel", label: "Cancel", requiresConfirmation: false }
           ],
-          evidence: []
+          evidence: alphaEvidence
         }
       ];
   const mode = approvals.length > 0 ? "approval_center" : "diff_review";
@@ -1271,7 +1431,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       primaryAction: approvals.length > 0
         ? { id: "open-approvals", label: "Open approvals", method: "agents.respondToApproval" }
         : { id: "review-diff", label: "Review diff", method: "git.openDiff" },
-      secondaryActions: [{ id: "explain-state", label: "Explain state", method: "dashboard.explainMode" }],
+      secondaryActions: [{ id: "open-evidence", label: "Open evidence", method: "dashboard.explainMode" }],
       diffFiles: [
         {
           path: "src/new-file.ts",
@@ -1281,7 +1441,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
           sourceTurnId: "turn-alpha" as ProjectCardViewModel["diffFiles"][number]["sourceTurnId"],
           binary: false,
           summary: "+export const value = 1;",
-          evidence: []
+          evidence: alphaEvidence
         },
         {
           path: "assets/logo.bin",
@@ -1289,7 +1449,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
           source: "git",
           binary: true,
           summary: "Binary file metadata only.",
-          evidence: []
+          evidence: alphaEvidence
         },
         {
           path: "src/current-name.ts",
@@ -1300,10 +1460,10 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
           sourceTurnId: "turn-alpha" as ProjectCardViewModel["diffFiles"][number]["sourceTurnId"],
           binary: false,
           summary: "Renamed file from src/old-name.ts.",
-          evidence: []
+          evidence: alphaEvidence
         }
       ],
-      evidence: []
+      evidence: alphaEvidence
     },
     {
       projectId: "project-beta" as ProjectCardViewModel["projectId"],
@@ -1321,7 +1481,10 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       activeTurnCount: 0,
       badges: [{ label: "Required check failed", tone: "failed" }],
       primaryAction: { id: "rerun-checks", label: "Rerun failed checks", method: "checks.run" },
-      secondaryActions: [{ id: "open-diff", label: "Open diff review", method: "git.openDiff" }],
+      secondaryActions: [
+        { id: "open-evidence", label: "Open evidence", method: "dashboard.explainMode" },
+        { id: "open-diff", label: "Open diff review", method: "git.openDiff" }
+      ],
       diffFiles: [
         {
           path: "package.json",
@@ -1329,10 +1492,10 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
           source: "git",
           binary: false,
           summary: "Changed package metadata.",
-          evidence: []
+          evidence: betaEvidence
         }
       ],
-      evidence: []
+      evidence: betaEvidence
     }
   ];
 
@@ -1356,7 +1519,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
         exitCode: 1,
         output: "src/example.ts: expected value to pass",
         relatedFiles: ["src/example.ts", "package.json"],
-        evidence: []
+        evidence: betaEvidence
       },
       {
         runId: "check-run-alpha" as CheckRunViewModel["runId"],
@@ -1370,7 +1533,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
         startedAt: now,
         output: "",
         relatedFiles: [],
-        evidence: []
+        evidence: alphaEvidence
       }
     ],
     providerStatus: [
@@ -1440,7 +1603,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
         summary: "Run project command",
         timestamp: now,
         status: "pending",
-        evidence: [],
+        evidence: alphaEvidence,
         expandable: true
       },
       {
@@ -1455,7 +1618,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
         summary: "Run the check",
         timestamp: now,
         status: "in_progress",
-        evidence: [],
+        evidence: alphaEvidence,
         expandable: true
       },
       {
@@ -1470,7 +1633,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
         summary: "npm test exited with code 1",
         timestamp: now,
         status: "failed",
-        evidence: [],
+        evidence: betaEvidence,
         expandable: true
       },
       {
@@ -1485,7 +1648,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
         summary: "src/new-file.ts",
         timestamp: now,
         status: "proposed",
-        evidence: [],
+        evidence: alphaEvidence,
         expandable: true
       },
       {
@@ -1500,7 +1663,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
         summary: "test",
         timestamp: now,
         status: "failed",
-        evidence: [],
+        evidence: betaEvidence,
         expandable: true
       },
       {
@@ -1515,7 +1678,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
         summary: "Provider disconnected",
         timestamp: now,
         status: "error",
-        evidence: [],
+        evidence: betaEvidence,
         expandable: true
       }
     ],
@@ -1530,14 +1693,14 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
     },
     explanation: {
       mode,
-      evidence: [],
+      evidence: [...alphaEvidence, ...betaEvidence],
       propositions: [
         {
           id: "dash-approval",
           subject: "dashboard",
           predicate: "pending_approval_outranks_active_work",
           value: approvals.length > 0 ? "true" : "false",
-          evidence: [],
+          evidence: alphaEvidence,
           checkedAt: now
         },
         {
@@ -1545,7 +1708,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
           subject: "project-beta",
           predicate: "failed_required_check_blocks_review",
           value: "true",
-          evidence: [],
+          evidence: betaEvidence,
           checkedAt: now
         }
       ]

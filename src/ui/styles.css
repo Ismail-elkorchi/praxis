@@ -563,6 +563,11 @@ pre {
   padding-bottom: 1rem;
 }
 
+.detailPanel section[data-active="true"] {
+  outline: 3px solid #1f6feb;
+  outline-offset: 3px;
+}
+
 .evidenceList {
   display: grid;
   gap: 0.45rem;
@@ -571,12 +576,27 @@ pre {
   list-style: none;
 }
 
-.evidenceList li {
+.evidenceList li,
+.evidenceRefList li {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 0.6rem;
   padding: 0.45rem 0;
   border-bottom: 1px solid #eef1f3;
+}
+
+.evidenceList small {
+  flex-basis: 100%;
+  color: #64737b;
+}
+
+.evidenceRefList {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  list-style: none;
 }
 
 .diffPreview {
