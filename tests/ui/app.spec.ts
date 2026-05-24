@@ -179,6 +179,35 @@ test("provider status cards show capability and compatibility details", async ({
   await expect(unavailableProvider.getByRole("list", { name: "Unavailable provider capabilities" })).toContainText("unavailable");
 });
 
+test("settings panel confirms raw provider logs and keeps provider settings separate", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  const settingsPanel = page.getByRole("region", { name: "Settings panel" });
+  await expect(settingsPanel).toBeVisible();
+  await expect(settingsPanel.getByRole("region", { name: "Logging" })).toContainText("disabled");
+
+  const enableLogs = settingsPanel.getByRole("button", { name: "Enable raw provider logs" });
+  await expect(enableLogs).toHaveAttribute("data-method", "settings.update");
+  await enableLogs.click();
+
+  const dialog = page.getByRole("dialog", { name: "Confirm logging change" });
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("button", { name: "Enable raw logs" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Keep disabled" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(settingsPanel.getByRole("region", { name: "Logging" })).toContainText("disabled");
+
+  await enableLogs.click();
+  await page.getByRole("button", { name: "Enable raw logs" }).click();
+  await expect(settingsPanel.getByRole("region", { name: "Logging" })).toContainText("enabled");
+  await expect(settingsPanel.getByRole("button", { name: "Disable raw provider logs" })).toHaveAttribute("data-method", "settings.update");
+  await expect(settingsPanel.getByRole("region", { name: "Provider settings placement" })).toContainText("under Providers");
+  await expect(settingsPanel.getByRole("button", { name: "Open provider status" })).toHaveAttribute("data-method", "providers.getStatus");
+});
+
 test("command palette opens from global search and runs provider-neutral commands", async ({ page }) => {
   await page.goto("/");
 

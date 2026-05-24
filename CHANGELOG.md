@@ -37,3 +37,4 @@
 - Hardened the activity timeline with turn grouping, lazy details expansion, event-kind coverage, and hidden raw provider payloads.
 - Expanded provider status cards with availability, compatibility, capability support details, and provider-neutral actions.
 - Wired project-card evidence actions to the detail panel with proposition and evidence-reference display.
+- Added provider-neutral settings API/UI coverage with raw-provider-log confirmation and provider settings kept under Providers.

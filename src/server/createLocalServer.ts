@@ -27,6 +27,7 @@ const pushChannelsByMethod: Record<string, string[]> = {
   "agents.respondToApproval": ["dashboard.snapshotChanged", "approval.resolved"],
   "agents.respondToUserInput": ["dashboard.snapshotChanged", "agent.turnUpdated"],
   "providers.checkAvailability": ["dashboard.snapshotChanged", "provider.statusChanged"],
+  "settings.update": ["dashboard.snapshotChanged"],
   "checks.run": ["dashboard.snapshotChanged", "check.updated"],
   "checks.cancel": ["dashboard.snapshotChanged", "check.updated"],
   "git.createWorktree": ["dashboard.snapshotChanged", "git.statusChanged"]

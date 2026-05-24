@@ -10,6 +10,7 @@ import type {
 } from "../core";
 import { createDomainEvent } from "../events/eventFactory";
 import type { EventQuery } from "../events/EventStore";
+import type { AppSettings } from "../settings/SettingsService";
 import type { PraxisRuntime } from "./PraxisApp";
 import { PraxisError } from "./errors";
 
@@ -51,6 +52,8 @@ export const apiMethods = [
   "dashboard.getSnapshot",
   "dashboard.subscribe",
   "dashboard.explainMode",
+  "settings.get",
+  "settings.update",
   "checks.list",
   "checks.run",
   "checks.cancel",
@@ -156,6 +159,34 @@ export class PraxisApi {
       case "dashboard.subscribe":
       case "dashboard.explainMode":
         return this.app.snapshot().dashboard;
+      case "settings.get":
+        return this.app.settings.get();
+      case "settings.update": {
+        const input = params as {
+          patch: Partial<AppSettings>;
+          confirmRawProviderLogs?: boolean;
+        };
+        if (input.patch.rawProviderLogsEnabled && !this.app.settings.get().rawProviderLogsEnabled && !input.confirmRawProviderLogs) {
+          throw new PraxisError("confirmation_required", "Raw provider logs require explicit confirmation.", {
+            setting: "rawProviderLogsEnabled"
+          });
+        }
+        const settings = this.app.settings.update(input.patch, {
+          confirmRawProviderLogs: input.confirmRawProviderLogs
+        });
+        await this.app.events.append(
+          createDomainEvent({
+            type: "settings.updated",
+            source: "user",
+            payload: {
+              updatedKeys: Object.keys(input.patch),
+              settings
+            },
+            evidence: [{ type: "user", commandId: "settings.update" }]
+          })
+        );
+        return settings;
+      }
       case "checks.list": {
         const input = params as { projectId: ProjectId };
         return this.app.checks.listDefinitions(input.projectId);

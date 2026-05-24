@@ -32,6 +32,8 @@ const requiredApiMethods = [
   "dashboard.getSnapshot",
   "dashboard.subscribe",
   "dashboard.explainMode",
+  "settings.get",
+  "settings.update",
   "checks.list",
   "checks.run",
   "checks.cancel",
@@ -101,6 +103,50 @@ describe("provider-neutral API surface", () => {
 
     const eventTypes = (await app.events.queryEvents()).map((event) => event.type);
     expect(eventTypes).toEqual(expect.arrayContaining(["project.updated", "project.archived", "git.statusChanged"]));
+  });
+
+  it("reads and updates app settings through event-producing API calls", async () => {
+    const app = await createPraxisApp();
+    const api = new PraxisApi(app);
+
+    await expect(api.handle({ id: "settings-get", method: "settings.get" })).resolves.toMatchObject({
+      id: "settings-get",
+      result: {
+        rawProviderLogsEnabled: false,
+        telemetryMode: "local_only"
+      }
+    });
+
+    await expect(
+      api.handle({
+        id: "settings-confirmation-required",
+        method: "settings.update",
+        params: { patch: { rawProviderLogsEnabled: true } }
+      })
+    ).resolves.toMatchObject({
+      id: "settings-confirmation-required",
+      error: { code: "confirmation_required" }
+    });
+
+    await expect(
+      api.handle({
+        id: "settings-update",
+        method: "settings.update",
+        params: {
+          patch: { rawProviderLogsEnabled: true, telemetryMode: "off", enabledProviderIds: [providerId("fake")] },
+          confirmRawProviderLogs: true
+        }
+      })
+    ).resolves.toMatchObject({
+      id: "settings-update",
+      result: {
+        rawProviderLogsEnabled: true,
+        telemetryMode: "off",
+        enabledProviderIds: [providerId("fake")]
+      }
+    });
+
+    expect((await app.events.queryEvents()).map((event) => event.type)).toContain("settings.updated");
   });
 
   it("restores project settings from event history after restart", async () => {

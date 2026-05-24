@@ -31,6 +31,7 @@ import type {
   ProviderStatusViewModel,
   TimelineItemViewModel
 } from "../dashboard/types";
+import { defaultAppSettings, type AppSettings } from "../settings/SettingsService";
 import { callApi, decideApprovalThroughApi, subscribeDashboard, type ApiStatus } from "./apiClient";
 import "./styles.css";
 
@@ -154,7 +155,7 @@ export function App() {
         {route === "Activity" && <ActivityTimeline items={dashboard.timeline} />}
         {route === "Checks" && <CheckRunPanel checkRuns={dashboard.checkRuns} />}
         {route === "Providers" && <ProviderGrid providers={dashboard.providerStatus} />}
-        {route === "Settings" && <SettingsPanel />}
+        {route === "Settings" && <SettingsPanel apiStatus={apiStatus} onRoute={setRoute} />}
       </section>
       <DetailPanel dashboard={dashboard} selectedProject={selectedProject} focusRequest={detailFocusRequest} />
       {commandPaletteOpen ? (
@@ -1142,20 +1143,180 @@ function FailureTriage() {
   );
 }
 
-function SettingsPanel() {
+function SettingsPanel({ apiStatus, onRoute }: { apiStatus: ApiStatus; onRoute(route: Route): void }) {
+  const [settings, setSettings] = useState<AppSettings>(defaultAppSettings);
+  const [pendingRawLogChange, setPendingRawLogChange] = useState(false);
+  const [message, setMessage] = useState("Settings are ready.");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    callApi<AppSettings>("settings.get", undefined, controller.signal)
+      .then((nextSettings) => {
+        setSettings(nextSettings);
+        setMessage("Settings loaded from the local runtime.");
+      })
+      .catch(() => {
+        setSettings(defaultAppSettings);
+        setMessage("Settings preview is using local defaults.");
+      });
+    return () => controller.abort();
+  }, []);
+
+  async function updateSettings(patch: Partial<AppSettings>, confirmRawProviderLogs = false) {
+    const fallback = mergeSettings(settings, patch);
+    if (apiStatus === "live") {
+      const nextSettings = await callApi<AppSettings>("settings.update", { patch, confirmRawProviderLogs }).catch(() => undefined);
+      if (nextSettings) {
+        setSettings(nextSettings);
+        setMessage("Settings saved to the local runtime.");
+        return;
+      }
+    }
+    setSettings(fallback);
+    setMessage("Settings updated in the preview state.");
+  }
+
+  async function confirmRawLogs() {
+    setPendingRawLogChange(false);
+    await updateSettings({ rawProviderLogsEnabled: true }, true);
+  }
+
   return (
-    <section className="settingsPanel">
-      <h2>Settings</h2>
-      <label>
-        <input type="checkbox" />
-        Enable raw provider logs
-      </label>
-      <label>
-        <input type="checkbox" defaultChecked />
-        Use guarded workspace permissions by default
-      </label>
+    <section className="settingsPanel" aria-label="Settings panel">
+      <div className="sectionHeader">
+        <Settings size={22} aria-hidden="true" />
+        <div>
+          <h2>Settings</h2>
+          <p>{message}</p>
+        </div>
+      </div>
+      <section className="settingsGroup" aria-label="App settings">
+        <h3>App settings</h3>
+        <dl className="settingsGrid">
+          <div>
+            <dt>Runtime</dt>
+            <dd>{apiStatus === "live" ? "live runtime" : apiStatus === "fallback" ? "preview defaults" : "connecting"}</dd>
+          </div>
+          <div>
+            <dt>Database</dt>
+            <dd>
+              <code>{settings.databasePath}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>Telemetry</dt>
+            <dd>{settings.telemetryMode.replaceAll("_", " ")}</dd>
+          </div>
+        </dl>
+      </section>
+      <section className="settingsGroup" aria-label="Permission profiles">
+        <h3>Permission profiles</h3>
+        <p>Guarded workspace permissions are the default. Broad access requires explicit confirmation at the project level.</p>
+        <span className="stateBadge passed">guarded default</span>
+      </section>
+      <section className="settingsGroup" aria-label="Logging">
+        <div className="settingsHeaderRow">
+          <div>
+            <h3>Logging</h3>
+            <p>Raw provider logs are disabled by default and require confirmation before enabling.</p>
+          </div>
+          <span className={`stateBadge ${settings.rawProviderLogsEnabled ? "unsafe" : "passed"}`}>
+            {settings.rawProviderLogsEnabled ? "enabled" : "disabled"}
+          </span>
+        </div>
+        <div className="actionRow">
+          {settings.rawProviderLogsEnabled ? (
+            <button type="button" data-method="settings.update" onClick={() => updateSettings({ rawProviderLogsEnabled: false })}>
+              Disable raw provider logs
+            </button>
+          ) : (
+            <button type="button" data-method="settings.update" onClick={() => setPendingRawLogChange(true)}>
+              Enable raw provider logs
+            </button>
+          )}
+        </div>
+      </section>
+      <section className="settingsGroup" aria-label="Project discovery">
+        <h3>Project discovery</h3>
+        {settings.projectRoots.length > 0 ? (
+          <ul className="settingsList">
+            {settings.projectRoots.map((root) => (
+              <li key={root}>
+                <code>{root}</code>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>No project roots configured.</p>
+        )}
+        <button type="button" data-method="settings.update" onClick={() => updateSettings({ projectRoots: settings.projectRoots })}>
+          Save project roots
+        </button>
+      </section>
+      <section className="settingsGroup" aria-label="Provider settings placement">
+        <h3>Provider settings</h3>
+        <p>Provider-specific configuration lives under Providers so project settings remain provider-neutral.</p>
+        <button type="button" data-method="providers.getStatus" onClick={() => onRoute("Providers")}>
+          Open provider status
+        </button>
+      </section>
+      <section className="settingsGroup" aria-label="Plugin settings">
+        <h3>Plugin settings</h3>
+        <p>Plugin changes are guarded by permissions and provider-adapter contract validation.</p>
+        <button type="button" data-method="events.query" onClick={() => onRoute("Activity")}>
+          Inspect plugin activity
+        </button>
+      </section>
+      {pendingRawLogChange ? (
+        <SettingsConfirmationDialog onCancel={() => setPendingRawLogChange(false)} onConfirm={confirmRawLogs} />
+      ) : null}
     </section>
   );
+}
+
+function SettingsConfirmationDialog({ onCancel, onConfirm }: { onCancel(): void; onConfirm(): void }) {
+  const dialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    dialogRef.current?.querySelector<HTMLButtonElement>("[data-autofocus]")?.focus();
+  }, []);
+
+  return (
+    <div className="modalBackdrop" role="presentation" onMouseDown={onCancel}>
+      <section
+        ref={dialogRef}
+        className="confirmationDialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-confirmation-title"
+        onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => handleDialogKeyDown(event, dialogRef.current, onCancel)}
+      >
+        <div>
+          <span className="stateBadge unsafe">logging risk</span>
+          <h2 id="settings-confirmation-title">Confirm logging change</h2>
+          <p>Raw provider logs can include sensitive runtime data. Logs remain redacted, but this setting is still stored only after confirmation.</p>
+        </div>
+        <div className="actionRow">
+          <button type="button" onClick={onCancel}>
+            Keep disabled
+          </button>
+          <button type="button" data-autofocus data-method="settings.update" onClick={onConfirm}>
+            Enable raw logs
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function mergeSettings(settings: AppSettings, patch: Partial<AppSettings>): AppSettings {
+  return {
+    ...settings,
+    ...patch,
+    enabledProviderIds: [...(patch.enabledProviderIds ?? settings.enabledProviderIds)],
+    projectRoots: [...(patch.projectRoots ?? settings.projectRoots)]
+  };
 }
 
 function DetailPanel({
