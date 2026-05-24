@@ -57,12 +57,41 @@ describe("provider-neutral API surface", () => {
       method: "projects.register",
       params: { rootPath, name: "Initial" }
     });
-    const project = "result" in registered ? (registered.result as { id: string }) : undefined;
+    const project = "result" in registered ? (registered.result as { id: string; settings: { defaultProviderId?: string } }) : undefined;
     expect(project).toBeDefined();
+    expect(project!.settings.defaultProviderId).toBeUndefined();
 
     await expect(
-      api.handle({ id: "update", method: "projects.update", params: { projectId: project!.id, patch: { name: "Updated" } } })
-    ).resolves.toMatchObject({ id: "update" });
+      api.handle({
+        id: "update",
+        method: "projects.update",
+        params: {
+          projectId: project!.id,
+          patch: {
+            name: "Updated",
+            settings: {
+              defaultProviderId: providerId("fake"),
+              defaultCheckIds: ["check-default"],
+              preferredWorktreeMode: "task_isolated",
+              showInDashboard: false
+            }
+          }
+        }
+      })
+    ).resolves.toMatchObject({
+      id: "update",
+      result: {
+        name: "Updated",
+        settings: {
+          defaultProviderId: providerId("fake"),
+          defaultCheckIds: ["check-default"],
+          preferredWorktreeMode: "task_isolated",
+          showInDashboard: false
+        }
+      }
+    });
+    expect(app.projects.listProjects().some((item) => item.id === project!.id)).toBe(true);
+    expect(app.snapshot().dashboard.projectCards.some((card) => card.projectId === project!.id)).toBe(false);
     await expect(api.handle({ id: "refresh", method: "projects.refresh", params: { projectId: project!.id } })).resolves.toMatchObject({
       id: "refresh"
     });
@@ -72,6 +101,46 @@ describe("provider-neutral API surface", () => {
 
     const eventTypes = (await app.events.queryEvents()).map((event) => event.type);
     expect(eventTypes).toEqual(expect.arrayContaining(["project.updated", "project.archived", "git.statusChanged"]));
+  });
+
+  it("restores project settings from event history after restart", async () => {
+    const databasePath = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-project-settings-")), "praxis.sqlite");
+    const firstStore = new SqliteEventStore(databasePath);
+    const first = await createPraxisApp({ eventStore: firstStore });
+    const api = new PraxisApi(first);
+    const rootPath = await createTempProject({ packageJson: false });
+    const project = await first.projects.registerProject({ rootPath });
+
+    await api.handle({
+      id: "settings",
+      method: "projects.update",
+      params: {
+        projectId: project.id,
+        patch: {
+          settings: {
+            defaultProviderId: providerId("fake"),
+            defaultCheckIds: ["test"],
+            preferredWorktreeMode: "task_isolated",
+            autoRefreshGit: false,
+            showInDashboard: false
+          }
+        }
+      }
+    });
+    first.eventStore.close?.();
+
+    const secondStore = new SqliteEventStore(databasePath);
+    const second = await createPraxisApp({ eventStore: secondStore });
+    expect(second.projects.getProject(project.id)?.settings).toMatchObject({
+      defaultProviderId: providerId("fake"),
+      defaultCheckIds: ["test"],
+      preferredWorktreeMode: "task_isolated",
+      autoRefreshGit: false,
+      showInDashboard: false
+    });
+    expect(second.snapshot().dashboard.projectCards.some((card) => card.projectId === project.id)).toBe(false);
+    expect(secondStore.tableRows("settings").some((row) => row.key === `project:${project.id}:settings`)).toBe(true);
+    second.eventStore.close?.();
   });
 
   it("returns capability errors for unsupported optional agent methods and lists local sessions", async () => {

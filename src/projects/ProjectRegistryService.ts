@@ -2,10 +2,12 @@ import { realpath, stat, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   checkDefinitionId,
+  defaultProjectSettings,
   projectId,
   type CheckDefinition,
   type Project,
   type ProjectId,
+  type ProjectSettings,
   type ProviderId
 } from "../core";
 import type { AppSnapshot } from "../dashboard/types";
@@ -41,6 +43,7 @@ export class ProjectRegistryService {
       rootPath: input.rootPath,
       canonicalPath,
       tags: [],
+      settings: normalizeProjectSettings({ defaultProviderId: input.defaultProviderId }),
       archived: false,
       createdAt: timestamp,
       updatedAt: timestamp
@@ -76,7 +79,10 @@ export class ProjectRegistryService {
     return project;
   }
 
-  async updateProject(projectId: ProjectId, patch: { name?: string; tags?: string[]; archived?: boolean }): Promise<Project> {
+  async updateProject(
+    projectId: ProjectId,
+    patch: { name?: string; tags?: string[]; archived?: boolean; settings?: Partial<ProjectSettings> }
+  ): Promise<Project> {
     const existing = this.getProject(projectId);
     if (!existing) {
       throw new Error("Project was not found.");
@@ -86,6 +92,7 @@ export class ProjectRegistryService {
       ...existing,
       name: patch.name ?? existing.name,
       tags: patch.tags ?? existing.tags,
+      settings: normalizeProjectSettings({ ...existing.settings, ...patch.settings }),
       archived: patch.archived ?? existing.archived,
       updatedAt: new Date().toISOString()
     };
@@ -141,6 +148,14 @@ export class ProjectRegistryService {
   getProject(projectId: ProjectId): Project | undefined {
     return this.getSnapshot().projects[projectId]?.project;
   }
+}
+
+function normalizeProjectSettings(settings: Partial<ProjectSettings> | undefined): ProjectSettings {
+  return {
+    ...defaultProjectSettings,
+    ...settings,
+    defaultCheckIds: [...(settings?.defaultCheckIds ?? defaultProjectSettings.defaultCheckIds)]
+  };
 }
 
 async function detectCheckDefinitions(rootPath: string, projectId: ProjectId): Promise<CheckDefinition[]> {

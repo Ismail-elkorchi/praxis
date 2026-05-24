@@ -38,6 +38,23 @@ export type GitRepositoryRef = {
   remoteUrl?: string;
 };
 
+export type ProjectSettings = {
+  defaultProviderId?: ProviderId;
+  defaultPermissionProfileId?: PermissionProfileId;
+  defaultCheckIds: string[];
+  preferredWorktreeMode: "none" | "manual" | "task_isolated";
+  autoRefreshGit: boolean;
+  showInDashboard: boolean;
+};
+
+export const defaultProjectSettings: ProjectSettings = {
+  defaultPermissionProfileId: "permission_default" as PermissionProfileId,
+  defaultCheckIds: [],
+  preferredWorktreeMode: "manual",
+  autoRefreshGit: true,
+  showInDashboard: true
+};
+
 export type Project = {
   id: ProjectId;
   name: string;
@@ -46,6 +63,7 @@ export type Project = {
   repo?: GitRepositoryRef;
   defaultBranch?: string;
   tags: string[];
+  settings: ProjectSettings;
   archived: boolean;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;

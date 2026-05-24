@@ -1,3 +1,4 @@
+import { defaultProjectSettings } from "../core";
 import type {
   AgentProvider,
   AgentSession,
@@ -66,8 +67,9 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
   switch (event.type) {
     case "project.registered": {
       const payload = event.payload as { project: ProjectSnapshot["project"]; checkDefinitions?: CheckDefinition[] };
+      const project = { ...payload.project, settings: { ...defaultProjectSettings, ...payload.project.settings } };
       next.projects[payload.project.id] = {
-        project: payload.project,
+        project,
         runtimeState: "idle",
         git: emptyGitSnapshot,
         sessions: {},
@@ -87,7 +89,7 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
       const payload = event.payload as { project: ProjectSnapshot["project"] };
       const project = next.projects[payload.project.id];
       if (project) {
-        project.project = payload.project;
+        project.project = { ...payload.project, settings: { ...defaultProjectSettings, ...payload.project.settings } };
         project.lastActivityAt = event.timestamp;
       }
       break;
@@ -394,8 +396,11 @@ function deriveProjectPropositions(project: ProjectSnapshot): Proposition[] {
 }
 
 function buildDashboard(snapshot: AppSnapshot): DashboardProjection {
-  const projectCards = Object.values(snapshot.projects).map((project) => projectCard(project, snapshot));
-  const mode = selectDashboardMode(Object.values(snapshot.projects), snapshot.activeTurns.length);
+  const visibleProjects = Object.values(snapshot.projects).filter(
+    (project) => !project.project.archived && project.project.settings.showInDashboard
+  );
+  const projectCards = visibleProjects.map((project) => projectCard(project, snapshot));
+  const mode = selectDashboardMode(visibleProjects, snapshot.activeTurns.length);
   const propositions = [
     ...Object.values(snapshot.projects).flatMap((project) => project.propositions),
     dashboardModeProposition(mode, snapshot)

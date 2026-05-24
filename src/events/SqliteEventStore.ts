@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
+import { defaultProjectSettings } from "../core/types";
 import type {
   AgentProvider,
   AgentSession,
@@ -494,6 +495,7 @@ export class SqliteEventStore implements EventStore {
       );
 
     this.persistCheckDefinitions(readCheckDefinitions(event.payload));
+    this.writeSetting(`project:${project.id}:settings`, { ...defaultProjectSettings, ...project.settings });
   }
 
   private persistProviderEvent(event: DomainEvent): void {

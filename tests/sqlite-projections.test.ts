@@ -49,7 +49,7 @@ describe("SQLite durable projections", () => {
     expect(store.countRows("check_runs")).toBe(1);
     expect(store.countRows("git_snapshots")).toBe(1);
     expect(store.countRows("propositions")).toBeGreaterThan(0);
-    expect(store.countRows("settings")).toBe(1);
+    expect(store.countRows("settings")).toBeGreaterThanOrEqual(2);
     await expect(app.replay()).resolves.toEqual(app.snapshot());
 
     const provider = store.tableRows("providers")[0]!;
@@ -80,6 +80,12 @@ describe("SQLite durable projections", () => {
     const checkRow = store.tableRows("check_runs")[0]!;
     expect(checkRow.id).toBe(checkRun.id);
     expect(checkRow.status).toBe("passed");
+
+    const projectSettings = store.tableRows("settings").find((row) => row.key === `project:${project.id}:settings`);
+    expect(JSON.parse(String(projectSettings!.value_json))).toMatchObject({
+      preferredWorktreeMode: "manual",
+      showInDashboard: true
+    });
 
     const proposition = store.tableRows("propositions").find((row) => String(row.predicate) === "ready_for_review");
     expect(proposition).toBeDefined();

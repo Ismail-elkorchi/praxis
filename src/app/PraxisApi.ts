@@ -1,4 +1,13 @@
-import type { AgentSessionId, AgentTurnId, ApprovalDecision, ApprovalRequestId, CheckRunId, ProjectId, ProviderId } from "../core";
+import type {
+  AgentSessionId,
+  AgentTurnId,
+  ApprovalDecision,
+  ApprovalRequestId,
+  CheckRunId,
+  ProjectId,
+  ProjectSettings,
+  ProviderId
+} from "../core";
 import { createDomainEvent } from "../events/eventFactory";
 import type { EventQuery } from "../events/EventStore";
 import type { PraxisRuntime } from "./PraxisApp";
@@ -74,7 +83,10 @@ export class PraxisApi {
         return this.app.projects.registerProject(input);
       }
       case "projects.update": {
-        const input = params as { projectId: ProjectId; patch: { name?: string; tags?: string[]; archived?: boolean } };
+        const input = params as {
+          projectId: ProjectId;
+          patch: { name?: string; tags?: string[]; archived?: boolean; settings?: Partial<ProjectSettings> };
+        };
         return this.app.projects.updateProject(input.projectId, input.patch);
       }
       case "projects.archive": {
