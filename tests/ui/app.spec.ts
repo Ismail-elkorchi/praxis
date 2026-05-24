@@ -146,6 +146,30 @@ test("check run panel shows active and recent runs with triage links", async ({ 
   await expect(page.getByRole("button", { name: "Run checks" })).toHaveAttribute("data-method", "checks.run");
 });
 
+test("provider status cards show capability and compatibility details", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Providers" }).click();
+  await expect(page.getByRole("region", { name: "Providers workspace" })).toBeVisible();
+
+  const fakeProvider = page.getByRole("article").filter({ hasText: "Fake provider" });
+  await expect(fakeProvider).toContainText("Adapter version 0.1.0");
+  await expect(fakeProvider).toContainText("Availability");
+  await expect(fakeProvider).toContainText("compatible");
+  await expect(fakeProvider.getByRole("list", { name: "Fake provider capabilities" })).toContainText("Start sessions");
+  await expect(fakeProvider.getByText("supported").first()).toBeVisible();
+  await expect(fakeProvider.getByRole("button", { name: "Check availability" })).toHaveAttribute(
+    "data-method",
+    "providers.checkAvailability"
+  );
+  await expect(fakeProvider.getByRole("button", { name: "Configure provider" })).toHaveAttribute("data-method", "providers.getStatus");
+
+  const unavailableProvider = page.getByRole("article").filter({ hasText: "Unavailable provider" });
+  await expect(unavailableProvider).toContainText("unavailable");
+  await expect(unavailableProvider).toContainText("Provider is not configured.");
+  await expect(unavailableProvider.getByRole("list", { name: "Unavailable provider capabilities" })).toContainText("unavailable");
+});
+
 test("command palette opens from global search and runs provider-neutral commands", async ({ page }) => {
   await page.goto("/");
 

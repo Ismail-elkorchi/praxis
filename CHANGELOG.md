@@ -35,3 +35,4 @@
 - Added searchable provider-neutral diff review UI with source session/turn details, rename display, and binary metadata handling.
 - Added dashboard check-run view models and Checks UI for active/recent runs, commands, durations, exit codes, output, and failed-file triage links.
 - Hardened the activity timeline with turn grouping, lazy details expansion, event-kind coverage, and hidden raw provider payloads.
+- Expanded provider status cards with availability, compatibility, capability support details, and provider-neutral actions.

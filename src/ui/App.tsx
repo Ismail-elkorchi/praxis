@@ -618,7 +618,7 @@ function ProviderGrid({ providers }: { providers: ProviderStatusViewModel[] }) {
   return (
     <section className="cardGrid" aria-label="Provider status">
       {providers.map((provider) => (
-        <article className="projectCard" key={provider.providerId}>
+        <article className="providerStatusCard" key={provider.providerId}>
           <div className="sectionHeader">
             <SlidersHorizontal size={20} aria-hidden="true" />
             <div>
@@ -626,17 +626,58 @@ function ProviderGrid({ providers }: { providers: ProviderStatusViewModel[] }) {
               <p>Adapter version {provider.adapterVersion}</p>
             </div>
           </div>
-          <span className={`stateBadge ${provider.availability.status === "available" ? "passed" : "failed"}`}>
-            {provider.availability.status}
-          </span>
-          <p>Capabilities determine which session, turn, approval, and interrupt actions are available.</p>
-          <button type="button" data-method="providers.checkAvailability">
-            Check availability
-          </button>
+          <dl className="providerStatusGrid">
+            <div>
+              <dt>Availability</dt>
+              <dd>
+                <span className={`stateBadge ${provider.availability.status === "available" ? "passed" : "failed"}`}>
+                  {provider.availability.status}
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>Compatibility</dt>
+              <dd>
+                <span className={`stateBadge ${provider.availability.status === "incompatible" ? "failed" : "passed"}`}>
+                  {provider.availability.status === "incompatible" ? "incompatible" : "compatible"}
+                </span>
+              </dd>
+            </div>
+          </dl>
+          {provider.availability.status !== "available" ? <p>{provider.availability.reason}</p> : null}
+          <ul className="capabilityList" aria-label={`${provider.name} capabilities`}>
+            {providerCapabilityBadges(provider).map((capability) => (
+              <li key={capability.label} data-enabled={capability.enabled ? "true" : "false"}>
+                <span>{capability.label}</span>
+                <strong>{capability.enabled ? "supported" : "unavailable"}</strong>
+              </li>
+            ))}
+          </ul>
+          <div className="actionRow">
+            <button type="button" data-method="providers.checkAvailability">
+              Check availability
+            </button>
+            <button type="button" data-method="providers.getStatus">
+              Configure provider
+            </button>
+          </div>
         </article>
       ))}
     </section>
   );
+}
+
+function providerCapabilityBadges(provider: ProviderStatusViewModel): Array<{ label: string; enabled: boolean }> {
+  return [
+    { label: "Start sessions", enabled: provider.capabilities.canStartSession },
+    { label: "Resume sessions", enabled: provider.capabilities.canResumeSession },
+    { label: "Stream events", enabled: provider.capabilities.canStreamEvents },
+    { label: "Interrupt turns", enabled: provider.capabilities.canInterruptTurn },
+    { label: "Command approvals", enabled: provider.capabilities.canRequestCommandApproval },
+    { label: "File approvals", enabled: provider.capabilities.canRequestFileApproval },
+    { label: "Report file changes", enabled: provider.capabilities.canReportFileDiffs },
+    { label: "Workspace permissions", enabled: provider.capabilities.supportsPermissionProfiles }
+  ];
 }
 
 function ActivityTimeline({ items }: { items: TimelineItemViewModel[] }) {
@@ -1357,6 +1398,32 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
           supportsSandboxing: true,
           supportsPermissionProfiles: true,
           supportsStructuredProtocol: true
+        }
+      },
+      {
+        providerId: "unavailable-demo" as ProviderStatusViewModel["providerId"],
+        name: "Unavailable provider",
+        adapterVersion: "0.1.0",
+        availability: { status: "unavailable", reason: "Provider is not configured." },
+        capabilities: {
+          canStartSession: false,
+          canResumeSession: false,
+          canListSessions: false,
+          canImportExistingSessions: false,
+          canStreamEvents: false,
+          canStreamTokenDeltas: false,
+          canInterruptTurn: false,
+          canSteerTurn: false,
+          canRequestCommandApproval: false,
+          canRequestFileApproval: false,
+          canRunShellCommands: false,
+          canEditFiles: false,
+          canReportFileDiffs: false,
+          canReportTokenUsage: false,
+          canUseExternalTools: false,
+          supportsSandboxing: false,
+          supportsPermissionProfiles: false,
+          supportsStructuredProtocol: false
         }
       }
     ],
