@@ -11,3 +11,4 @@
 
 - Continue production-depth implementation of the local runtime, persistence, API, UI integration, settings, and extension surfaces.
 - Added the complete provider-neutral API method surface and a plugin registry that emits commands instead of mutating core state directly.
+- Persisted SQLite read models for projects, providers, provider capabilities, sessions, turns, approvals, checks, git snapshots, provider refs, and redacted event payload audit copies.
