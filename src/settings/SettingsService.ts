@@ -1,4 +1,4 @@
-import type { PermissionProfileId, ProviderId } from "../core";
+import { guardedPermissionProfileId, type PermissionProfileId, type ProviderId } from "../core";
 
 export type AppSettings = {
   databasePath: string;
@@ -14,7 +14,7 @@ export const defaultAppSettings: AppSettings = {
   databasePath: ".praxis/praxis.sqlite",
   projectRoots: [],
   enabledProviderIds: [],
-  defaultPermissionProfileId: "permission_default" as PermissionProfileId,
+  defaultPermissionProfileId: guardedPermissionProfileId,
   telemetryMode: "local_only",
   rawProviderLogsEnabled: false
 };

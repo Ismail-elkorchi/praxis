@@ -14,6 +14,8 @@ import type { AppSnapshot } from "../dashboard/types";
 import type { AppEventLog } from "../events/AppEventLog";
 import { createDomainEvent } from "../events/eventFactory";
 import type { GitService } from "../git/GitService";
+import { PraxisError } from "../app/errors";
+import { isBroadPermissionProfileId } from "../policies/PolicyService";
 
 export class ProjectRegistryService {
   constructor(
@@ -81,18 +83,31 @@ export class ProjectRegistryService {
 
   async updateProject(
     projectId: ProjectId,
-    patch: { name?: string; tags?: string[]; archived?: boolean; settings?: Partial<ProjectSettings> }
+    patch: { name?: string; tags?: string[]; archived?: boolean; settings?: Partial<ProjectSettings> },
+    options: { confirmBroadPermissionProfile?: boolean } = {}
   ): Promise<Project> {
     const existing = this.getProject(projectId);
     if (!existing) {
       throw new Error("Project was not found.");
     }
 
+    const settings = normalizeProjectSettings({ ...existing.settings, ...patch.settings });
+    if (
+      settings.defaultPermissionProfileId !== existing.settings.defaultPermissionProfileId &&
+      isBroadPermissionProfileId(settings.defaultPermissionProfileId) &&
+      !options.confirmBroadPermissionProfile
+    ) {
+      throw new PraxisError("confirmation_required", "Broad permission profile changes require explicit confirmation.", {
+        projectId,
+        permissionProfileId: settings.defaultPermissionProfileId
+      });
+    }
+
     const project: Project = {
       ...existing,
       name: patch.name ?? existing.name,
       tags: patch.tags ?? existing.tags,
-      settings: normalizeProjectSettings({ ...existing.settings, ...patch.settings }),
+      settings,
       archived: patch.archived ?? existing.archived,
       updatedAt: new Date().toISOString()
     };

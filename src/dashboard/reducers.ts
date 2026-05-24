@@ -1,4 +1,4 @@
-import { defaultProjectSettings } from "../core";
+import { defaultProjectSettings, fullAccessPermissionProfileId } from "../core";
 import type {
   AgentProvider,
   AgentSession,
@@ -341,6 +341,9 @@ function rebuildDerived(snapshot: AppSnapshot): AppSnapshot {
 }
 
 function deriveProjectRuntimeState(project: ProjectSnapshot): ProjectRuntimeState {
+  if (project.project.settings.defaultPermissionProfileId === fullAccessPermissionProfileId) {
+    return "unsafe_mode";
+  }
   if (project.approvals.some((approval) => approval.status === "pending" && isUnsafeRisk(approval.risk))) {
     return "unsafe_mode";
   }
@@ -743,6 +746,9 @@ function stateReason(project: ProjectSnapshot, changedFiles: number, approvals: 
   if (project.runtimeState === "checks_failed") return `${failedChecks} required check failed.`;
   if (project.runtimeState === "ready_for_review") return `${changedFiles} changed file(s) are ready for review.`;
   if (project.runtimeState === "stale") return "A session is stale or disconnected.";
+  if (project.project.settings.defaultPermissionProfileId === fullAccessPermissionProfileId) {
+    return "A broad permission profile requires attention.";
+  }
   if (project.runtimeState === "unsafe_mode") return "A high-risk or unknown-risk request needs attention.";
   if (project.runtimeState === "agent_running") return "An agent turn is in progress.";
   if (project.git.dirty) return `${changedFiles} changed file(s) detected.`;

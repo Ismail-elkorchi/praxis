@@ -47,8 +47,11 @@ export type ProjectSettings = {
   showInDashboard: boolean;
 };
 
+export const guardedPermissionProfileId = "permission_default" as PermissionProfileId;
+export const fullAccessPermissionProfileId = "permission_full_access" as PermissionProfileId;
+
 export const defaultProjectSettings: ProjectSettings = {
-  defaultPermissionProfileId: "permission_default" as PermissionProfileId,
+  defaultPermissionProfileId: guardedPermissionProfileId,
   defaultCheckIds: [],
   preferredWorktreeMode: "manual",
   autoRefreshGit: true,

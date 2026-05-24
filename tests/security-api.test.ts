@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   approvalRequestId,
+  fullAccessPermissionProfileId,
   providerId,
   type AgentSessionId,
   type AgentTurnId,
@@ -26,8 +27,54 @@ describe("security, API, and provider-neutral surface", () => {
 
     expect(defaultPermissionProfile.commandPolicy).not.toBe("allow");
     expect(defaultPermissionProfile.fileWritePolicy).not.toBe("allow");
+    expect(defaultPermissionProfile.id).not.toBe(fullAccessPermissionProfileId);
     expect(policy.requiresApproval({ risk: "unknown" })).toBe(true);
     expect(policy.riskSignalsForFile("/workspace/project", "../outside.txt")).toContain("writes_outside_workspace");
+  });
+
+  it("requires confirmation for broad permission profile changes and shows unsafe attention after confirmation", async () => {
+    const app = await createPraxisApp();
+    const api = new PraxisApi(app);
+    const rootPath = await createTempProject({ packageJson: false });
+    const project = await app.projects.registerProject({ rootPath });
+
+    await expect(
+      api.handle({
+        id: "broad-without-confirmation",
+        method: "projects.update",
+        params: {
+          projectId: project.id,
+          patch: { settings: { defaultPermissionProfileId: fullAccessPermissionProfileId } }
+        }
+      })
+    ).resolves.toMatchObject({
+      id: "broad-without-confirmation",
+      error: { code: "confirmation_required" }
+    });
+    expect(app.snapshot().projects[project.id]?.runtimeState).toBe("idle");
+
+    await expect(
+      api.handle({
+        id: "broad-confirmed",
+        method: "projects.update",
+        params: {
+          projectId: project.id,
+          patch: { settings: { defaultPermissionProfileId: fullAccessPermissionProfileId } },
+          confirmBroadPermissionProfile: true
+        }
+      })
+    ).resolves.toMatchObject({
+      id: "broad-confirmed",
+      result: { settings: { defaultPermissionProfileId: fullAccessPermissionProfileId } }
+    });
+
+    const projectState = app.snapshot().projects[project.id];
+    const card = app.snapshot().dashboard.projectCards.find((item) => item.projectId === project.id);
+    expect(projectState?.runtimeState).toBe("unsafe_mode");
+    expect(app.snapshot().dashboard.mode).toBe("unsafe_attention");
+    expect(app.snapshot().dashboard.globalStatus.unsafeStateCount).toBe(1);
+    expect(card?.stateReason).toMatch(/broad permission profile/i);
+    await expect(app.replay()).resolves.toEqual(app.snapshot());
   });
 
   it("redacts secret-like values from logs", () => {

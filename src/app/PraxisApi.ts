@@ -86,8 +86,11 @@ export class PraxisApi {
         const input = params as {
           projectId: ProjectId;
           patch: { name?: string; tags?: string[]; archived?: boolean; settings?: Partial<ProjectSettings> };
+          confirmBroadPermissionProfile?: boolean;
         };
-        return this.app.projects.updateProject(input.projectId, input.patch);
+        return this.app.projects.updateProject(input.projectId, input.patch, {
+          confirmBroadPermissionProfile: input.confirmBroadPermissionProfile
+        });
       }
       case "projects.archive": {
         const input = params as { projectId: ProjectId };
