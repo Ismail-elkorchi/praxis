@@ -5,6 +5,7 @@ import path from "node:path";
 import { WebSocketServer } from "ws";
 import type { PraxisRuntime } from "../app/PraxisApp";
 import { PraxisApi, type ClientRequest } from "../app/PraxisApi";
+import type { DomainEvent } from "../core";
 
 export type LocalServerOptions = {
   app: PraxisRuntime;
@@ -42,10 +43,11 @@ export function createLocalServer(options: LocalServerOptions) {
       if (request.method === "POST" && request.url === "/api") {
         const body = await readBody(request);
         const clientRequest = JSON.parse(body) as ClientRequest;
+        const beforeSequence = await latestEventSequence();
         const result = await api.handle(clientRequest);
         writeJson(response, "error" in result ? 400 : 200, result);
         if (!("error" in result)) {
-          broadcastMethodPushes(clientRequest.method);
+          await broadcastPushes(clientRequest.method, beforeSequence);
         }
         return;
       }
@@ -68,16 +70,23 @@ export function createLocalServer(options: LocalServerOptions) {
     socket.send(JSON.stringify({ type: "push", channel: "dashboard.snapshotChanged", data: options.app.snapshot().dashboard }));
     socket.on("message", async (message) => {
       const clientRequest = JSON.parse(String(message)) as ClientRequest;
+      const beforeSequence = await latestEventSequence();
       const result = await api.handle(clientRequest);
       socket.send(JSON.stringify(result));
       if (!("error" in result)) {
-        broadcastMethodPushes(clientRequest.method);
+        await broadcastPushes(clientRequest.method, beforeSequence);
       }
     });
   });
 
-  function broadcastMethodPushes(method: string): void {
-    const channels = pushChannelsByMethod[method] ?? [];
+  async function latestEventSequence(): Promise<number> {
+    const events = await options.app.events.queryEvents();
+    return Math.max(0, ...events.map((event) => event.sequence ?? 0));
+  }
+
+  async function broadcastPushes(method: string, beforeSequence: number): Promise<void> {
+    const newEvents = await options.app.events.queryEvents({ afterSequence: beforeSequence });
+    const channels = channelsForMutation(method, newEvents);
     for (const channel of channels) {
       broadcast(channel, options.app.snapshot().dashboard);
     }
@@ -93,6 +102,40 @@ export function createLocalServer(options: LocalServerOptions) {
   }
 
   return { server, sockets, api, broadcast };
+}
+
+function channelsForMutation(method: string, events: DomainEvent[]): string[] {
+  const channels = new Set(pushChannelsByMethod[method] ?? []);
+  for (const event of events) {
+    for (const channel of channelsForEvent(event)) {
+      channels.add(channel);
+    }
+  }
+  if (channels.size > 0 && events.length > 0) {
+    channels.add("dashboard.snapshotChanged");
+  }
+  return [...channels];
+}
+
+function channelsForEvent(event: DomainEvent): string[] {
+  if (event.type === "approval.requested") return ["approval.requested"];
+  if (["approval.accepted", "approval.declined", "approval.cancelled", "approval.expired"].includes(event.type)) {
+    return ["approval.resolved"];
+  }
+  if (event.type.startsWith("agent.session")) return ["agent.sessionUpdated"];
+  if (
+    event.type.startsWith("agent.turn") ||
+    event.type.startsWith("agent.command") ||
+    event.type.startsWith("agent.fileChange") ||
+    event.type.startsWith("agent.userInput")
+  ) {
+    return ["agent.turnUpdated"];
+  }
+  if (event.type.startsWith("check.")) return ["check.updated"];
+  if (event.type === "git.statusChanged" || event.type === "git.worktree.created") return ["git.statusChanged"];
+  if (event.type.startsWith("provider.")) return ["provider.statusChanged"];
+  if (event.type.startsWith("project.")) return ["project.stateChanged"];
+  return [];
 }
 
 async function serveStatic(staticRoot: string, request: IncomingMessage, response: HttpResponse): Promise<boolean> {
