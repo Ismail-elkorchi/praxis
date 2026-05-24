@@ -1,4 +1,5 @@
 import type { AgentSessionId, AgentTurnId, ApprovalDecision, ApprovalRequestId, CheckRunId, ProjectId, ProviderId } from "../core";
+import { createDomainEvent } from "../events/eventFactory";
 import type { PraxisRuntime } from "./PraxisApp";
 import { PraxisError } from "./errors";
 
@@ -156,8 +157,19 @@ export class PraxisApi {
         return this.app.git.getDiff(input.rootPath);
       }
       case "git.createWorktree": {
-        const input = params as { rootPath: string; worktreePath: string; branch?: string };
-        return this.app.git.createWorktree(input);
+        const input = params as { projectId?: ProjectId; rootPath: string; worktreePath: string; branch?: string };
+        const created = await this.app.git.createWorktree(input);
+        const projectId = input.projectId ?? projectIdForRoot(this.app, input.rootPath);
+        await this.app.events.append(
+          createDomainEvent({
+            type: "git.worktree.created",
+            projectId,
+            source: "git",
+            payload: { path: created.path, branch: created.branch, rootPath: input.rootPath },
+            evidence: [{ type: "git", repoPath: input.rootPath }]
+          })
+        );
+        return created;
       }
       case "events.replay":
         return this.app.replay();
@@ -167,6 +179,10 @@ export class PraxisApi {
         throw new PraxisError("method_not_found", "API method was not found.", { method });
     }
   }
+}
+
+function projectIdForRoot(app: PraxisRuntime, rootPath: string): ProjectId | undefined {
+  return app.projects.listProjects().find((project) => project.rootPath === rootPath || project.canonicalPath === rootPath)?.id;
 }
 
 function toApiError(error: unknown): ApiError {

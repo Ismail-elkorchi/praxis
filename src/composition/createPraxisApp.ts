@@ -4,7 +4,7 @@ import { AppEventLog } from "../events/AppEventLog";
 import { InMemoryEventStore, type EventStore } from "../events/EventStore";
 import { PolicyService } from "../policies/PolicyService";
 import { PluginRegistry } from "../plugins/PluginRegistry";
-import { SettingsService } from "../settings/SettingsService";
+import { SettingsService, type SettingsRepository } from "../settings/SettingsService";
 import { FakeProviderAdapter } from "../providers/fake/FakeProviderAdapter";
 import type { FakeProviderScenarioName } from "../providers/fake/FakeProviderScenarios";
 import type { ProviderAdapter } from "../providers/interface";
@@ -34,7 +34,7 @@ export async function createPraxisApp(
   const checks = new CheckService(events, () => events.snapshot());
   const policies = new PolicyService();
   const plugins = new PluginRegistry(events);
-  const settings = new SettingsService();
+  const settings = new SettingsService(isSettingsRepository(eventStore) ? eventStore : undefined);
 
   await providers.registerAvailableProviders();
 
@@ -54,4 +54,13 @@ export async function createPraxisApp(
     restore: () => events.restore(),
     replay: () => events.replay()
   };
+}
+
+function isSettingsRepository(value: EventStore): value is EventStore & SettingsRepository {
+  return (
+    "readSetting" in value &&
+    typeof value.readSetting === "function" &&
+    "writeSetting" in value &&
+    typeof value.writeSetting === "function"
+  );
 }

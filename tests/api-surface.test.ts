@@ -1,7 +1,12 @@
+import { randomUUID } from "node:crypto";
+import { mkdtemp } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { apiMethods, PraxisApi } from "../src/app/PraxisApi";
 import { providerId } from "../src/core";
 import { createPraxisApp } from "../src/composition/createPraxisApp";
+import { SqliteEventStore } from "../src/events/SqliteEventStore";
 import { createTempProject } from "./helpers/tempProject";
 
 const requiredApiMethods = [
@@ -98,5 +103,33 @@ describe("provider-neutral API surface", () => {
     await expect(
       api.handle({ id: "read", method: "agents.readSession", params: { providerId: providerId("fake"), sessionId } })
     ).resolves.toMatchObject({ id: "read", result: expect.objectContaining({ session: expect.objectContaining({ id: sessionId }) }) });
+  });
+
+  it("emits a provider-neutral event for worktree creation", async () => {
+    const databasePath = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-worktree-db-")), "praxis.sqlite");
+    const store = new SqliteEventStore(databasePath);
+    const app = await createPraxisApp({ eventStore: store });
+    const api = new PraxisApi(app);
+    const rootPath = await createTempProject({ git: true });
+    const project = await app.projects.registerProject({ rootPath });
+    const worktreePath = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-worktree-")), "task");
+
+    await expect(
+      api.handle({
+        id: "worktree",
+        method: "git.createWorktree",
+        params: {
+          projectId: project.id,
+          rootPath,
+          worktreePath,
+          branch: `task-${randomUUID()}`
+        }
+      })
+    ).resolves.toMatchObject({ id: "worktree", result: { path: worktreePath } });
+
+    expect((await app.events.queryEvents()).map((event) => event.type)).toContain("git.worktree.created");
+    expect(store.countRows("worktrees")).toBe(1);
+    expect(store.tableRows("worktrees")[0]).toMatchObject({ project_id: project.id, root_path: worktreePath });
+    store.close();
   });
 });

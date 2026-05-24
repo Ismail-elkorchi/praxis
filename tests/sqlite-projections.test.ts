@@ -48,6 +48,7 @@ describe("SQLite durable projections", () => {
     expect(store.countRows("check_definitions")).toBeGreaterThanOrEqual(1);
     expect(store.countRows("check_runs")).toBe(1);
     expect(store.countRows("git_snapshots")).toBe(1);
+    expect(store.countRows("settings")).toBe(1);
     await expect(app.replay()).resolves.toEqual(app.snapshot());
 
     const provider = store.tableRows("providers")[0]!;
