@@ -1,4 +1,4 @@
-import type { AgentSessionId, ApprovalDecision, ApprovalRequestId, ProjectId, ProviderId } from "../core";
+import type { AgentSessionId, AgentTurnId, ApprovalDecision, ApprovalRequestId, CheckRunId, ProjectId, ProviderId } from "../core";
 import type { PraxisRuntime } from "./PraxisApp";
 import { PraxisError } from "./errors";
 
@@ -12,6 +12,7 @@ export type ApiError = {
   code: string;
   message: string;
   details?: Record<string, unknown>;
+  evidence?: unknown[];
 };
 
 export type ServerResponse = { id: string; result: unknown } | { id: string; error: ApiError };
@@ -19,22 +20,32 @@ export type ServerResponse = { id: string; result: unknown } | { id: string; err
 export const apiMethods = [
   "projects.list",
   "projects.register",
+  "projects.update",
+  "projects.archive",
   "projects.refresh",
   "providers.list",
   "providers.getStatus",
   "providers.getCapabilities",
   "providers.checkAvailability",
   "agents.startSession",
+  "agents.resumeSession",
   "agents.stopSession",
   "agents.sendTurn",
+  "agents.steerTurn",
   "agents.interruptTurn",
   "agents.respondToApproval",
+  "agents.respondToUserInput",
+  "agents.readSession",
+  "agents.listSessions",
   "dashboard.getSnapshot",
+  "dashboard.subscribe",
   "dashboard.explainMode",
   "checks.list",
   "checks.run",
+  "checks.cancel",
   "git.getStatus",
   "git.openDiff",
+  "git.createWorktree",
   "events.replay",
   "events.query"
 ] as const;
@@ -60,8 +71,21 @@ export class PraxisApi {
         const input = params as { rootPath: string; name?: string; defaultProviderId?: ProviderId };
         return this.app.projects.registerProject(input);
       }
-      case "projects.refresh":
+      case "projects.update": {
+        const input = params as { projectId: ProjectId; patch: { name?: string; tags?: string[]; archived?: boolean } };
+        return this.app.projects.updateProject(input.projectId, input.patch);
+      }
+      case "projects.archive": {
+        const input = params as { projectId: ProjectId };
+        return this.app.projects.archiveProject(input.projectId);
+      }
+      case "projects.refresh": {
+        const input = params as { projectId?: ProjectId };
+        if (input?.projectId) {
+          await this.app.projects.refreshProject(input.projectId);
+        }
         return this.app.snapshot().dashboard.projectCards;
+      }
       case "providers.list":
         return this.app.providerRegistry.listProviders();
       case "providers.getStatus":
@@ -72,6 +96,10 @@ export class PraxisApi {
         const input = params as { providerId: ProviderId; projectId: ProjectId; cwd: string; goal?: string };
         return this.app.providers.startSession(input);
       }
+      case "agents.resumeSession":
+        return this.app.providers.resumeSession(params as { providerId: ProviderId; sessionId: AgentSessionId });
+      case "agents.stopSession":
+        return this.app.providers.stopSession(params as { providerId: ProviderId; sessionId: AgentSessionId; reason?: string });
       case "agents.sendTurn": {
         const input = params as {
           providerId: ProviderId;
@@ -81,13 +109,28 @@ export class PraxisApi {
         };
         return this.app.providers.sendTurn(input);
       }
+      case "agents.steerTurn":
+        return this.app.providers.steerTurn(
+          params as { providerId: ProviderId; sessionId: AgentSessionId; turnId: AgentTurnId; input: string }
+        );
       case "agents.interruptTurn":
         return this.app.providers.interruptTurn(params as Parameters<typeof this.app.providers.interruptTurn>[0]);
       case "agents.respondToApproval": {
         const input = params as { providerId: ProviderId; approvalId: ApprovalRequestId; decision: ApprovalDecision };
         return this.app.providers.decideApproval(input);
       }
+      case "agents.respondToUserInput":
+        return this.app.providers.respondToUserInput(
+          params as { providerId: ProviderId; sessionId: AgentSessionId; turnId?: AgentTurnId; input: string }
+        );
+      case "agents.readSession":
+        return this.app.providers.readSession(params as { providerId: ProviderId; sessionId: AgentSessionId });
+      case "agents.listSessions":
+        return this.app.providers.listSessions(
+          params as { providerId?: ProviderId; projectId?: ProjectId; cursor?: string; limit?: number }
+        );
       case "dashboard.getSnapshot":
+      case "dashboard.subscribe":
       case "dashboard.explainMode":
         return this.app.snapshot().dashboard;
       case "checks.list": {
@@ -100,6 +143,10 @@ export class PraxisApi {
         if (!definition) throw new PraxisError("not_found", "Check definition was not found.");
         return this.app.checks.runCheck(definition);
       }
+      case "checks.cancel": {
+        const input = params as { runId: CheckRunId };
+        return this.app.checks.cancelRun(input.runId);
+      }
       case "git.getStatus": {
         const input = params as { rootPath: string };
         return this.app.git.getStatus(input.rootPath);
@@ -107,6 +154,10 @@ export class PraxisApi {
       case "git.openDiff": {
         const input = params as { rootPath: string };
         return this.app.git.getDiff(input.rootPath);
+      }
+      case "git.createWorktree": {
+        const input = params as { rootPath: string; worktreePath: string; branch?: string };
+        return this.app.git.createWorktree(input);
       }
       case "events.replay":
         return this.app.replay();
@@ -120,7 +171,7 @@ export class PraxisApi {
 
 function toApiError(error: unknown): ApiError {
   if (error instanceof PraxisError) {
-    return { code: error.code, message: error.message, details: error.details };
+    return { code: error.code, message: error.message, details: error.details, evidence: error.evidence };
   }
   return {
     code: "internal_error",

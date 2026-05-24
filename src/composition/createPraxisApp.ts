@@ -3,6 +3,7 @@ import { GitService } from "../git/GitService";
 import { AppEventLog } from "../events/AppEventLog";
 import { InMemoryEventStore, type EventStore } from "../events/EventStore";
 import { PolicyService } from "../policies/PolicyService";
+import { PluginRegistry } from "../plugins/PluginRegistry";
 import { SettingsService } from "../settings/SettingsService";
 import { FakeProviderAdapter } from "../providers/fake/FakeProviderAdapter";
 import type { FakeProviderScenarioName } from "../providers/fake/FakeProviderScenarios";
@@ -32,6 +33,7 @@ export async function createPraxisApp(
   const providers = new ProviderService(providerRegistry, events, () => events.snapshot());
   const checks = new CheckService(events, () => events.snapshot());
   const policies = new PolicyService();
+  const plugins = new PluginRegistry(events);
   const settings = new SettingsService();
 
   await providers.registerAvailableProviders();
@@ -46,6 +48,7 @@ export async function createPraxisApp(
     git,
     checks,
     policies,
+    plugins,
     settings,
     snapshot: () => events.snapshot(),
     restore: () => events.restore(),

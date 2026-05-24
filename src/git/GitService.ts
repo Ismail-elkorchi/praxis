@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { GitSnapshot } from "../core";
@@ -89,6 +89,17 @@ export class GitService {
     }
 
     return diffs;
+  }
+
+  async createWorktree(input: { rootPath: string; worktreePath: string; branch?: string }): Promise<{ path: string; branch?: string }> {
+    await mkdir(path.dirname(input.worktreePath), { recursive: true });
+    const args = ["worktree", "add"];
+    if (input.branch) {
+      args.push("-b", input.branch);
+    }
+    args.push(input.worktreePath);
+    await git(input.rootPath, args);
+    return { path: input.worktreePath, branch: input.branch };
   }
 
   private async isRepository(rootPath: string): Promise<boolean> {

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { checkRunId, type CheckDefinition, type CheckRun, type ProjectId } from "../core";
+import { checkRunId, type CheckDefinition, type CheckRun, type CheckRunId, type ProjectId } from "../core";
 import type { AppSnapshot } from "../dashboard/types";
 import type { AppEventLog } from "../events/AppEventLog";
 import { createDomainEvent } from "../events/eventFactory";
@@ -8,6 +8,8 @@ import { createDomainEvent } from "../events/eventFactory";
 const execFileAsync = promisify(execFile);
 
 export class CheckService {
+  private readonly cancelledRuns = new Set<CheckRunId>();
+
   constructor(
     private readonly events: AppEventLog,
     private readonly getSnapshot: () => AppSnapshot
@@ -82,6 +84,31 @@ export class CheckService {
       );
       return failed;
     }
+  }
+
+  async cancelRun(runId: CheckRunId): Promise<CheckRun> {
+    this.cancelledRuns.add(runId);
+    const run = Object.values(this.getSnapshot().projects)
+      .flatMap((project) => project.checkRuns)
+      .find((checkRun) => checkRun.id === runId);
+    if (!run) {
+      throw new Error("Check run was not found.");
+    }
+    const cancelled: CheckRun = {
+      ...run,
+      status: "cancelled",
+      completedAt: new Date().toISOString()
+    };
+    await this.events.append(
+      createDomainEvent({
+        type: "check.cancelled",
+        projectId: run.projectId,
+        source: "check",
+        payload: cancelled,
+        evidence: [{ type: "check", runId: cancelled.id, status: cancelled.status }]
+      })
+    );
+    return cancelled;
   }
 }
 

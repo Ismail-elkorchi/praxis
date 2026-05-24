@@ -4,6 +4,7 @@ import type { AppEventLog } from "../events/AppEventLog";
 import type { EventStore } from "../events/EventStore";
 import type { GitService } from "../git/GitService";
 import type { PolicyService } from "../policies/PolicyService";
+import type { PluginRegistry } from "../plugins/PluginRegistry";
 import type { ProjectRegistryService } from "../projects/ProjectRegistryService";
 import type { SettingsService } from "../settings/SettingsService";
 import type { ProviderRegistry } from "./ProviderRegistry";
@@ -18,6 +19,7 @@ export type PraxisRuntime = {
   git: GitService;
   checks: CheckService;
   policies: PolicyService;
+  plugins: PluginRegistry;
   settings: SettingsService;
   snapshot(): AppSnapshot;
   restore(): Promise<AppSnapshot>;

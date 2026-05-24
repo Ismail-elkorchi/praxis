@@ -13,12 +13,20 @@ export type LocalServerOptions = {
 
 const pushChannelsByMethod: Record<string, string[]> = {
   "projects.register": ["dashboard.snapshotChanged", "project.stateChanged"],
+  "projects.update": ["dashboard.snapshotChanged", "project.stateChanged"],
+  "projects.archive": ["dashboard.snapshotChanged", "project.stateChanged"],
   "projects.refresh": ["dashboard.snapshotChanged", "project.stateChanged"],
   "agents.startSession": ["dashboard.snapshotChanged", "agent.sessionUpdated"],
+  "agents.resumeSession": ["dashboard.snapshotChanged", "agent.sessionUpdated"],
+  "agents.stopSession": ["dashboard.snapshotChanged", "agent.sessionUpdated"],
   "agents.sendTurn": ["dashboard.snapshotChanged", "agent.turnUpdated"],
+  "agents.steerTurn": ["dashboard.snapshotChanged", "agent.turnUpdated"],
   "agents.interruptTurn": ["dashboard.snapshotChanged", "agent.turnUpdated"],
   "agents.respondToApproval": ["dashboard.snapshotChanged", "approval.resolved"],
-  "checks.run": ["dashboard.snapshotChanged", "check.updated"]
+  "agents.respondToUserInput": ["dashboard.snapshotChanged", "agent.turnUpdated"],
+  "checks.run": ["dashboard.snapshotChanged", "check.updated"],
+  "checks.cancel": ["dashboard.snapshotChanged", "check.updated"],
+  "git.createWorktree": ["dashboard.snapshotChanged", "git.statusChanged"]
 };
 
 export function createLocalServer(options: LocalServerOptions) {

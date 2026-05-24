@@ -10,3 +10,4 @@
 ## Unreleased
 
 - Continue production-depth implementation of the local runtime, persistence, API, UI integration, settings, and extension surfaces.
+- Added the complete provider-neutral API method surface and a plugin registry that emits commands instead of mutating core state directly.

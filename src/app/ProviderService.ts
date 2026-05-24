@@ -11,7 +11,8 @@ import {
   type ApprovalRequestId,
   type DomainEvent,
   type ProjectId,
-  type ProviderId
+  type ProviderId,
+  type AgentSession
 } from "../core";
 import type { AppSnapshot } from "../dashboard/types";
 import { createDomainEvent } from "../events/eventFactory";
@@ -131,6 +132,48 @@ export class ProviderService {
     return result.turnId ?? turnId;
   }
 
+  async resumeSession(input: { providerId: ProviderId; sessionId: AgentSessionId }): Promise<void> {
+    const adapter = this.requireAdapter(input.providerId);
+    const capabilities = await adapter.getCapabilities();
+    if (!capabilities.canResumeSession || !adapter.resumeSession) {
+      throw capabilityError("Provider does not support resuming sessions.", { providerId: input.providerId });
+    }
+    const result = await adapter.resumeSession({ sessionId: input.sessionId });
+    await this.recordProviderEvents(result.events);
+  }
+
+  async stopSession(input: { providerId: ProviderId; sessionId: AgentSessionId; reason?: string }): Promise<void> {
+    const adapter = this.requireAdapter(input.providerId);
+    const session = findSession(this.getSnapshot(), input.sessionId);
+    await adapter.stopSession({ sessionId: input.sessionId, reason: input.reason });
+    await this.ingestProviderEvents(adapter, input.sessionId);
+    if (!session) return;
+    const after = findSession(this.getSnapshot(), input.sessionId);
+    if (after?.state !== "stopped") {
+      await this.events.append(
+        createDomainEvent({
+          type: "agent.session.stopped",
+          projectId: session.projectId,
+          sessionId: input.sessionId,
+          providerId: input.providerId,
+          source: "system",
+          payload: { reason: input.reason ?? "Stopped by user." },
+          evidence: []
+        })
+      );
+    }
+  }
+
+  async steerTurn(input: { providerId: ProviderId; sessionId: AgentSessionId; turnId: AgentTurnId; input: string }): Promise<void> {
+    const adapter = this.requireAdapter(input.providerId);
+    const capabilities = await adapter.getCapabilities();
+    if (!capabilities.canSteerTurn || !adapter.steerTurn) {
+      throw capabilityError("Provider does not support steering turns.", { providerId: input.providerId });
+    }
+    await adapter.steerTurn(input);
+    await this.ingestProviderEvents(adapter, input.sessionId);
+  }
+
   async interruptTurn(input: {
     providerId: ProviderId;
     sessionId: AgentSessionId;
@@ -207,6 +250,47 @@ export class ProviderService {
     }
   }
 
+  async respondToUserInput(input: {
+    providerId: ProviderId;
+    sessionId: AgentSessionId;
+    turnId?: AgentTurnId;
+    input: string;
+  }): Promise<void> {
+    const adapter = this.requireAdapter(input.providerId);
+    if (!adapter.respondToUserInput) {
+      throw capabilityError("Provider does not support user input responses.", { providerId: input.providerId });
+    }
+    await adapter.respondToUserInput(input);
+    await this.ingestProviderEvents(adapter, input.sessionId);
+  }
+
+  async readSession(input: { providerId: ProviderId; sessionId: AgentSessionId }): Promise<unknown> {
+    const adapter = this.requireAdapter(input.providerId);
+    if (adapter.readSession) {
+      return adapter.readSession({ sessionId: input.sessionId });
+    }
+    const session = findSession(this.getSnapshot(), input.sessionId);
+    if (!session) {
+      throw notFoundError("Session was not found.", { sessionId: input.sessionId });
+    }
+    return { session, events: this.getSnapshot().events.filter((event) => event.sessionId === input.sessionId) };
+  }
+
+  async listSessions(input: { providerId?: ProviderId; projectId?: ProjectId; cursor?: string; limit?: number }): Promise<unknown> {
+    if (input.providerId) {
+      const adapter = this.requireAdapter(input.providerId);
+      if (adapter.listSessions) {
+        return adapter.listSessions({ projectId: input.projectId, cursor: input.cursor, limit: input.limit });
+      }
+    }
+    const sessions = Object.values(this.getSnapshot().projects)
+      .flatMap((project) => Object.values(project.sessions))
+      .filter((session) => !input.projectId || session.projectId === input.projectId)
+      .filter((session) => !input.providerId || session.providerId === input.providerId)
+      .slice(0, input.limit ?? 100);
+    return { sessions };
+  }
+
   createApprovalRequest(input: {
     projectId: ProjectId;
     sessionId: AgentSessionId;
@@ -279,6 +363,12 @@ function findApproval(snapshot: AppSnapshot, approvalId: ApprovalRequestId): App
   return Object.values(snapshot.projects)
     .flatMap((project) => project.approvals)
     .find((approval) => approval.id === approvalId);
+}
+
+function findSession(snapshot: AppSnapshot, sessionId: AgentSessionId): AgentSession | undefined {
+  return Object.values(snapshot.projects)
+    .flatMap((project) => Object.values(project.sessions))
+    .find((session) => session.id === sessionId);
 }
 
 function approvalEventType(decision: ApprovalDecision): "approval.accepted" | "approval.declined" | "approval.cancelled" {

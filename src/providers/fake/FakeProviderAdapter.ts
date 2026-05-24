@@ -113,6 +113,24 @@ export class FakeProviderAdapter implements ProviderAdapter {
     return { sessionId, providerSessionRef, events };
   }
 
+  async resumeSession(input: { sessionId: AgentSessionId }): Promise<{ events: DomainEvent[] }> {
+    const projectId = this.activeProjectId;
+    if (!projectId) {
+      return { events: [] };
+    }
+    const event = createDomainEvent({
+      type: "agent.session.resumed",
+      projectId,
+      sessionId: input.sessionId,
+      providerId: this.id,
+      source: "provider",
+      payload: { resumed: true },
+      evidence: []
+    });
+    this.events.push(event);
+    return { events: [event] };
+  }
+
   async stopSession(input: StopSessionInput): Promise<void> {
     this.events.push({
       id: eventId(),
@@ -169,6 +187,23 @@ export class FakeProviderAdapter implements ProviderAdapter {
         providerId: this.id,
         source: "provider",
         payload: { reason: input.reason ?? "Interrupted by user." },
+        evidence: []
+      })
+    );
+  }
+
+  async steerTurn(input: { sessionId: AgentSessionId; turnId: AgentTurnId; input: string }): Promise<void> {
+    const projectId = this.activeProjectId;
+    if (!projectId) return;
+    this.events.push(
+      createDomainEvent({
+        type: "agent.turn.delta",
+        projectId,
+        sessionId: input.sessionId,
+        turnId: input.turnId,
+        providerId: this.id,
+        source: "provider",
+        payload: { text: input.input },
         evidence: []
       })
     );

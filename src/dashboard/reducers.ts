@@ -80,6 +80,16 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
       };
       break;
     }
+    case "project.updated":
+    case "project.archived": {
+      const payload = event.payload as { project: ProjectSnapshot["project"] };
+      const project = next.projects[payload.project.id];
+      if (project) {
+        project.project = payload.project;
+        project.lastActivityAt = event.timestamp;
+      }
+      break;
+    }
     case "provider.registered":
     case "provider.available":
     case "provider.unavailable":
@@ -125,6 +135,15 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
         };
         project.sessions[event.sessionId] = session;
         project.lastActivityAt = event.timestamp;
+      }
+      break;
+    }
+    case "agent.session.resumed": {
+      const project = touchProject(next, event);
+      const session = project && event.sessionId ? project.sessions[event.sessionId] : undefined;
+      if (session) {
+        session.state = "active";
+        session.updatedAt = event.timestamp;
       }
       break;
     }
@@ -254,7 +273,8 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
     }
     case "check.started":
     case "check.completed":
-    case "check.failed": {
+    case "check.failed":
+    case "check.cancelled": {
       const project = touchProject(next, event);
       const checkRun = event.payload as CheckRun;
       if (project) {

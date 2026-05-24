@@ -76,6 +76,64 @@ export class ProjectRegistryService {
     return project;
   }
 
+  async updateProject(projectId: ProjectId, patch: { name?: string; tags?: string[]; archived?: boolean }): Promise<Project> {
+    const existing = this.getProject(projectId);
+    if (!existing) {
+      throw new Error("Project was not found.");
+    }
+
+    const project: Project = {
+      ...existing,
+      name: patch.name ?? existing.name,
+      tags: patch.tags ?? existing.tags,
+      archived: patch.archived ?? existing.archived,
+      updatedAt: new Date().toISOString()
+    };
+
+    await this.events.append(
+      createDomainEvent({
+        type: "project.updated",
+        projectId,
+        source: "user",
+        payload: { project },
+        evidence: []
+      })
+    );
+
+    return project;
+  }
+
+  async archiveProject(projectId: ProjectId): Promise<Project> {
+    const project = await this.updateProject(projectId, { archived: true });
+    await this.events.append(
+      createDomainEvent({
+        type: "project.archived",
+        projectId,
+        source: "user",
+        payload: { project },
+        evidence: []
+      })
+    );
+    return project;
+  }
+
+  async refreshProject(projectId: ProjectId): Promise<void> {
+    const project = this.getProject(projectId);
+    if (!project) {
+      throw new Error("Project was not found.");
+    }
+    const gitSnapshot = await this.git.getStatus(project.canonicalPath);
+    await this.events.append(
+      createDomainEvent({
+        type: "git.statusChanged",
+        projectId,
+        source: "git",
+        payload: gitSnapshot,
+        evidence: [{ type: "git", repoPath: project.canonicalPath, sha: gitSnapshot.headSha }]
+      })
+    );
+  }
+
   listProjects(): Project[] {
     return Object.values(this.getSnapshot().projects).map((entry) => entry.project);
   }
