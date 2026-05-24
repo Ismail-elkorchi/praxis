@@ -1,6 +1,8 @@
-import { mkdtemp } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { providerId, type ProviderCapabilities } from "../src/core";
 import { createPraxisApp } from "../src/composition/createPraxisApp";
@@ -9,6 +11,8 @@ import type { ProviderAdapter } from "../src/providers/interface";
 import { startPraxisRuntime } from "../src/runtime/PraxisRuntimeHost";
 import { defaultAppSettings, SettingsService } from "../src/settings/SettingsService";
 import { createTempProject } from "./helpers/tempProject";
+
+const execFileAsync = promisify(execFile);
 
 describe("release hardening", () => {
   it("keeps raw provider logs disabled by default and requires confirmation to enable them", () => {
@@ -94,6 +98,55 @@ describe("release hardening", () => {
     expect(second.app.snapshot().dashboard.projectCards.some((card) => card.projectId === project.id)).toBe(true);
     expect(second.app.snapshot().approvals.history).toEqual([]);
     await second.shutdown();
+  });
+
+  it("ships public fake-provider onboarding examples without private-surface terms", async () => {
+    const root = process.cwd();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8")) as { files?: string[] };
+    expect(packageJson.files).toContain("examples");
+
+    const publicOnboardingFiles = ["README.md", "examples/README.md", "examples/fake-provider-workflow.ts"];
+    const join = (...parts: string[]) => parts.join("");
+    const deniedTerms = [
+      join("tse-", "workbench"),
+      join("projects/", "Praxis"),
+      join("clusters", "/"),
+      join("plans/", "provider-neutral-agent-control-plane-specs"),
+      join("go", "als/"),
+      join("public-private", ".tmp"),
+      join("/home/", "ismail-el-korchi"),
+      join("/", "goal")
+    ];
+
+    for (const file of publicOnboardingFiles) {
+      const content = await readFile(path.join(root, file), "utf8");
+      for (const term of deniedTerms) {
+        expect(content, `${file} must not include ${term}`).not.toContain(term);
+      }
+    }
+
+    const tsxBin = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "tsx.cmd" : "tsx");
+    const { stdout } = await execFileAsync(tsxBin, ["examples/fake-provider-workflow.ts"], {
+      cwd: root,
+      timeout: 15_000
+    });
+    const output = JSON.parse(stdout) as {
+      providerStatuses: { name: string; status: string }[];
+      realProviderCount: number;
+      modeBeforeDecision: string;
+      pendingApprovals: number;
+      approvalHistory: { status: string }[];
+      commandRuns?: { status: string; exitCode?: number }[];
+      eventTypes: string[];
+    };
+
+    expect(output.providerStatuses).toEqual([{ name: "Fake provider", status: "available" }]);
+    expect(output.realProviderCount).toBe(0);
+    expect(output.modeBeforeDecision).toBe("approval_center");
+    expect(output.pendingApprovals).toBe(0);
+    expect(output.approvalHistory).toEqual([expect.objectContaining({ status: "accepted" })]);
+    expect(output.commandRuns).toEqual([expect.objectContaining({ status: "completed", exitCode: 0 })]);
+    expect(output.eventTypes).toEqual(expect.arrayContaining(["project.registered", "approval.requested", "approval.accepted"]));
   });
 });
 

@@ -40,3 +40,4 @@
 - Added provider-neutral settings API/UI coverage with raw-provider-log confirmation and provider settings kept under Providers.
 - Changed compact and medium layouts to keep approvals visible while rendering Details as a responsive drawer.
 - Added provider-neutral diagnostics API and a Settings debug-export preview covering logs, inspectors, metrics, and replay health.
+- Added shipped public examples for fake-provider onboarding and release-hardening tests that execute the example surface.

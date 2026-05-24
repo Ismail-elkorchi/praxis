@@ -18,6 +18,12 @@ npm run dev
 
 The development server opens the provider-neutral dashboard with fake-provider data available for local workflows and tests.
 
+To run a provider-neutral workflow from the command line with the built-in fake provider:
+
+```sh
+npx tsx examples/fake-provider-workflow.ts
+```
+
 To run the local app server against the production build:
 
 ```sh
