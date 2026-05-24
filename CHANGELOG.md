@@ -34,3 +34,4 @@
 - Hardened git diff classification for created, modified, deleted, renamed, untracked, binary, and non-git project cases.
 - Added searchable provider-neutral diff review UI with source session/turn details, rename display, and binary metadata handling.
 - Added dashboard check-run view models and Checks UI for active/recent runs, commands, durations, exit codes, output, and failed-file triage links.
+- Hardened the activity timeline with turn grouping, lazy details expansion, event-kind coverage, and hidden raw provider payloads.

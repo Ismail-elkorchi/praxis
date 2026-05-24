@@ -73,6 +73,24 @@ test("activity timeline filters by event type", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "approval.requested" })).toHaveCount(0);
 });
 
+test("activity timeline groups by turn and expands details lazily", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Activity" }).click();
+  const turnGroup = page.getByRole("region", { name: "Turn turn-alpha" });
+  await expect(turnGroup).toContainText("3 events");
+  await expect(turnGroup.getByRole("heading", { name: "approval.requested" })).toBeVisible();
+  await expect(turnGroup.getByRole("heading", { name: "agent.fileChange.proposed" })).toBeVisible();
+  await expect(page.getByText("provider.rawEvent")).toHaveCount(0);
+
+  const fileChangeItem = turnGroup.locator("article").filter({ hasText: "agent.fileChange.proposed" });
+  await expect(fileChangeItem.getByText("Evidence")).toHaveCount(0);
+  await fileChangeItem.getByRole("button", { name: "Show details" }).click();
+  await expect(fileChangeItem.getByText("Evidence")).toBeVisible();
+  await expect(fileChangeItem.getByText("agent.fileChange.proposed").first()).toBeVisible();
+  await expect(fileChangeItem.getByRole("button", { name: "Hide details" })).toHaveAttribute("aria-expanded", "true");
+});
+
 test("project cards support keyboard navigation and provider-neutral action mappings", async ({ page }) => {
   await page.goto("/");
 

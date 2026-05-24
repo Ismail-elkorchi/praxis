@@ -399,6 +399,69 @@ dd {
   background: #ffffff;
 }
 
+.timelineGroup {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.timelineGroupHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.4rem 0.1rem;
+}
+
+.timelineGroupHeader h2 {
+  margin: 0;
+}
+
+.timelineGroupHeader span,
+.timelineItemMeta {
+  color: #64737b;
+  font-size: 0.82rem;
+}
+
+.timelineItem.kind-provider_error {
+  border-left: 5px solid #c65d5d;
+}
+
+.timelineItem.kind-check {
+  border-left: 5px solid #d1a64b;
+}
+
+.timelineItem.kind-file_change,
+.timelineItem.kind-command {
+  border-left: 5px solid #6aa985;
+}
+
+.timelineItemMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.35rem 0;
+}
+
+.smallAction {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.82rem;
+}
+
+.timelineDetails {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin: 0.6rem 0 0;
+}
+
+.timelineDetails div {
+  min-width: 0;
+  padding: 0.45rem;
+  border: 1px solid #e1e6e9;
+  border-radius: 6px;
+  background: #f8fafb;
+}
+
 .timelineItem time {
   color: #64737b;
   font-size: 0.82rem;
@@ -772,7 +835,8 @@ pre {
   .metricGrid,
   .approvalMeta,
   .diffMeta,
-  .checkMeta {
+  .checkMeta,
+  .timelineDetails {
     grid-template-columns: 1fr;
   }
 }

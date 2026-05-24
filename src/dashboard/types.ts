@@ -139,6 +139,7 @@ export type TimelineItemViewModel = {
   projectId?: ProjectId;
   providerId?: ProviderId;
   sessionId?: AgentSessionId;
+  turnId?: AgentTurnId;
   title: string;
   summary?: string;
   timestamp: string;

@@ -582,6 +582,7 @@ function timeline(snapshot: AppSnapshot): TimelineItemViewModel[] {
       projectId: event.projectId,
       providerId: event.providerId,
       sessionId: event.sessionId,
+      turnId: event.turnId,
       title: event.type,
       summary: summarizePayload(event.payload),
       timestamp: event.timestamp,

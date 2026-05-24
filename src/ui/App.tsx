@@ -644,6 +644,7 @@ function ActivityTimeline({ items }: { items: TimelineItemViewModel[] }) {
   const [providerId, setProviderId] = useState("all");
   const [sessionId, setSessionId] = useState("all");
   const [eventType, setEventType] = useState("all");
+  const [expandedItemIds, setExpandedItemIds] = useState<string[]>([]);
   const projectOptions = optionsFor(items.map((item) => item.projectId));
   const providerOptions = optionsFor(items.map((item) => item.providerId));
   const sessionOptions = optionsFor(items.map((item) => item.sessionId));
@@ -655,6 +656,11 @@ function ActivityTimeline({ items }: { items: TimelineItemViewModel[] }) {
       matchesFilter(item.sessionId, sessionId) &&
       matchesFilter(item.eventType, eventType)
   );
+  const groups = timelineGroups(filteredItems);
+
+  function toggleTimelineItem(itemId: string) {
+    setExpandedItemIds((current) => (current.includes(itemId) ? current.filter((id) => id !== itemId) : [...current, itemId]));
+  }
 
   return (
     <section className="timeline" aria-label="Activity timeline">
@@ -704,21 +710,76 @@ function ActivityTimeline({ items }: { items: TimelineItemViewModel[] }) {
           </select>
         </label>
       </div>
-      {filteredItems.map((item) => (
-        <article key={item.id} className="timelineItem">
-          <span className="timelineIcon" aria-hidden="true">
-            {item.kind === "approval" ? <KeyRound size={16} /> : <Activity size={16} />}
-          </span>
-          <div>
-            <h3>{item.title}</h3>
-            <p>{item.summary ?? item.status}</p>
-            <time>{new Date(item.timestamp).toLocaleTimeString()}</time>
+      {groups.map((group) => (
+        <section key={group.id} className="timelineGroup" aria-label={group.label}>
+          <div className="timelineGroupHeader">
+            <h2>{group.label}</h2>
+            <span>{group.items.length} events</span>
           </div>
-        </article>
+          {group.items.map((item) => {
+            const expanded = expandedItemIds.includes(item.id);
+            return (
+              <article key={item.id} className={`timelineItem kind-${item.kind}`}>
+                <span className="timelineIcon" aria-hidden="true">
+                  {item.kind === "approval" ? <KeyRound size={16} /> : <Activity size={16} />}
+                </span>
+                <div>
+                  <h3>{item.title}</h3>
+                  <p>{item.summary ?? item.status}</p>
+                  <time>{new Date(item.timestamp).toLocaleTimeString()}</time>
+                  <div className="timelineItemMeta">
+                    <span>{item.kind.replace("_", " ")}</span>
+                    {item.turnId ? <span>turn {item.turnId}</span> : null}
+                    {item.sessionId ? <span>session {item.sessionId}</span> : null}
+                  </div>
+                  {item.expandable ? (
+                    <button
+                      type="button"
+                      className="smallAction"
+                      aria-expanded={expanded}
+                      aria-controls={`timeline-details-${item.id}`}
+                      onClick={() => toggleTimelineItem(item.id)}
+                    >
+                      {expanded ? "Hide details" : "Show details"}
+                    </button>
+                  ) : null}
+                  {expanded ? (
+                    <dl id={`timeline-details-${item.id}`} className="timelineDetails">
+                      <div>
+                        <dt>Event</dt>
+                        <dd>{item.eventType}</dd>
+                      </div>
+                      <div>
+                        <dt>Evidence</dt>
+                        <dd>{item.evidence.length}</dd>
+                      </div>
+                      <div>
+                        <dt>Status</dt>
+                        <dd>{item.status ?? "not reported"}</dd>
+                      </div>
+                    </dl>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+        </section>
       ))}
       {filteredItems.length === 0 ? <p className="emptyText">No activity matches the selected filters.</p> : null}
     </section>
   );
+}
+
+function timelineGroups(items: TimelineItemViewModel[]): Array<{ id: string; label: string; items: TimelineItemViewModel[] }> {
+  const groups = new Map<string, { id: string; label: string; items: TimelineItemViewModel[] }>();
+  for (const item of items) {
+    const id = item.turnId ?? item.sessionId ?? item.id;
+    const label = item.turnId ? `Turn ${item.turnId}` : item.sessionId ? `Session ${item.sessionId}` : "System activity";
+    const group = groups.get(id) ?? { id, label, items: [] };
+    group.items.push(item);
+    groups.set(id, group);
+  }
+  return [...groups.values()];
 }
 
 function optionsFor(values: Array<string | undefined>): string[] {
@@ -1307,6 +1368,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
         projectId: "project-alpha" as TimelineItemViewModel["projectId"],
         providerId: "fake" as TimelineItemViewModel["providerId"],
         sessionId: "session-alpha" as TimelineItemViewModel["sessionId"],
+        turnId: "turn-alpha" as TimelineItemViewModel["turnId"],
         title: "approval.requested",
         summary: "Run project command",
         timestamp: now,
@@ -1321,10 +1383,71 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
         projectId: "project-alpha" as TimelineItemViewModel["projectId"],
         providerId: "fake" as TimelineItemViewModel["providerId"],
         sessionId: "session-alpha" as TimelineItemViewModel["sessionId"],
+        turnId: "turn-alpha" as TimelineItemViewModel["turnId"],
         title: "agent.turn.started",
         summary: "Run the check",
         timestamp: now,
         status: "in_progress",
+        evidence: [],
+        expandable: true
+      },
+      {
+        id: "event-command",
+        kind: "command",
+        eventType: "agent.command.failed",
+        projectId: "project-beta" as TimelineItemViewModel["projectId"],
+        providerId: "fake" as TimelineItemViewModel["providerId"],
+        sessionId: "session-beta" as TimelineItemViewModel["sessionId"],
+        turnId: "turn-beta" as TimelineItemViewModel["turnId"],
+        title: "agent.command.failed",
+        summary: "npm test exited with code 1",
+        timestamp: now,
+        status: "failed",
+        evidence: [],
+        expandable: true
+      },
+      {
+        id: "event-file",
+        kind: "file_change",
+        eventType: "agent.fileChange.proposed",
+        projectId: "project-alpha" as TimelineItemViewModel["projectId"],
+        providerId: "fake" as TimelineItemViewModel["providerId"],
+        sessionId: "session-alpha" as TimelineItemViewModel["sessionId"],
+        turnId: "turn-alpha" as TimelineItemViewModel["turnId"],
+        title: "agent.fileChange.proposed",
+        summary: "src/new-file.ts",
+        timestamp: now,
+        status: "proposed",
+        evidence: [],
+        expandable: true
+      },
+      {
+        id: "event-check",
+        kind: "check",
+        eventType: "check.failed",
+        projectId: "project-beta" as TimelineItemViewModel["projectId"],
+        providerId: "fake" as TimelineItemViewModel["providerId"],
+        sessionId: "session-beta" as TimelineItemViewModel["sessionId"],
+        turnId: "turn-beta" as TimelineItemViewModel["turnId"],
+        title: "check.failed",
+        summary: "test",
+        timestamp: now,
+        status: "failed",
+        evidence: [],
+        expandable: true
+      },
+      {
+        id: "event-provider-error",
+        kind: "provider_error",
+        eventType: "provider.error",
+        projectId: "project-beta" as TimelineItemViewModel["projectId"],
+        providerId: "fake" as TimelineItemViewModel["providerId"],
+        sessionId: "session-beta" as TimelineItemViewModel["sessionId"],
+        turnId: "turn-beta" as TimelineItemViewModel["turnId"],
+        title: "provider.error",
+        summary: "Provider disconnected",
+        timestamp: now,
+        status: "error",
         evidence: [],
         expandable: true
       }
