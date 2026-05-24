@@ -52,6 +52,7 @@ export const apiMethods = [
   "dashboard.getSnapshot",
   "dashboard.subscribe",
   "dashboard.explainMode",
+  "diagnostics.get",
   "settings.get",
   "settings.update",
   "checks.list",
@@ -159,6 +160,8 @@ export class PraxisApi {
       case "dashboard.subscribe":
       case "dashboard.explainMode":
         return this.app.snapshot().dashboard;
+      case "diagnostics.get":
+        return this.app.observability.diagnostics();
       case "settings.get":
         return this.app.settings.get();
       case "settings.update": {

@@ -736,6 +736,19 @@ pre {
   margin: 0;
 }
 
+.debugExportPreview {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border: 1px solid #d7e0e4;
+  border-radius: 6px;
+  background: #f8fafb;
+}
+
+.debugExportPreview h4 {
+  margin: 0;
+}
+
 .checkRunPanel,
 .checkRunGroups,
 .checkRunGroup {

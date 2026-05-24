@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { apiMethods, PraxisApi } from "../src/app/PraxisApi";
 import { providerId } from "../src/core";
 import { createPraxisApp } from "../src/composition/createPraxisApp";
+import { createDomainEvent } from "../src/events/eventFactory";
 import { SqliteEventStore } from "../src/events/SqliteEventStore";
 import { createTempProject } from "./helpers/tempProject";
 
@@ -32,6 +33,7 @@ const requiredApiMethods = [
   "dashboard.getSnapshot",
   "dashboard.subscribe",
   "dashboard.explainMode",
+  "diagnostics.get",
   "settings.get",
   "settings.update",
   "checks.list",
@@ -147,6 +149,34 @@ describe("provider-neutral API surface", () => {
     });
 
     expect((await app.events.queryEvents()).map((event) => event.type)).toContain("settings.updated");
+  });
+
+  it("returns redacted diagnostics through a provider-neutral API method", async () => {
+    const app = await createPraxisApp();
+    const api = new PraxisApi(app);
+    const providerError = createDomainEvent({
+      type: "provider.error",
+      providerId: providerId("fake"),
+      source: "provider",
+      payload: { message: "Provider error TOKEN=secret-value" },
+      evidence: []
+    });
+    await app.events.append(providerError);
+
+    const response = await api.handle({ id: "diagnostics", method: "diagnostics.get" });
+    expect(response).toMatchObject({
+      id: "diagnostics",
+      result: {
+        providerLog: expect.arrayContaining([
+          expect.objectContaining({ eventId: providerError.id, message: "Provider error [REDACTED]" })
+        ]),
+        eventLog: expect.any(Array),
+        projectionInspector: expect.objectContaining({ dashboardMode: expect.any(String) }),
+        safetyInspector: expect.objectContaining({ rawProviderLogsEnabled: false }),
+        replay: expect.objectContaining({ status: "ok" })
+      }
+    });
+    expect(JSON.stringify(response)).not.toContain("secret-value");
   });
 
   it("restores project settings from event history after restart", async () => {

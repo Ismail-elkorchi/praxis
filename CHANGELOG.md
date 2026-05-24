@@ -39,3 +39,4 @@
 - Wired project-card evidence actions to the detail panel with proposition and evidence-reference display.
 - Added provider-neutral settings API/UI coverage with raw-provider-log confirmation and provider settings kept under Providers.
 - Changed compact and medium layouts to keep approvals visible while rendering Details as a responsive drawer.
+- Added provider-neutral diagnostics API and a Settings debug-export preview covering logs, inspectors, metrics, and replay health.

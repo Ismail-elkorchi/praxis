@@ -31,6 +31,7 @@ import type {
   ProviderStatusViewModel,
   TimelineItemViewModel
 } from "../dashboard/types";
+import type { ObservabilityDiagnostics } from "../observability/ObservabilityService";
 import { defaultAppSettings, type AppSettings } from "../settings/SettingsService";
 import { callApi, decideApprovalThroughApi, subscribeDashboard, type ApiStatus } from "./apiClient";
 import "./styles.css";
@@ -1145,6 +1146,8 @@ function FailureTriage() {
 
 function SettingsPanel({ apiStatus, onRoute }: { apiStatus: ApiStatus; onRoute(route: Route): void }) {
   const [settings, setSettings] = useState<AppSettings>(defaultAppSettings);
+  const [diagnostics, setDiagnostics] = useState<ObservabilityDiagnostics>(demoDiagnostics());
+  const [debugExportPreviewOpen, setDebugExportPreviewOpen] = useState(false);
   const [pendingRawLogChange, setPendingRawLogChange] = useState(false);
   const [message, setMessage] = useState("Settings are ready.");
 
@@ -1159,6 +1162,14 @@ function SettingsPanel({ apiStatus, onRoute }: { apiStatus: ApiStatus; onRoute(r
         setSettings(defaultAppSettings);
         setMessage("Settings preview is using local defaults.");
       });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    callApi<ObservabilityDiagnostics>("diagnostics.get", undefined, controller.signal)
+      .then((nextDiagnostics) => setDiagnostics(nextDiagnostics))
+      .catch(() => setDiagnostics(demoDiagnostics()));
     return () => controller.abort();
   }, []);
 
@@ -1267,9 +1278,77 @@ function SettingsPanel({ apiStatus, onRoute }: { apiStatus: ApiStatus; onRoute(r
           Inspect plugin activity
         </button>
       </section>
+      <section className="settingsGroup" aria-label="Diagnostics">
+        <div className="settingsHeaderRow">
+          <div>
+            <h3>Diagnostics</h3>
+            <p>Review logs, events, projection evidence, safety output, metrics, and replay health before exporting debug data.</p>
+          </div>
+          <span className={`stateBadge ${diagnostics.replay.status === "ok" ? "passed" : "failed"}`}>
+            replay {diagnostics.replay.status}
+          </span>
+        </div>
+        <dl className="settingsGrid">
+          <div>
+            <dt>Provider log</dt>
+            <dd>{diagnostics.providerLog.length}</dd>
+          </div>
+          <div>
+            <dt>Event log</dt>
+            <dd>{diagnostics.eventLog.length}</dd>
+          </div>
+          <div>
+            <dt>API samples</dt>
+            <dd>{diagnostics.metrics.apiLatencyMs.count}</dd>
+          </div>
+        </dl>
+        <div className="actionRow">
+          <button
+            type="button"
+            data-method="diagnostics.get"
+            aria-expanded={debugExportPreviewOpen}
+            onClick={() => setDebugExportPreviewOpen((open) => !open)}
+          >
+            Review debug export
+          </button>
+        </div>
+        {debugExportPreviewOpen ? <DebugExportPreview diagnostics={diagnostics} rawProviderLogsEnabled={settings.rawProviderLogsEnabled} /> : null}
+      </section>
       {pendingRawLogChange ? (
         <SettingsConfirmationDialog onCancel={() => setPendingRawLogChange(false)} onConfirm={confirmRawLogs} />
       ) : null}
+    </section>
+  );
+}
+
+function DebugExportPreview({
+  diagnostics,
+  rawProviderLogsEnabled
+}: {
+  diagnostics: ObservabilityDiagnostics;
+  rawProviderLogsEnabled: boolean;
+}) {
+  const truePropositions = diagnostics.propositionInspector.true.length;
+  const falsePropositions = diagnostics.propositionInspector.false.length;
+  const unknownPropositions = diagnostics.propositionInspector.unknown.length;
+  const stalePropositions = diagnostics.propositionInspector.stale.length;
+
+  return (
+    <section className="debugExportPreview" aria-label="Debug export preview">
+      <h4>Debug export preview</h4>
+      <ul className="settingsList">
+        <li>Provider log: {diagnostics.providerLog.length} redacted entries.</li>
+        <li>Event log: {diagnostics.eventLog.length} normalized events.</li>
+        <li>Projection inspector: {diagnostics.projectionInspector.projectStates.length} project states with evidence.</li>
+        <li>
+          Proposition inspector: {truePropositions} true, {falsePropositions} false, {unknownPropositions} unknown, {stalePropositions} stale.
+        </li>
+        <li>Safety inspector: {diagnostics.safetyInspector.pendingApprovals.length} pending approvals and policy outputs.</li>
+        <li>Metrics: event ingestion, projection timing, provider latency, approval wait, turn, command, check, and API latency summaries.</li>
+        <li>Replay health: {diagnostics.replay.status}.</li>
+        <li>{rawProviderLogsEnabled ? "Raw provider logs included after redaction." : "Raw provider logs excluded by current settings."}</li>
+      </ul>
+      {diagnostics.providerLog[0] ? <p>{diagnostics.providerLog[0].message}</p> : null}
     </section>
   );
 }
@@ -1317,6 +1396,106 @@ function mergeSettings(settings: AppSettings, patch: Partial<AppSettings>): AppS
     enabledProviderIds: [...(patch.enabledProviderIds ?? settings.enabledProviderIds)],
     projectRoots: [...(patch.projectRoots ?? settings.projectRoots)]
   };
+}
+
+function demoDiagnostics(): ObservabilityDiagnostics {
+  const now = new Date().toISOString();
+  return {
+    providerLog: [
+      {
+        eventId: "event-provider-error" as EventId,
+        providerId: "fake" as ProviderStatusViewModel["providerId"],
+        level: "error",
+        message: "Provider error [REDACTED]",
+        timestamp: now,
+        raw: false
+      }
+    ],
+    eventLog: [
+      {
+        eventId: "event-approval" as EventId,
+        sequence: 1,
+        type: "approval.requested",
+        projectId: "project-alpha" as ProjectCardViewModel["projectId"],
+        providerId: "fake" as ProviderStatusViewModel["providerId"],
+        sessionId: "session-alpha" as TimelineItemViewModel["sessionId"],
+        timestamp: now,
+        source: "provider",
+        evidence: [{ type: "event", eventId: "event-approval" as EventId }],
+        payload: { redacted: true }
+      }
+    ],
+    projectionInspector: {
+      dashboardMode: "approval_center",
+      projectStates: [
+        {
+          projectId: "project-alpha",
+          state: "waiting_for_approval",
+          evidence: [{ type: "event", eventId: "event-approval" as EventId }]
+        }
+      ],
+      evidenceEventIds: ["event-approval"]
+    },
+    propositionInspector: {
+      true: [
+        {
+          id: "demo:pending-approval",
+          subject: "project-alpha",
+          predicate: "has_pending_approval",
+          value: "true",
+          evidence: [{ type: "event", eventId: "event-approval" as EventId }],
+          checkedAt: now
+        }
+      ],
+      false: [],
+      unknown: [],
+      stale: []
+    },
+    safetyInspector: {
+      permissionProfile: {
+        id: defaultAppSettings.defaultPermissionProfileId,
+        name: "Workspace guarded",
+        commandPolicy: "ask",
+        fileWritePolicy: "workspace_only",
+        networkPolicy: "ask",
+        externalToolPolicy: "ask",
+        maxRiskWithoutApproval: "low"
+      },
+      rawProviderLogsEnabled: false,
+      pendingApprovals: [
+        {
+          approvalId: "approval-alpha" as ApprovalRequestId,
+          risk: "high",
+          riskSignals: ["runs_package_script"],
+          requiresApproval: true
+        }
+      ],
+      pluginRiskRules: [],
+      policyOutputs: [{ subject: "approval-alpha", requiresApproval: true, reason: "Risk exceeds the configured permission profile." }]
+    },
+    metrics: {
+      eventIngestion: [],
+      projectionTimings: [],
+      providerEventIngestionLatencyMs: emptyStats(),
+      approvalWaitTimeMs: emptyStats(),
+      agentTurnDurationMs: emptyStats(),
+      commandDurationMs: emptyStats(),
+      checkDurationMs: emptyStats(),
+      apiLatencyMs: emptyStats(),
+      staleSessionCount: 0
+    },
+    replay: {
+      status: "ok",
+      checkedAt: now,
+      durationMs: 0,
+      eventCount: 1,
+      differences: []
+    }
+  };
+}
+
+function emptyStats() {
+  return { count: 0, min: 0, max: 0, avg: 0, latest: 0 };
 }
 
 function DetailPanel({

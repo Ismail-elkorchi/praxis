@@ -224,6 +224,20 @@ test("settings panel confirms raw provider logs and keeps provider settings sepa
   await expect(settingsPanel.getByRole("button", { name: "Disable raw provider logs" })).toHaveAttribute("data-method", "settings.update");
   await expect(settingsPanel.getByRole("region", { name: "Provider settings placement" })).toContainText("under Providers");
   await expect(settingsPanel.getByRole("button", { name: "Open provider status" })).toHaveAttribute("data-method", "providers.getStatus");
+
+  const diagnostics = settingsPanel.getByRole("region", { name: "Diagnostics" });
+  await expect(diagnostics).toContainText("replay ok");
+  const reviewDebugExport = diagnostics.getByRole("button", { name: "Review debug export" });
+  await expect(reviewDebugExport).toHaveAttribute("data-method", "diagnostics.get");
+  await reviewDebugExport.click();
+
+  const debugPreview = diagnostics.getByRole("region", { name: "Debug export preview" });
+  await expect(debugPreview).toContainText("Provider log");
+  await expect(debugPreview).toContainText("Event log");
+  await expect(debugPreview).toContainText("Projection inspector");
+  await expect(debugPreview).toContainText("Safety inspector");
+  await expect(debugPreview).toContainText("Raw provider logs");
+  await expect(debugPreview).toContainText("[REDACTED]");
 });
 
 test("command palette opens from global search and runs provider-neutral commands", async ({ page }) => {
