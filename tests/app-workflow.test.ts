@@ -61,6 +61,16 @@ describe("provider-neutral application workflow", () => {
     const continuationIndex = events.findIndex((event) => event.type === "agent.command.started");
     expect(decisionIndex).toBeGreaterThan(-1);
     expect(continuationIndex).toBeGreaterThan(decisionIndex);
+    expect(app.snapshot().projects[project.id]?.commandRuns).toEqual([
+      expect.objectContaining({
+        command: ["npm", "test"],
+        status: "completed",
+        exitCode: 0,
+        sessionId,
+        turnId: expect.any(String)
+      })
+    ]);
+    await expect(app.replay()).resolves.toEqual(app.snapshot());
     expect(app.snapshot().approvals.pending).toHaveLength(0);
     expect(app.snapshot().approvals.history[0]?.status).toBe("accepted");
   });
@@ -99,6 +109,26 @@ describe("provider-neutral application workflow", () => {
 
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("stale");
     expect(app.snapshot().dashboard.mode).toBe("stale_sessions");
+  });
+
+  it("projects command run failures from provider events", async () => {
+    const app = await createPraxisApp({ fakeScenario: "failure_path" });
+    const rootPath = await createTempProject();
+    const project = await app.projects.registerProject({ rootPath });
+    const sessionId = await app.providers.startSession({ providerId: providerId("fake"), projectId: project.id, cwd: rootPath });
+
+    await app.providers.sendTurn({ providerId: providerId("fake"), projectId: project.id, sessionId, instruction: "Run failing command" });
+
+    expect(app.snapshot().projects[project.id]?.commandRuns).toEqual([
+      expect.objectContaining({
+        command: ["npm", "test"],
+        status: "failed",
+        exitCode: 1,
+        stderrRef: "fake-check-output"
+      })
+    ]);
+    expect(app.snapshot().dashboard.timeline.some((item) => item.kind === "command" && item.status === "failed")).toBe(true);
+    await expect(app.replay()).resolves.toEqual(app.snapshot());
   });
 
   it("stores unknown provider events without mutating project state from the raw event", async () => {

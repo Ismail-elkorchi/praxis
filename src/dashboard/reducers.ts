@@ -6,6 +6,7 @@ import type {
   ApprovalRequest,
   CheckDefinition,
   CheckRun,
+  CommandRun,
   DashboardMode,
   DomainEvent,
   EvidenceRef,
@@ -72,6 +73,7 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
         sessions: {},
         turns: {},
         approvals: [],
+        commandRuns: [],
         fileChanges: [],
         checkDefinitions: payload.checkDefinitions ?? [],
         checkRuns: [],
@@ -210,6 +212,17 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
         session.state = event.type === "agent.turn.failed" ? "failed" : "idle";
         session.activeTurnId = undefined;
         session.updatedAt = event.timestamp;
+      }
+      break;
+    }
+    case "agent.command.started":
+    case "agent.command.output":
+    case "agent.command.completed":
+    case "agent.command.failed":
+    case "agent.command.cancelled": {
+      const project = touchProject(next, event);
+      if (project) {
+        project.commandRuns = reduceCommandRuns(project, event);
       }
       break;
     }
@@ -542,6 +555,53 @@ function upsertById<T extends { id: string }>(items: T[], item: T): T[] {
 
 function upsertApproval(items: ApprovalRequest[], item: ApprovalRequest): ApprovalRequest[] {
   return upsertById(items, item);
+}
+
+function reduceCommandRuns(project: ProjectSnapshot, event: DomainEvent): CommandRun[] {
+  const payload = event.payload as Partial<CommandRun>;
+  const existing = findCommandRun(project.commandRuns, payload.id, event.turnId);
+  const id = payload.id ?? existing?.id;
+  if (!id) return project.commandRuns;
+
+  const commandRun: CommandRun = {
+    id,
+    projectId: project.project.id,
+    sessionId: payload.sessionId ?? event.sessionId ?? existing?.sessionId,
+    turnId: payload.turnId ?? event.turnId ?? existing?.turnId,
+    command: payload.command ?? existing?.command ?? [],
+    cwd: payload.cwd ?? existing?.cwd ?? project.project.rootPath,
+    status: commandStatusFromEvent(event.type, payload.status ?? existing?.status),
+    exitCode: payload.exitCode ?? existing?.exitCode,
+    startedAt: payload.startedAt ?? existing?.startedAt ?? event.timestamp,
+    completedAt: payload.completedAt ?? commandCompletedAt(event.type, event.timestamp, existing?.completedAt),
+    stdoutRef: payload.stdoutRef ?? existing?.stdoutRef,
+    stderrRef: payload.stderrRef ?? existing?.stderrRef
+  };
+
+  return upsertById(project.commandRuns, commandRun);
+}
+
+function findCommandRun(commandRuns: CommandRun[], id: CommandRun["id"] | undefined, turnId: DomainEvent["turnId"]): CommandRun | undefined {
+  if (id) return commandRuns.find((run) => run.id === id);
+  if (!turnId) return undefined;
+  return commandRuns
+    .filter((run) => run.turnId === turnId && (run.status === "requested" || run.status === "running"))
+    .sort((left, right) => (right.startedAt ?? "").localeCompare(left.startedAt ?? ""))[0];
+}
+
+function commandStatusFromEvent(type: string, fallback: CommandRun["status"] | undefined): CommandRun["status"] {
+  if (type === "agent.command.started") return "running";
+  if (type === "agent.command.completed") return "completed";
+  if (type === "agent.command.failed") return "failed";
+  if (type === "agent.command.cancelled") return "cancelled";
+  return fallback ?? "running";
+}
+
+function commandCompletedAt(type: string, timestamp: string, fallback: string | undefined): string | undefined {
+  if (type === "agent.command.completed" || type === "agent.command.failed" || type === "agent.command.cancelled") {
+    return timestamp;
+  }
+  return fallback;
 }
 
 function approvalStatusFromEvent(type: string): ApprovalRequest["status"] {

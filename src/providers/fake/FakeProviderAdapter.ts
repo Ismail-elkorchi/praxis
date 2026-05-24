@@ -561,6 +561,7 @@ function continuationEventsAfterApproval(input: {
     ];
   }
 
+  const commandId = commandRunId();
   return [
     createDomainEvent({
       type: "agent.command.started",
@@ -570,7 +571,7 @@ function continuationEventsAfterApproval(input: {
       providerId: input.providerId,
       source: "provider",
       payload: {
-        id: commandRunId(),
+        id: commandId,
         projectId: input.projectId,
         sessionId: input.sessionId,
         turnId: input.turnId,
@@ -589,6 +590,12 @@ function continuationEventsAfterApproval(input: {
       providerId: input.providerId,
       source: "provider",
       payload: {
+        id: commandId,
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        turnId: input.turnId,
+        command: ["npm", "test"],
+        cwd: ".",
         status: "completed",
         exitCode: 0,
         completedAt: now()

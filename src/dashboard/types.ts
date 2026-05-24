@@ -9,6 +9,7 @@ import type {
   ApprovalRequestId,
   CheckDefinition,
   CheckRun,
+  CommandRun,
   DashboardMode,
   DomainEvent,
   EvidenceRef,
@@ -37,6 +38,7 @@ export type ProjectSnapshot = {
   sessions: Record<AgentSessionId, AgentSession>;
   turns: Record<string, AgentTurn>;
   approvals: ApprovalRequest[];
+  commandRuns: CommandRun[];
   fileChanges: FileChange[];
   checkDefinitions: CheckDefinition[];
   checkRuns: CheckRun[];

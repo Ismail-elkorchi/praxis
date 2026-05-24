@@ -16,3 +16,4 @@
 - Persisted derived dashboard propositions into SQLite after append and replay so explanation evidence is durable.
 - Made provider status/capability API calls targeted and made availability checks emit normalized provider status events with WebSocket pushes.
 - Wired event query filters through the API for project, provider, session, and event-type activity views.
+- Projected provider command-run events into first-class project state with replay coverage.
