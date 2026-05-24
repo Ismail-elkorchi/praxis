@@ -6,3 +6,7 @@
 - Added append-only SQLite event storage, replayable projections, approval ordering, project registry, git status, check runs, diff handling, and redacted logging helpers.
 - Added a provider-neutral dashboard shell with project cards, approval center, provider status, activity timeline, explain mode, and keyboard smoke tests.
 - Added public verification scripts, CI, package metadata, and contributor-facing project files.
+
+## Unreleased
+
+- Continue production-depth implementation of the local runtime, persistence, API, UI integration, settings, and extension surfaces.
