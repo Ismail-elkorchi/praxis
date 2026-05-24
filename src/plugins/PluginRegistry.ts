@@ -67,6 +67,14 @@ export type EnabledPlugin = {
   enabledAt: string;
 };
 
+export type InspectableRiskRule = {
+  pluginId: string;
+  pluginName: string;
+  ruleId: string;
+  description: string;
+  permission: Extract<PluginPermission, "contribute_risk_rules">;
+};
+
 export class PluginRegistry {
   private readonly discovered = new Map<string, Plugin>();
   private readonly enabled = new Map<string, EnabledPlugin>();
@@ -124,6 +132,18 @@ export class PluginRegistry {
       providerAdapters: plugins.flatMap((plugin) => plugin.contributes.providerAdapters ?? []),
       dataViews: plugins.flatMap((plugin) => plugin.contributes.dataViews ?? [])
     };
+  }
+
+  inspectableRiskRules(): InspectableRiskRule[] {
+    return this.listEnabled().flatMap((entry) =>
+      (entry.plugin.contributes.riskRules ?? []).map((rule) => ({
+        pluginId: entry.plugin.id,
+        pluginName: entry.plugin.name,
+        ruleId: rule.id,
+        description: rule.description,
+        permission: "contribute_risk_rules" as const
+      }))
+    );
   }
 
   async emitActionCommand(pluginId: string, actionId: string): Promise<DomainEvent> {

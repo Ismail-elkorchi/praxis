@@ -11,6 +11,7 @@ import type {
 import type { AppSnapshot } from "../dashboard/types";
 import type { AppEventLog, EventIngestionObservation, ProjectionTimingObservation } from "../events/AppEventLog";
 import { defaultPermissionProfile, type PolicyService } from "../policies/PolicyService";
+import type { PluginRegistry } from "../plugins/PluginRegistry";
 import type { SettingsService } from "../settings/SettingsService";
 import { redactSecrets, redactValue } from "./redaction";
 
@@ -80,6 +81,7 @@ export type ObservabilityDiagnostics = {
       riskSignals: ApprovalRequest["riskSignals"];
       requiresApproval: boolean;
     }[];
+    pluginRiskRules: ReturnType<PluginRegistry["inspectableRiskRules"]>;
     policyOutputs: { subject: string; requiresApproval: boolean; reason: string }[];
   };
   metrics: {
@@ -118,6 +120,7 @@ export class ObservabilityService {
     private readonly events: AppEventLog,
     private readonly settings: SettingsService,
     private readonly policies: PolicyService,
+    private readonly plugins: PluginRegistry,
     private readonly getSnapshot: () => AppSnapshot
   ) {}
 
@@ -142,7 +145,7 @@ export class ObservabilityService {
       eventLog: eventLog(events),
       projectionInspector: projectionInspector(snapshot),
       propositionInspector: propositionInspector(snapshot.dashboard.explanation.propositions),
-      safetyInspector: safetyInspector(snapshot, this.settings, this.policies),
+      safetyInspector: safetyInspector(snapshot, this.settings, this.policies, this.plugins),
       metrics: {
         eventIngestion: telemetry.eventIngestion,
         projectionTimings: telemetry.projectionTimings,
@@ -257,7 +260,8 @@ function propositionInspector(propositions: Proposition[]): Record<Proposition["
 function safetyInspector(
   snapshot: AppSnapshot,
   settings: SettingsService,
-  policies: PolicyService
+  policies: PolicyService,
+  plugins: PluginRegistry
 ): ObservabilityDiagnostics["safetyInspector"] {
   const permissionProfile = defaultPermissionProfile;
   const pendingApprovals = snapshot.approvals.pending.map((approval) => ({
@@ -270,6 +274,7 @@ function safetyInspector(
     permissionProfile,
     rawProviderLogsEnabled: settings.get().rawProviderLogsEnabled,
     pendingApprovals,
+    pluginRiskRules: plugins.inspectableRiskRules(),
     policyOutputs: pendingApprovals.map((approval) => ({
       subject: approval.approvalId,
       requiresApproval: approval.requiresApproval,

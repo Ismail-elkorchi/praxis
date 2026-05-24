@@ -67,7 +67,7 @@ describe("observability diagnostics", () => {
     const app = await createPraxisApp();
     const rootPath = await createTempProject({ packageJson: false });
     await app.projects.registerProject({ rootPath });
-    const diagnostics = new ObservabilityService(app.events, app.settings, app.policies, () => ({
+    const diagnostics = new ObservabilityService(app.events, app.settings, app.policies, app.plugins, () => ({
       ...app.snapshot(),
       dashboard: { ...app.snapshot().dashboard, mode: "active_work" }
     }));

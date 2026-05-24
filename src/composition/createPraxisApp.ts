@@ -36,7 +36,7 @@ export async function createPraxisApp(
   const policies = new PolicyService();
   const plugins = new PluginRegistry(events);
   const settings = new SettingsService(isSettingsRepository(eventStore) ? eventStore : undefined);
-  const observability = new ObservabilityService(events, settings, policies, () => events.snapshot());
+  const observability = new ObservabilityService(events, settings, policies, plugins, () => events.snapshot());
 
   await providers.registerAvailableProviders();
 

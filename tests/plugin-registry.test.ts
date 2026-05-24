@@ -38,8 +38,22 @@ describe("plugin registry", () => {
     app.plugins.discover(plugin);
     await app.plugins.enable(plugin.id);
     expect(app.plugins.contributions().riskRules).toHaveLength(1);
+    await expect(app.observability.diagnostics()).resolves.toMatchObject({
+      safetyInspector: {
+        pluginRiskRules: [
+          {
+            pluginId: "risk-plugin",
+            pluginName: "Risk plugin",
+            ruleId: "network-risk",
+            description: "Detects network use",
+            permission: "contribute_risk_rules"
+          }
+        ]
+      }
+    });
     await app.plugins.disable(plugin.id);
     expect(app.plugins.contributions().riskRules).toHaveLength(0);
+    expect((await app.observability.diagnostics()).safetyInspector.pluginRiskRules).toHaveLength(0);
   });
 
   it("validates provider adapter contribution permissions", async () => {
