@@ -345,7 +345,7 @@ function deriveProjectRuntimeState(project: ProjectSnapshot): ProjectRuntimeStat
   if (project.project.settings.defaultPermissionProfileId === fullAccessPermissionProfileId) {
     return "unsafe_mode";
   }
-  if (project.approvals.some((approval) => approval.status === "pending" && isUnsafeRisk(approval.risk))) {
+  if (project.approvals.some((approval) => approval.status === "pending" && requiresUnsafeAttention(approval))) {
     return "unsafe_mode";
   }
   if (Object.values(project.sessions).some((session) => session.state === "stale_or_disconnected")) {
@@ -677,6 +677,14 @@ function isRequiredCheck(project: ProjectSnapshot, run: CheckRun): boolean {
   return project.checkDefinitions.some((definition) => definition.id === run.checkId && definition.required);
 }
 
+function requiresUnsafeAttention(approval: ApprovalRequest): boolean {
+  return (
+    isUnsafeRisk(approval.risk) ||
+    approval.riskSignals.includes("writes_outside_workspace") ||
+    approval.riskSignals.includes("uses_full_access")
+  );
+}
+
 function isUnsafeRisk(risk: ApprovalRequest["risk"]): boolean {
   return risk === "critical" || risk === "unknown";
 }
@@ -695,6 +703,13 @@ function projectEvidence(project: ProjectSnapshot, events: DomainEvent[] = []): 
 function badges(project: ProjectSnapshot): DashboardBadge[] {
   const result: DashboardBadge[] = [{ label: stateLabel(project.runtimeState), tone: badgeTone(project.runtimeState) }];
   if (project.approvals.some((approval) => approval.status === "pending")) result.push({ label: "Approval pending", tone: "waiting" });
+  if (
+    project.approvals.some(
+      (approval) => approval.status === "pending" && approval.riskSignals.includes("writes_outside_workspace")
+    )
+  ) {
+    result.push({ label: "Outside workspace", tone: "unsafe" });
+  }
   if (project.checkRuns.some((run) => run.status === "failed" && isRequiredCheck(project, run))) {
     result.push({ label: "Required check failed", tone: "failed" });
   }
@@ -756,6 +771,16 @@ function stateReason(project: ProjectSnapshot, changedFiles: number, approvals: 
   if (project.runtimeState === "stale") return "A session is stale or disconnected.";
   if (project.project.settings.defaultPermissionProfileId === fullAccessPermissionProfileId) {
     return "A broad permission profile requires attention.";
+  }
+  if (
+    project.approvals.some(
+      (approval) => approval.status === "pending" && approval.riskSignals.includes("writes_outside_workspace")
+    )
+  ) {
+    return "A file change outside the project root requires attention.";
+  }
+  if (project.approvals.some((approval) => approval.status === "pending" && approval.riskSignals.includes("uses_full_access"))) {
+    return "A full-access request requires attention.";
   }
   if (project.runtimeState === "unsafe_mode") return "A high-risk or unknown-risk request needs attention.";
   if (project.runtimeState === "agent_running") return "An agent turn is in progress.";

@@ -77,6 +77,51 @@ describe("security, API, and provider-neutral surface", () => {
     await expect(app.replay()).resolves.toEqual(app.snapshot());
   });
 
+  it("elevates outside-workspace file change approvals into unsafe attention", async () => {
+    const app = await createPraxisApp();
+    const rootPath = await createTempProject({ packageJson: false });
+    const project = await app.projects.registerProject({ rootPath });
+    const sessionId = await app.providers.startSession({
+      providerId: providerId("fake"),
+      projectId: project.id,
+      cwd: rootPath,
+      goal: "Review an outside-root file change"
+    });
+    const approval = app.providers.createApprovalRequest({
+      projectId: project.id,
+      sessionId,
+      providerId: providerId("fake"),
+      kind: "file_change",
+      risk: "medium",
+      riskSignals: ["writes_outside_workspace"],
+      title: "Apply file change",
+      description: "The agent requests permission to write outside the project root.",
+      requestedAction: { path: "../outside.txt" }
+    });
+
+    await app.events.append(
+      createDomainEvent({
+        type: "approval.requested",
+        projectId: project.id,
+        sessionId,
+        providerId: providerId("fake"),
+        source: "provider",
+        payload: approval,
+        evidence: approval.evidence
+      })
+    );
+
+    const snapshot = app.snapshot();
+    const card = snapshot.dashboard.projectCards.find((item) => item.projectId === project.id);
+    expect(snapshot.projects[project.id]?.runtimeState).toBe("unsafe_mode");
+    expect(snapshot.dashboard.mode).toBe("unsafe_attention");
+    expect(snapshot.dashboard.globalStatus.unsafeStateCount).toBe(1);
+    expect(card?.badges.map((badge) => badge.label)).toContain("Outside workspace");
+    expect(card?.stateReason).toMatch(/outside the project root/i);
+    expect(snapshot.dashboard.approvals[0]?.riskSignals).toContain("writes_outside_workspace");
+    await expect(app.replay()).resolves.toEqual(snapshot);
+  });
+
   it("redacts secret-like values from logs", () => {
     expect(redactSecrets("API_KEY=abc123 sk-testsecret1234567890")).not.toContain("abc123");
     expect(redactSecrets("TOKEN=secret-value")).toContain("[REDACTED]");
