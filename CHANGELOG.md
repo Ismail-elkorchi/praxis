@@ -31,3 +31,4 @@
 - Added a provider-neutral command palette with global search shortcut and API-method command mappings.
 - Hardened provider-neutral UI interactions with risky approval confirmation, approval/project keyboard navigation, modal focus trapping, and action method mappings.
 - Elevated outside-workspace file change approvals into unsafe attention with visible risk badges and replay coverage.
+- Hardened git diff classification for created, modified, deleted, renamed, untracked, binary, and non-git project cases.

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { GitSnapshot } from "../core";
@@ -8,10 +8,18 @@ const execFileAsync = promisify(execFile);
 
 export type DiffFileViewModel = {
   path: string;
+  oldPath?: string;
   changeKind: "created" | "modified" | "deleted" | "renamed" | "binary";
   source: "git" | "untracked";
   diff: string;
   binary: boolean;
+  sizeBytes?: number;
+};
+
+type NameStatusChange = {
+  path: string;
+  oldPath?: string;
+  changeKind: DiffFileViewModel["changeKind"];
 };
 
 export class GitService {
@@ -60,18 +68,24 @@ export class GitService {
     const status = await this.getStatus(rootPath);
     if (!status.isRepo) return [];
 
-    const changed = [...status.stagedFiles, ...status.unstagedFiles];
+    const trackedChanges = await git(rootPath, ["diff", "--name-status", "-z", "--find-renames", "HEAD", "--"])
+      .then((result) => parseNameStatus(result.stdout))
+      .catch(() => []);
     const diffs: DiffFileViewModel[] = [];
-    for (const file of new Set(changed)) {
-      const diff = await git(rootPath, ["diff", "--", file])
+    for (const change of trackedChanges) {
+      const paths = change.oldPath ? [change.oldPath, change.path] : [change.path];
+      const rawDiff = await git(rootPath, ["diff", "--find-renames", "HEAD", "--", ...paths])
         .then((result) => result.stdout)
         .catch(() => "");
+      const binary = rawDiff.includes("Binary files");
       diffs.push({
-        path: file,
-        changeKind: "modified",
+        path: change.path,
+        oldPath: change.oldPath,
+        changeKind: binary && change.changeKind === "modified" ? "binary" : change.changeKind,
         source: "git",
-        diff,
-        binary: diff.includes("Binary files")
+        diff: binary ? "Binary file metadata only." : rawDiff,
+        binary,
+        sizeBytes: await sizeForPath(rootPath, change.path)
       });
     }
 
@@ -84,7 +98,8 @@ export class GitService {
         changeKind: "created",
         source: "untracked",
         binary,
-        diff: binary ? "Binary file metadata only." : untrackedDiff(file, content.toString("utf8"))
+        diff: binary ? "Binary file metadata only." : untrackedDiff(file, content.toString("utf8")),
+        sizeBytes: content.byteLength
       });
     }
 
@@ -147,6 +162,41 @@ function parsePorcelain(output: string): Pick<
   }
 
   return { stagedFiles, unstagedFiles, untrackedFiles, conflictedFiles };
+}
+
+function parseNameStatus(output: string): NameStatusChange[] {
+  const fields = output.split("\0").filter(Boolean);
+  const changes: NameStatusChange[] = [];
+
+  for (let index = 0; index < fields.length; ) {
+    const status = fields[index++] ?? "";
+    const code = status[0];
+    if (code === "R") {
+      const oldPath = fields[index++];
+      const newPath = fields[index++];
+      if (oldPath && newPath) {
+        changes.push({ path: newPath, oldPath, changeKind: "renamed" });
+      }
+      continue;
+    }
+    const file = fields[index++];
+    if (!file) continue;
+    changes.push({ path: file, changeKind: changeKindFromStatus(code) });
+  }
+
+  return changes;
+}
+
+function changeKindFromStatus(status: string | undefined): DiffFileViewModel["changeKind"] {
+  if (status === "A" || status === "C") return "created";
+  if (status === "D") return "deleted";
+  return "modified";
+}
+
+async function sizeForPath(rootPath: string, file: string): Promise<number | undefined> {
+  return stat(path.join(rootPath, file))
+    .then((stats) => stats.size)
+    .catch(() => undefined);
 }
 
 function untrackedDiff(file: string, content: string): string {
