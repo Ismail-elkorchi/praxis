@@ -71,6 +71,28 @@ test("compact layout keeps approval decisions visible and renders details as a d
   expect(drawerBox?.y).toBeGreaterThan(workspaceBox?.y ?? 0);
 });
 
+test("project card state remains understandable without color", async ({ page }) => {
+  await page.goto("/");
+
+  const packageMetadata = page.getByRole("article").filter({ hasText: "Package Metadata" });
+  await expect(packageMetadata.getByText("Required check failed", { exact: true })).toBeVisible();
+  await expect(packageMetadata).toContainText("1 required check failed.");
+  await expect(packageMetadata.getByRole("button", { name: "Rerun failed checks" })).toBeVisible();
+});
+
+test("reduced motion disables non-essential animation", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+
+  const transitionDuration = await page
+    .getByRole("article")
+    .filter({ hasText: "Control Plane" })
+    .first()
+    .evaluate((element) => getComputedStyle(element).transitionDuration);
+
+  expect(parseCssDurations(transitionDuration).every((durationMs) => durationMs <= 0.01)).toBe(true);
+});
+
 test("global UI avoids runtime-provider names", async ({ page }) => {
   await page.goto("/");
   const body = await page.locator("body").innerText();
@@ -263,3 +285,12 @@ test("command palette opens from global search and runs provider-neutral command
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
 });
+
+function parseCssDurations(value: string): number[] {
+  return value.split(",").map((duration) => {
+    const trimmed = duration.trim();
+    if (trimmed.endsWith("ms")) return Number(trimmed.slice(0, -2));
+    if (trimmed.endsWith("s")) return Number(trimmed.slice(0, -1)) * 1000;
+    return Number(trimmed);
+  });
+}
