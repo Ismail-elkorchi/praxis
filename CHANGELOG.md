@@ -17,3 +17,4 @@
 - Made provider status/capability API calls targeted and made availability checks emit normalized provider status events with WebSocket pushes.
 - Wired event query filters through the API for project, provider, session, and event-type activity views.
 - Projected provider command-run events into first-class project state with replay coverage.
+- Added provider-neutral Activity timeline filters for project, provider, session, and event type.

@@ -503,6 +503,10 @@ function timeline(snapshot: AppSnapshot): TimelineItemViewModel[] {
     .map((event) => ({
       id: event.id,
       kind: timelineKind(event.type),
+      eventType: event.type,
+      projectId: event.projectId,
+      providerId: event.providerId,
+      sessionId: event.sessionId,
       title: event.type,
       summary: summarizePayload(event.payload),
       timestamp: event.timestamp,

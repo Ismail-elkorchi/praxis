@@ -379,9 +379,71 @@ function ProviderGrid({ providers }: { providers: ProviderStatusViewModel[] }) {
 }
 
 function ActivityTimeline({ items }: { items: TimelineItemViewModel[] }) {
+  const [projectId, setProjectId] = useState("all");
+  const [providerId, setProviderId] = useState("all");
+  const [sessionId, setSessionId] = useState("all");
+  const [eventType, setEventType] = useState("all");
+  const projectOptions = optionsFor(items.map((item) => item.projectId));
+  const providerOptions = optionsFor(items.map((item) => item.providerId));
+  const sessionOptions = optionsFor(items.map((item) => item.sessionId));
+  const eventTypeOptions = optionsFor(items.map((item) => item.eventType));
+  const filteredItems = items.filter(
+    (item) =>
+      matchesFilter(item.projectId, projectId) &&
+      matchesFilter(item.providerId, providerId) &&
+      matchesFilter(item.sessionId, sessionId) &&
+      matchesFilter(item.eventType, eventType)
+  );
+
   return (
     <section className="timeline" aria-label="Activity timeline">
-      {items.map((item) => (
+      <div className="timelineFilters" aria-label="Activity filters">
+        <label>
+          Project
+          <select aria-label="Filter by project" value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+            <option value="all">All projects</option>
+            {projectOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Provider
+          <select aria-label="Filter by provider" value={providerId} onChange={(event) => setProviderId(event.target.value)}>
+            <option value="all">All providers</option>
+            {providerOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Session
+          <select aria-label="Filter by session" value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
+            <option value="all">All sessions</option>
+            {sessionOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Event type
+          <select aria-label="Filter by event type" value={eventType} onChange={(event) => setEventType(event.target.value)}>
+            <option value="all">All event types</option>
+            {eventTypeOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {filteredItems.map((item) => (
         <article key={item.id} className="timelineItem">
           <span className="timelineIcon" aria-hidden="true">
             {item.kind === "approval" ? <KeyRound size={16} /> : <Activity size={16} />}
@@ -393,8 +455,17 @@ function ActivityTimeline({ items }: { items: TimelineItemViewModel[] }) {
           </div>
         </article>
       ))}
+      {filteredItems.length === 0 ? <p className="emptyText">No activity matches the selected filters.</p> : null}
     </section>
   );
+}
+
+function optionsFor(values: Array<string | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))].sort((left, right) => left.localeCompare(right));
+}
+
+function matchesFilter(value: string | undefined, filter: string): boolean {
+  return filter === "all" || value === filter;
 }
 
 function CheckRunPanel() {
@@ -607,6 +678,10 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       {
         id: "event-approval",
         kind: "approval",
+        eventType: "approval.requested",
+        projectId: "project-alpha" as TimelineItemViewModel["projectId"],
+        providerId: "fake" as TimelineItemViewModel["providerId"],
+        sessionId: "session-alpha" as TimelineItemViewModel["sessionId"],
         title: "approval.requested",
         summary: "Run project command",
         timestamp: now,
@@ -617,6 +692,10 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       {
         id: "event-turn",
         kind: "turn",
+        eventType: "agent.turn.started",
+        projectId: "project-alpha" as TimelineItemViewModel["projectId"],
+        providerId: "fake" as TimelineItemViewModel["providerId"],
+        sessionId: "session-alpha" as TimelineItemViewModel["sessionId"],
         title: "agent.turn.started",
         summary: "Run the check",
         timestamp: now,

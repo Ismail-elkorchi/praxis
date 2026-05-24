@@ -101,6 +101,10 @@ export type ApprovalCardViewModel = {
 export type TimelineItemViewModel = {
   id: string;
   kind: "turn" | "message" | "command" | "file_change" | "approval" | "check" | "provider_error" | "system";
+  eventType: string;
+  projectId?: ProjectId;
+  providerId?: ProviderId;
+  sessionId?: AgentSessionId;
   title: string;
   summary?: string;
   timestamp: string;

@@ -29,3 +29,16 @@ test("global UI avoids runtime-provider names", async ({ page }) => {
 
   expect(body).not.toMatch(/OpenAI|Anthropic|Gemini|Claude|Codex/);
 });
+
+test("activity timeline filters by event type", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Activity" }).click();
+  await expect(page.getByRole("heading", { name: "approval.requested" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "agent.turn.started" })).toBeVisible();
+
+  await page.getByLabel("Filter by event type").selectOption("agent.turn.started");
+
+  await expect(page.getByRole("heading", { name: "agent.turn.started" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "approval.requested" })).toHaveCount(0);
+});
