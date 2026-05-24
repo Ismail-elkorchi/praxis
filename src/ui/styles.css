@@ -896,12 +896,30 @@ pre {
 @media (max-width: 1100px) {
   .appShell {
     grid-template-columns: 80px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+  }
+
+  .leftNav {
+    grid-row: 1 / span 2;
+  }
+
+  .mainPanel,
+  .detailPanel {
+    grid-column: 2;
   }
 
   .leftNav strong,
-  .navItem span:not(.navBadge),
-  .detailPanel {
+  .navItem span:not(.navBadge) {
     display: none;
+  }
+
+  .detailPanel {
+    display: grid;
+    max-height: 44vh;
+    overflow: auto;
+    border-left: 0;
+    border-top: 1px solid #cbd5da;
+    box-shadow: 0 -8px 24px rgba(23, 32, 42, 0.08);
   }
 }
 
@@ -911,12 +929,24 @@ pre {
   }
 
   .leftNav {
+    grid-row: auto;
+    grid-column: 1;
     position: sticky;
     top: 0;
     z-index: 5;
     flex-flow: row wrap;
     border-right: 0;
     border-bottom: 1px solid #cbd5da;
+  }
+
+  .mainPanel,
+  .detailPanel {
+    grid-column: 1;
+  }
+
+  .detailPanel {
+    max-height: none;
+    box-shadow: none;
   }
 
   .navItem {
@@ -937,8 +967,31 @@ pre {
     flex-direction: column;
   }
 
+  .mainPanel,
+  .detailPanel {
+    padding: 0.85rem;
+  }
+
   .statusRail {
     justify-content: flex-start;
+  }
+
+  .approvalPanel {
+    gap: 0.55rem;
+  }
+
+  .approvalPanel .sectionHeader {
+    margin-bottom: 0.25rem;
+  }
+
+  .approvalCard {
+    gap: 0.7rem;
+  }
+
+  .approvalCard .decisionGrid {
+    order: -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 0;
   }
 
   .metricGrid,

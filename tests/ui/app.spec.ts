@@ -53,6 +53,24 @@ test("risky approval decisions require confirmation and stay keyboard usable", a
   await expect(page.getByRole("button", { name: "Accept once" })).toHaveCount(0);
 });
 
+test("compact layout keeps approval decisions visible and renders details as a drawer", async ({ page }) => {
+  await page.setViewportSize({ width: 640, height: 720 });
+  await page.goto("/");
+
+  const acceptOnce = page.getByRole("button", { name: "Accept once" });
+  await expect(acceptOnce).toBeVisible();
+  await expect(acceptOnce).toBeInViewport();
+
+  const workspace = page.getByRole("region", { name: "Dashboard workspace" });
+  const detailDrawer = page.getByRole("complementary", { name: "Details" });
+  await expect(detailDrawer).toBeVisible();
+  await expect(detailDrawer).toContainText("Selected project");
+
+  const workspaceBox = await workspace.boundingBox();
+  const drawerBox = await detailDrawer.boundingBox();
+  expect(drawerBox?.y).toBeGreaterThan(workspaceBox?.y ?? 0);
+});
+
 test("global UI avoids runtime-provider names", async ({ page }) => {
   await page.goto("/");
   const body = await page.locator("body").innerText();
