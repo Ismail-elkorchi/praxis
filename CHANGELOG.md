@@ -26,3 +26,4 @@
 - Added provider adapter contract validation for plugin-contributed adapters before plugin enablement.
 - Prevented provider-sourced approval resolution events from bypassing stored app-level approval decisions.
 - Required explicit confirmation for broad permission profile changes and surfaced confirmed full-access profiles as unsafe attention.
+- Added durable project discovery metadata for package manager, scripts, metadata files, worktree refs, and refreshed check definitions.

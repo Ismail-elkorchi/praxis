@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -209,6 +209,33 @@ describe("provider-neutral API surface", () => {
     ).resolves.toMatchObject({ id: "availability", result: { status: "unavailable" } });
     expect((await app.events.queryEvents()).map((event) => event.type)).toContain("provider.unavailable");
     expect(app.snapshot().dashboard.providerStatus[0]?.availability.status).toBe("unavailable");
+  });
+
+  it("refreshes project discovery metadata and detected check definitions", async () => {
+    const app = await createPraxisApp();
+    const api = new PraxisApi(app);
+    const rootPath = await createTempProject({ packageJson: false });
+    const project = await app.projects.registerProject({ rootPath });
+
+    expect(project.packageManager).toBe("unknown");
+    expect(project.scripts).toEqual([]);
+
+    await writeFile(
+      path.join(rootPath, "package.json"),
+      JSON.stringify({ scripts: { build: "tsc", lint: "eslint .", test: "vitest" } }, null, 2)
+    );
+    await expect(api.handle({ id: "refresh-discovery", method: "projects.refresh", params: { projectId: project.id } })).resolves.toMatchObject({
+      id: "refresh-discovery"
+    });
+
+    const refreshed = app.projects.getProject(project.id);
+    expect(refreshed?.packageManager).toBe("npm");
+    expect(refreshed?.scripts.map((script) => script.name)).toEqual(["build", "lint", "test"]);
+    expect(refreshed?.metadataFiles).toContainEqual({ path: "package.json", kind: "package" });
+    expect(app.checks.listDefinitions(project.id).map((check) => check.name)).toEqual(["build", "lint", "test"]);
+    expect((await app.events.queryEvents()).map((event) => event.type)).toEqual(
+      expect.arrayContaining(["project.updated", "check.definitionDetected", "git.statusChanged"])
+    );
   });
 
   it("emits a provider-neutral event for worktree creation", async () => {

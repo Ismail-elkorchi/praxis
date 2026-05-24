@@ -241,6 +241,10 @@ export class SqliteEventStore implements EventStore {
         canonical_path TEXT NOT NULL UNIQUE,
         repo_remote TEXT,
         default_branch TEXT,
+        package_manager TEXT,
+        scripts_json TEXT NOT NULL DEFAULT '[]',
+        metadata_files_json TEXT NOT NULL DEFAULT '[]',
+        worktrees_json TEXT NOT NULL DEFAULT '[]',
         tags_json TEXT NOT NULL DEFAULT '[]',
         archived INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
@@ -376,8 +380,12 @@ export class SqliteEventStore implements EventStore {
     `);
 
     this.db
-      .prepare("INSERT OR REPLACE INTO schema_versions (id, version, updated_at) VALUES (1, 2, ?)")
+      .prepare("INSERT OR REPLACE INTO schema_versions (id, version, updated_at) VALUES (1, 3, ?)")
       .run(new Date().toISOString());
+    this.addColumnIfMissing("projects", "package_manager", "TEXT");
+    this.addColumnIfMissing("projects", "scripts_json", "TEXT NOT NULL DEFAULT '[]'");
+    this.addColumnIfMissing("projects", "metadata_files_json", "TEXT NOT NULL DEFAULT '[]'");
+    this.addColumnIfMissing("projects", "worktrees_json", "TEXT NOT NULL DEFAULT '[]'");
   }
 
   private nextSequence(): number {
@@ -390,6 +398,14 @@ export class SqliteEventStore implements EventStore {
   private requireInspectableTable(tableName: InspectableTable): void {
     if (!inspectableTables.has(tableName)) {
       throw new Error(`Table is not inspectable: ${tableName}`);
+    }
+  }
+
+  private addColumnIfMissing(tableName: InspectableTable, columnName: string, definition: string): void {
+    this.requireInspectableTable(tableName);
+    const columns = this.db.prepare(`PRAGMA table_info(${tableName})`).all() as { name: string }[];
+    if (!columns.some((column) => column.name === columnName)) {
+      this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
     }
   }
 
@@ -469,14 +485,19 @@ export class SqliteEventStore implements EventStore {
     this.db
       .prepare(
         `INSERT INTO projects (
-          id, name, root_path, canonical_path, repo_remote, default_branch, tags_json, archived, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, name, root_path, canonical_path, repo_remote, default_branch, package_manager,
+          scripts_json, metadata_files_json, worktrees_json, tags_json, archived, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           root_path = excluded.root_path,
           canonical_path = excluded.canonical_path,
           repo_remote = excluded.repo_remote,
           default_branch = excluded.default_branch,
+          package_manager = excluded.package_manager,
+          scripts_json = excluded.scripts_json,
+          metadata_files_json = excluded.metadata_files_json,
+          worktrees_json = excluded.worktrees_json,
           tags_json = excluded.tags_json,
           archived = excluded.archived,
           updated_at = excluded.updated_at`
@@ -488,6 +509,10 @@ export class SqliteEventStore implements EventStore {
         project.canonicalPath,
         project.repo?.remoteUrl ?? null,
         project.defaultBranch ?? null,
+        project.packageManager ?? null,
+        JSON.stringify(project.scripts ?? []),
+        JSON.stringify(project.metadataFiles ?? []),
+        JSON.stringify(project.worktrees ?? []),
         JSON.stringify(project.tags),
         project.archived ? 1 : 0,
         project.createdAt,

@@ -38,6 +38,26 @@ export type GitRepositoryRef = {
   remoteUrl?: string;
 };
 
+export type PackageManager = "npm" | "pnpm" | "yarn" | "bun" | "unknown";
+
+export type ProjectScript = {
+  name: string;
+  command: string[];
+  source: "package_json" | "user" | "system";
+  confidence: "high" | "medium" | "low";
+};
+
+export type ProjectMetadataFile = {
+  path: string;
+  kind: "package" | "workspace" | "project_config" | "other";
+};
+
+export type ProjectWorktree = {
+  path: string;
+  branch?: string;
+  headSha?: string;
+};
+
 export type ProjectSettings = {
   defaultProviderId?: ProviderId;
   defaultPermissionProfileId?: PermissionProfileId;
@@ -65,6 +85,10 @@ export type Project = {
   canonicalPath: string;
   repo?: GitRepositoryRef;
   defaultBranch?: string;
+  packageManager?: PackageManager;
+  scripts: ProjectScript[];
+  metadataFiles: ProjectMetadataFile[];
+  worktrees: ProjectWorktree[];
   tags: string[];
   settings: ProjectSettings;
   archived: boolean;

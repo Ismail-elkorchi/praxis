@@ -13,6 +13,7 @@ import type {
   EvidenceRef,
   FileChange,
   GitSnapshot,
+  Project,
   ProjectRuntimeState,
   Proposition,
   ProviderAvailability
@@ -67,7 +68,7 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
   switch (event.type) {
     case "project.registered": {
       const payload = event.payload as { project: ProjectSnapshot["project"]; checkDefinitions?: CheckDefinition[] };
-      const project = { ...payload.project, settings: { ...defaultProjectSettings, ...payload.project.settings } };
+      const project = normalizeProject(payload.project);
       next.projects[payload.project.id] = {
         project,
         runtimeState: "idle",
@@ -89,7 +90,7 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
       const payload = event.payload as { project: ProjectSnapshot["project"] };
       const project = next.projects[payload.project.id];
       if (project) {
-        project.project = { ...payload.project, settings: { ...defaultProjectSettings, ...payload.project.settings } };
+        project.project = normalizeProject(payload.project);
         project.lastActivityAt = event.timestamp;
       }
       break;
@@ -806,5 +807,15 @@ function emptyDashboard(): DashboardProjection {
     providerStatus: [],
     timeline: [],
     explanation: { mode: "portfolio", propositions: [], evidence: [] }
+  };
+}
+
+function normalizeProject(project: Project): Project {
+  return {
+    ...project,
+    scripts: [...(project.scripts ?? [])],
+    metadataFiles: [...(project.metadataFiles ?? [])],
+    worktrees: [...(project.worktrees ?? [])],
+    settings: { ...defaultProjectSettings, ...project.settings }
   };
 }

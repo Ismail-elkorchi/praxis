@@ -24,6 +24,9 @@ describe("provider-neutral application workflow", () => {
     expect(second.id).toBe(first.id);
     expect(app.snapshot().dashboard.projectCards).toHaveLength(1);
     expect(app.snapshot().projects[first.id]?.git.isRepo).toBe(true);
+    expect(first.packageManager).toBe("npm");
+    expect(first.metadataFiles).toContainEqual({ path: "package.json", kind: "package" });
+    expect(first.scripts.map((script) => script.name)).toEqual(["test", "typecheck"]);
     expect(app.snapshot().projects[first.id]?.checkDefinitions.map((check) => check.name)).toContain("test");
   });
 

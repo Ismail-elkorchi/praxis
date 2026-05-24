@@ -5,9 +5,13 @@ import {
   defaultProjectSettings,
   projectId,
   type CheckDefinition,
+  type PackageManager,
   type Project,
   type ProjectId,
+  type ProjectMetadataFile,
   type ProjectSettings,
+  type ProjectScript,
+  type ProjectWorktree,
   type ProviderId
 } from "../core";
 import type { AppSnapshot } from "../dashboard/types";
@@ -44,6 +48,9 @@ export class ProjectRegistryService {
       name: input.name ?? path.basename(canonicalPath),
       rootPath: input.rootPath,
       canonicalPath,
+      scripts: [],
+      metadataFiles: [],
+      worktrees: [],
       tags: [],
       settings: normalizeProjectSettings({ defaultProviderId: input.defaultProviderId }),
       archived: false,
@@ -51,10 +58,14 @@ export class ProjectRegistryService {
       updatedAt: timestamp
     };
 
-    const [gitSnapshot, checkDefinitions] = await Promise.all([
+    const [gitSnapshot, discovery] = await Promise.all([
       this.git.getStatus(canonicalPath),
-      detectCheckDefinitions(canonicalPath, project.id)
+      discoverProject(canonicalPath, project.id)
     ]);
+    project.packageManager = discovery.packageManager;
+    project.scripts = discovery.scripts;
+    project.metadataFiles = discovery.metadataFiles;
+    project.worktrees = discovery.worktrees;
 
     if (gitSnapshot.isRepo) {
       project.repo = { rootPath: canonicalPath };
@@ -66,7 +77,7 @@ export class ProjectRegistryService {
         type: "project.registered",
         projectId: project.id,
         source: "user",
-        payload: { project, checkDefinitions },
+        payload: { project, checkDefinitions: discovery.checkDefinitions },
         evidence: []
       }),
       createDomainEvent({
@@ -145,7 +156,32 @@ export class ProjectRegistryService {
       throw new Error("Project was not found.");
     }
     const gitSnapshot = await this.git.getStatus(project.canonicalPath);
-    await this.events.append(
+    const discovery = await discoverProject(project.canonicalPath, projectId);
+    const refreshedProject: Project = {
+      ...project,
+      packageManager: discovery.packageManager,
+      scripts: discovery.scripts,
+      metadataFiles: discovery.metadataFiles,
+      worktrees: discovery.worktrees,
+      repo: gitSnapshot.isRepo ? { rootPath: project.canonicalPath } : project.repo,
+      defaultBranch: gitSnapshot.baseBranch ?? project.defaultBranch,
+      updatedAt: new Date().toISOString()
+    };
+    await this.events.appendMany([
+      createDomainEvent({
+        type: "project.updated",
+        projectId,
+        source: "system",
+        payload: { project: refreshedProject, checkDefinitions: discovery.checkDefinitions },
+        evidence: []
+      }),
+      createDomainEvent({
+        type: "check.definitionDetected",
+        projectId,
+        source: "system",
+        payload: { checkDefinitions: discovery.checkDefinitions },
+        evidence: []
+      }),
       createDomainEvent({
         type: "git.statusChanged",
         projectId,
@@ -153,7 +189,7 @@ export class ProjectRegistryService {
         payload: gitSnapshot,
         evidence: [{ type: "git", repoPath: project.canonicalPath, sha: gitSnapshot.headSha }]
       })
-    );
+    ]);
   }
 
   listProjects(): Project[] {
@@ -173,16 +209,37 @@ function normalizeProjectSettings(settings: Partial<ProjectSettings> | undefined
   };
 }
 
-async function detectCheckDefinitions(rootPath: string, projectId: ProjectId): Promise<CheckDefinition[]> {
+type ProjectDiscovery = {
+  packageManager: PackageManager;
+  scripts: ProjectScript[];
+  metadataFiles: ProjectMetadataFile[];
+  worktrees: ProjectWorktree[];
+  checkDefinitions: CheckDefinition[];
+};
+
+async function discoverProject(rootPath: string, projectId: ProjectId): Promise<ProjectDiscovery> {
   const packageJsonPath = path.join(rootPath, "package.json");
   const content = await readFile(packageJsonPath, "utf8").catch(() => undefined);
-  if (!content) return [];
+  const packageManager = await detectPackageManager(rootPath);
+  const metadataFiles = await detectMetadataFiles(rootPath);
+  const worktrees = await detectWorktrees(rootPath);
+  if (!content) {
+    return { packageManager, scripts: [], metadataFiles, worktrees, checkDefinitions: [] };
+  }
 
   const parsed = JSON.parse(content) as { scripts?: Record<string, string> };
   const scripts = parsed.scripts ?? {};
-  const packageManager = await detectPackageManager(rootPath);
-  return Object.keys(scripts)
+  const projectScripts = Object.keys(scripts)
+    .sort((left, right) => left.localeCompare(right))
+    .map((script) => ({
+      name: script,
+      command: packageManager === "yarn" ? ["yarn", script] : [packageManager, "run", script],
+      source: "package_json" as const,
+      confidence: "high" as const
+    }));
+  const checkDefinitions = Object.keys(scripts)
     .filter((script) => ["test", "lint", "build", "check", "typecheck"].includes(script))
+    .sort((left, right) => left.localeCompare(right))
     .map((script) => ({
       id: checkDefinitionId(),
       projectId,
@@ -193,12 +250,40 @@ async function detectCheckDefinitions(rootPath: string, projectId: ProjectId): P
       required: script === "test" || script === "check" || script === "typecheck",
       source: "detected" as const
     }));
+  return { packageManager, scripts: projectScripts, metadataFiles, worktrees, checkDefinitions };
 }
 
-async function detectPackageManager(rootPath: string): Promise<"npm" | "pnpm" | "yarn"> {
+async function detectPackageManager(rootPath: string): Promise<PackageManager> {
   if (await exists(path.join(rootPath, "pnpm-lock.yaml"))) return "pnpm";
   if (await exists(path.join(rootPath, "yarn.lock"))) return "yarn";
-  return "npm";
+  if (await exists(path.join(rootPath, "bun.lockb"))) return "bun";
+  if (await exists(path.join(rootPath, "package-lock.json"))) return "npm";
+  if (await exists(path.join(rootPath, "package.json"))) return "npm";
+  return "unknown";
+}
+
+async function detectMetadataFiles(rootPath: string): Promise<ProjectMetadataFile[]> {
+  const candidates: ProjectMetadataFile[] = [
+    { path: "package.json", kind: "package" },
+    { path: "pnpm-workspace.yaml", kind: "workspace" },
+    { path: "workspace.json", kind: "workspace" },
+    { path: "praxis.json", kind: "project_config" },
+    { path: ".praxis/project.json", kind: "project_config" }
+  ];
+  const existing: ProjectMetadataFile[] = [];
+  for (const candidate of candidates) {
+    if (await exists(path.join(rootPath, candidate.path))) {
+      existing.push(candidate);
+    }
+  }
+  return existing;
+}
+
+async function detectWorktrees(rootPath: string): Promise<ProjectWorktree[]> {
+  const gitFile = await readFile(path.join(rootPath, ".git"), "utf8").catch(() => undefined);
+  if (!gitFile?.startsWith("gitdir:")) return [];
+  const gitDir = gitFile.replace(/^gitdir:\s*/, "").trim();
+  return [{ path: rootPath, branch: path.basename(path.dirname(gitDir)) }];
 }
 
 async function exists(filePath: string): Promise<boolean> {

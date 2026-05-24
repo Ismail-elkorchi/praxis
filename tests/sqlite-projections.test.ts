@@ -56,6 +56,14 @@ describe("SQLite durable projections", () => {
     expect(provider.id).toBe("fake");
     expect(JSON.parse(String(provider.availability_json))).toMatchObject({ status: "available" });
 
+    const projectRow = store.tableRows("projects")[0]!;
+    expect(projectRow.package_manager).toBe("npm");
+    expect(JSON.parse(String(projectRow.scripts_json))).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "test", source: "package_json", confidence: "high" })])
+    );
+    expect(JSON.parse(String(projectRow.metadata_files_json))).toContainEqual({ path: "package.json", kind: "package" });
+    expect(JSON.parse(String(projectRow.worktrees_json))).toEqual([]);
+
     const capabilities = store.tableRows("provider_capabilities")[0]!;
     expect(JSON.parse(String(capabilities.capabilities_json))).toMatchObject({ canStartSession: true });
 
