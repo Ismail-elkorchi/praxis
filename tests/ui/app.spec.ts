@@ -106,6 +106,28 @@ test("diff review supports file search, source links, renames, and binary metada
   await expect(diffRegion).toContainText("renamed to");
 });
 
+test("check run panel shows active and recent runs with triage links", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: /^Checks/ }).click();
+  await expect(page.getByRole("region", { name: "Checks workspace" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Check runs" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Active" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Recent" })).toBeVisible();
+
+  const recentRuns = page.getByRole("region", { name: "Recent check runs" });
+  await expect(recentRuns.getByText("npm test")).toBeVisible();
+  await expect(recentRuns.getByText("Exit code")).toBeVisible();
+  await expect(recentRuns.getByText("1.2 s")).toBeVisible();
+  await expect(recentRuns.getByText("src/example.ts: expected value to pass")).toBeVisible();
+  await expect(recentRuns.getByRole("link", { name: "src/example.ts" })).toHaveAttribute("data-method", "git.openDiff");
+  await expect(page.getByRole("region", { name: "Active check runs" }).getByRole("button", { name: "Cancel" })).toHaveAttribute(
+    "data-method",
+    "checks.cancel"
+  );
+  await expect(page.getByRole("button", { name: "Run checks" })).toHaveAttribute("data-method", "checks.run");
+});
+
 test("command palette opens from global search and runs provider-neutral commands", async ({ page }) => {
   await page.goto("/");
 

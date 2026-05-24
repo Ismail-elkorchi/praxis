@@ -21,6 +21,7 @@ import type {
 import type {
   AppSnapshot,
   ApprovalCardViewModel,
+  CheckRunViewModel,
   DashboardAction,
   DashboardBadge,
   DashboardProjection,
@@ -435,6 +436,7 @@ function buildDashboard(snapshot: AppSnapshot): DashboardProjection {
     globalStatus: globalStatus(snapshot),
     projectCards,
     approvals: approvalCards(snapshot),
+    checkRuns: checkRunCards(snapshot),
     providerStatus: providerStatus(snapshot),
     timeline: timeline(snapshot),
     explanation: {
@@ -523,6 +525,33 @@ function approvalCards(snapshot: AppSnapshot): ApprovalCardViewModel[] {
   });
 }
 
+function checkRunCards(snapshot: AppSnapshot): CheckRunViewModel[] {
+  return Object.values(snapshot.projects)
+    .flatMap((project) =>
+      project.checkRuns.map((run) => {
+        const definition = project.checkDefinitions.find((check) => check.id === run.checkId);
+        return {
+          runId: run.id,
+          checkId: run.checkId,
+          projectId: run.projectId,
+          projectTitle: project.project.name,
+          name: definition?.name ?? "Check",
+          command: definition?.command ?? [],
+          status: run.status,
+          required: definition?.required ?? false,
+          startedAt: run.startedAt,
+          completedAt: run.completedAt,
+          durationMs: durationMs(run.startedAt, run.completedAt),
+          exitCode: run.exitCode,
+          output: run.outputSummary ?? run.stderrRef ?? run.stdoutRef ?? "",
+          relatedFiles: run.relatedFiles,
+          evidence: [{ type: "check" as const, runId: run.id, status: run.status }]
+        };
+      })
+    )
+    .sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+}
+
 function providerStatus(snapshot: AppSnapshot): ProviderStatusViewModel[] {
   return Object.values(snapshot.providers).map(({ provider }) => ({
     providerId: provider.id,
@@ -531,6 +560,14 @@ function providerStatus(snapshot: AppSnapshot): ProviderStatusViewModel[] {
     capabilities: provider.capabilities,
     adapterVersion: provider.adapterVersion
   }));
+}
+
+function durationMs(start: string, end: string | undefined): number | undefined {
+  if (!end) return undefined;
+  const startedAt = Date.parse(start);
+  const endedAt = Date.parse(end);
+  if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt)) return undefined;
+  return Math.max(0, endedAt - startedAt);
 }
 
 function timeline(snapshot: AppSnapshot): TimelineItemViewModel[] {
@@ -868,6 +905,7 @@ function emptyDashboard(): DashboardProjection {
     },
     projectCards: [],
     approvals: [],
+    checkRuns: [],
     providerStatus: [],
     timeline: [],
     explanation: { mode: "portfolio", propositions: [], evidence: [] }

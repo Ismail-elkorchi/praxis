@@ -24,6 +24,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ApprovalDecision } from "../core";
 import type {
   ApprovalCardViewModel,
+  CheckRunViewModel,
   DashboardProjection,
   ProjectCardViewModel,
   ProviderStatusViewModel,
@@ -115,7 +116,7 @@ export function App() {
         )}
         {route === "Approvals" && <ApprovalPanel approvals={dashboard.approvals} onDecision={decideApproval} />}
         {route === "Activity" && <ActivityTimeline items={dashboard.timeline} />}
-        {route === "Checks" && <CheckRunPanel />}
+        {route === "Checks" && <CheckRunPanel checkRuns={dashboard.checkRuns} />}
         {route === "Providers" && <ProviderGrid providers={dashboard.providerStatus} />}
         {route === "Settings" && <SettingsPanel />}
       </section>
@@ -849,19 +850,101 @@ function CommandPalette({
   );
 }
 
-function CheckRunPanel() {
-  return (
-    <section className="splitPanel">
-      <div>
-        <h2>Failed check triage</h2>
-        <p>Failed output is linked to changed files and source turns.</p>
-        <button type="button" data-method="checks.run">
-          Rerun failed checks
+function CheckRunPanel({ checkRuns }: { checkRuns: CheckRunViewModel[] }) {
+  const activeRuns = checkRuns.filter((run) => run.status === "queued" || run.status === "running");
+  const recentRuns = checkRuns.filter((run) => run.status !== "queued" && run.status !== "running");
+
+  if (checkRuns.length === 0) {
+    return (
+      <section className="emptyPanel" aria-label="Check runs">
+        <ListChecks size={26} aria-hidden="true" />
+        <h2>No checks have run</h2>
+        <p>Add a check or use detected project scripts to validate changes before review.</p>
+        <button type="button" data-method="checks.list">
+          Add check
         </button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="checkRunPanel" aria-label="Check runs">
+      <div className="sectionHeader">
+        <ListChecks size={22} aria-hidden="true" />
+        <div>
+          <h2>Check runs</h2>
+          <p>Active and recent checks with command output linked to changed files.</p>
+        </div>
       </div>
-      <pre tabIndex={0}>src/example.ts: expected value to pass</pre>
+      <div className="checkRunGroups">
+        <CheckRunGroup title="Active" runs={activeRuns} emptyText="No active check runs." />
+        <CheckRunGroup title="Recent" runs={recentRuns} emptyText="No recent check runs." />
+      </div>
+      <button type="button" data-method="checks.run">
+        Run checks
+      </button>
     </section>
   );
+}
+
+function CheckRunGroup({ title, runs, emptyText }: { title: string; runs: CheckRunViewModel[]; emptyText: string }) {
+  return (
+    <section className="checkRunGroup" aria-label={`${title} check runs`}>
+      <h3>{title}</h3>
+      {runs.map((run) => (
+        <article key={run.runId} className={`checkRunCard status-${run.status}`}>
+          <div className="checkRunHeader">
+            <div>
+              <span className={`stateBadge ${run.status === "failed" ? "failed" : run.status === "passed" ? "passed" : "active"}`}>
+                {run.status}
+              </span>
+              {run.required ? <span className="stateBadge waiting">required</span> : null}
+              <h4>{run.name}</h4>
+              <p>{run.projectTitle}</p>
+            </div>
+            <button type="button" data-method={run.status === "running" ? "checks.cancel" : "checks.run"}>
+              {run.status === "running" ? "Cancel" : "Rerun"}
+            </button>
+          </div>
+          <dl className="checkMeta">
+            <div>
+              <dt>Command</dt>
+              <dd>
+                <code>{run.command.length > 0 ? run.command.join(" ") : "not recorded"}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Exit code</dt>
+              <dd>{run.exitCode ?? "pending"}</dd>
+            </div>
+            <div>
+              <dt>Duration</dt>
+              <dd>{formatDuration(run.durationMs)}</dd>
+            </div>
+          </dl>
+          {run.output ? <pre tabIndex={0}>{run.output}</pre> : <p className="emptyText">No output captured.</p>}
+          <div className="triageFiles" aria-label="Failed check triage files">
+            {run.relatedFiles.length > 0 ? (
+              run.relatedFiles.map((file) => (
+                <a key={`${run.runId}-${file}`} href={`#${file}`} data-method="git.openDiff">
+                  {file}
+                </a>
+              ))
+            ) : (
+              <span>No changed files linked.</span>
+            )}
+          </div>
+        </article>
+      ))}
+      {runs.length === 0 ? <p className="emptyText">{emptyText}</p> : null}
+    </section>
+  );
+}
+
+function formatDuration(durationMs: number | undefined): string {
+  if (durationMs === undefined) return "running";
+  if (durationMs < 1000) return `${durationMs} ms`;
+  return `${(durationMs / 1000).toFixed(1)} s`;
 }
 
 function FailureTriage() {
@@ -1155,6 +1238,39 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
     mode,
     projectCards,
     approvals,
+    checkRuns: [
+      {
+        runId: "check-run-beta" as CheckRunViewModel["runId"],
+        checkId: "check-definition-beta" as CheckRunViewModel["checkId"],
+        projectId: "project-beta" as CheckRunViewModel["projectId"],
+        projectTitle: "Package Metadata",
+        name: "test",
+        command: ["npm", "test"],
+        status: "failed",
+        required: true,
+        startedAt: now,
+        completedAt: now,
+        durationMs: 1240,
+        exitCode: 1,
+        output: "src/example.ts: expected value to pass",
+        relatedFiles: ["src/example.ts", "package.json"],
+        evidence: []
+      },
+      {
+        runId: "check-run-alpha" as CheckRunViewModel["runId"],
+        checkId: "check-definition-alpha" as CheckRunViewModel["checkId"],
+        projectId: "project-alpha" as CheckRunViewModel["projectId"],
+        projectTitle: "Control Plane",
+        name: "typecheck",
+        command: ["npm", "run", "typecheck"],
+        status: "running",
+        required: false,
+        startedAt: now,
+        output: "",
+        relatedFiles: [],
+        evidence: []
+      }
+    ],
     providerStatus: [
       {
         providerId: "fake" as ProviderStatusViewModel["providerId"],

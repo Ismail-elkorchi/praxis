@@ -558,6 +558,83 @@ pre {
   gap: 0.75rem;
 }
 
+.checkRunPanel,
+.checkRunGroups,
+.checkRunGroup {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.checkRunGroups {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.checkRunCard {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.checkRunCard.status-failed {
+  border-left: 5px solid #c65d5d;
+}
+
+.checkRunCard.status-running,
+.checkRunCard.status-queued {
+  border-left: 5px solid #7aa7c7;
+}
+
+.checkRunHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.checkRunHeader h4 {
+  margin: 0.45rem 0 0.15rem;
+}
+
+.checkMeta {
+  display: grid;
+  grid-template-columns: 2fr minmax(0, 0.75fr) minmax(0, 0.75fr);
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.checkMeta div {
+  min-width: 0;
+  padding: 0.55rem;
+  border: 1px solid #e1e6e9;
+  border-radius: 6px;
+  background: #f8fafb;
+}
+
+.checkMeta code {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.triageFiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.triageFiles a,
+.triageFiles span {
+  padding: 0.25rem 0.45rem;
+  border: 1px solid #d7e0e4;
+  border-radius: 6px;
+  color: #17202a;
+  text-decoration: none;
+  font-size: 0.82rem;
+}
+
 .settingsPanel label {
   display: flex;
   gap: 0.55rem;
@@ -682,6 +759,7 @@ pre {
   .topBar,
   .approvalCard,
   .splitPanel,
+  .checkRunGroups,
   .timelineFilters {
     grid-template-columns: 1fr;
     flex-direction: column;
@@ -693,7 +771,8 @@ pre {
 
   .metricGrid,
   .approvalMeta,
-  .diffMeta {
+  .diffMeta,
+  .checkMeta {
     grid-template-columns: 1fr;
   }
 }

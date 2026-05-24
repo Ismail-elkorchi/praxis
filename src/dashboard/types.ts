@@ -114,6 +114,24 @@ export type ApprovalCardViewModel = {
   evidence: EvidenceRef[];
 };
 
+export type CheckRunViewModel = {
+  runId: CheckRun["id"];
+  checkId: CheckRun["checkId"];
+  projectId: ProjectId;
+  projectTitle: string;
+  name: string;
+  command: string[];
+  status: CheckRun["status"];
+  required: boolean;
+  startedAt: string;
+  completedAt?: string;
+  durationMs?: number;
+  exitCode?: number;
+  output: string;
+  relatedFiles: string[];
+  evidence: EvidenceRef[];
+};
+
 export type TimelineItemViewModel = {
   id: string;
   kind: "turn" | "message" | "command" | "file_change" | "approval" | "check" | "provider_error" | "system";
@@ -152,6 +170,7 @@ export type DashboardProjection = {
   globalStatus: GlobalStatusViewModel;
   projectCards: ProjectCardViewModel[];
   approvals: ApprovalCardViewModel[];
+  checkRuns: CheckRunViewModel[];
   providerStatus: ProviderStatusViewModel[];
   timeline: TimelineItemViewModel[];
   explanation: {

@@ -225,6 +225,17 @@ describe("provider-neutral application workflow", () => {
     expect(run.relatedFiles).toContain("new-file.ts");
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("checks_failed");
     expect(app.snapshot().dashboard.mode).toBe("failure_triage");
+    const projectedRun = app.snapshot().dashboard.checkRuns.find((item) => item.runId === run.id);
+    expect(projectedRun).toMatchObject({
+      name: "test",
+      command: ["npm", "run", "test"],
+      status: "failed",
+      required: true,
+      exitCode: 1,
+      relatedFiles: expect.arrayContaining(["new-file.ts"])
+    });
+    expect(projectedRun?.durationMs).toBeGreaterThanOrEqual(0);
+    expect(projectedRun?.output).toBeDefined();
   });
 });
 
