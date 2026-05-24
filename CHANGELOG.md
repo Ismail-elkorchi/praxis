@@ -15,3 +15,4 @@
 - Persisted app settings across SQLite-backed restarts and made worktree creation emit provider-neutral domain events.
 - Persisted derived dashboard propositions into SQLite after append and replay so explanation evidence is durable.
 - Made provider status/capability API calls targeted and made availability checks emit normalized provider status events with WebSocket pushes.
+- Wired event query filters through the API for project, provider, session, and event-type activity views.

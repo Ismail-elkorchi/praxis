@@ -1,5 +1,6 @@
 import type { AgentSessionId, AgentTurnId, ApprovalDecision, ApprovalRequestId, CheckRunId, ProjectId, ProviderId } from "../core";
 import { createDomainEvent } from "../events/eventFactory";
+import type { EventQuery } from "../events/EventStore";
 import type { PraxisRuntime } from "./PraxisApp";
 import { PraxisError } from "./errors";
 
@@ -180,7 +181,7 @@ export class PraxisApi {
       case "events.replay":
         return this.app.replay();
       case "events.query":
-        return this.app.events.queryEvents();
+        return this.app.events.queryEvents((params as EventQuery | undefined) ?? {});
       default:
         throw new PraxisError("method_not_found", "API method was not found.", { method });
     }

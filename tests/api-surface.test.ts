@@ -151,4 +151,48 @@ describe("provider-neutral API surface", () => {
     expect(store.tableRows("worktrees")[0]).toMatchObject({ project_id: project.id, root_path: worktreePath });
     store.close();
   });
+
+  it("filters event queries by project, provider, session, and event type", async () => {
+    const app = await createPraxisApp();
+    const api = new PraxisApi(app);
+    const firstRoot = await createTempProject({ packageJson: false });
+    const secondRoot = await createTempProject({ packageJson: false });
+    const first = await app.projects.registerProject({ rootPath: firstRoot });
+    const second = await app.projects.registerProject({ rootPath: secondRoot });
+    const sessionId = await app.providers.startSession({
+      providerId: providerId("fake"),
+      projectId: first.id,
+      cwd: firstRoot
+    });
+    await app.providers.sendTurn({
+      providerId: providerId("fake"),
+      projectId: first.id,
+      sessionId,
+      instruction: "Filter this activity"
+    });
+
+    await expect(
+      api.handle({ id: "project-events", method: "events.query", params: { projectId: first.id } })
+    ).resolves.toMatchObject({
+      id: "project-events",
+      result: expect.arrayContaining([expect.objectContaining({ projectId: first.id })])
+    });
+    const secondEvents = await api.handle({ id: "second-events", method: "events.query", params: { projectId: second.id } });
+    expect("result" in secondEvents ? (secondEvents.result as { projectId?: string }[]).every((event) => event.projectId === second.id) : false).toBe(
+      true
+    );
+
+    await expect(
+      api.handle({ id: "session-events", method: "events.query", params: { providerId: providerId("fake"), sessionId } })
+    ).resolves.toMatchObject({
+      id: "session-events",
+      result: expect.arrayContaining([expect.objectContaining({ sessionId, providerId: providerId("fake") })])
+    });
+    await expect(
+      api.handle({ id: "type-events", method: "events.query", params: { type: "agent.turn.completed" } })
+    ).resolves.toMatchObject({
+      id: "type-events",
+      result: [expect.objectContaining({ type: "agent.turn.completed" })]
+    });
+  });
 });

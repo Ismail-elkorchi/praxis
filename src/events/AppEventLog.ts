@@ -1,7 +1,7 @@
 import type { DomainEvent } from "../core/types";
 import type { AppSnapshot } from "../dashboard/types";
 import { emptySnapshot, replayEvents, reduceSnapshot } from "../dashboard/reducers";
-import type { EventStore } from "./EventStore";
+import type { EventQuery, EventStore } from "./EventStore";
 
 type PropositionSink = {
   writePropositions(propositions: AppSnapshot["dashboard"]["explanation"]["propositions"]): void;
@@ -43,8 +43,8 @@ export class AppEventLog {
     return this.current;
   }
 
-  async queryEvents() {
-    return this.store.query();
+  async queryEvents(query?: EventQuery) {
+    return this.store.query(query);
   }
 
   private persistPropositions(): void {
