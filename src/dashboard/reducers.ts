@@ -66,6 +66,10 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
   const next = cloneSnapshot(snapshot);
   next.events = [...next.events, event];
 
+  if (event.version !== 1) {
+    return rebuildDerived(next);
+  }
+
   switch (event.type) {
     case "project.registered": {
       const payload = event.payload as { project: ProjectSnapshot["project"]; checkDefinitions?: CheckDefinition[] };

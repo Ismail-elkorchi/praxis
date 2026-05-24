@@ -83,11 +83,13 @@ export class SqliteEventStore implements EventStore {
       mkdirSync(path.dirname(databasePath), { recursive: true });
     }
     this.db = new Database(databasePath);
+    this.configureDatabase(databasePath);
     this.migrate();
   }
 
   append(event: DomainEvent): Promise<DomainEvent> {
-    return Promise.resolve(this.insertEvent(event));
+    const insertOne = this.db.transaction((input: DomainEvent) => this.insertEvent(input));
+    return Promise.resolve(insertOne(event));
   }
 
   appendMany(events: DomainEvent[]): Promise<DomainEvent[]> {
@@ -175,6 +177,21 @@ export class SqliteEventStore implements EventStore {
 
   writePropositions(propositions: Proposition[]): void {
     this.persistPropositions(propositions);
+  }
+
+  integrityCheck(): { ok: boolean; messages: string[] } {
+    const rows = this.db.pragma("quick_check") as { quick_check: string }[];
+    const messages = rows.map((row) => row.quick_check);
+    return { ok: messages.length === 1 && messages[0] === "ok", messages };
+  }
+
+  private configureDatabase(databasePath: string): void {
+    this.db.pragma("foreign_keys = ON");
+    this.db.pragma("busy_timeout = 5000");
+    this.db.pragma("synchronous = NORMAL");
+    if (databasePath !== ":memory:") {
+      this.db.pragma("journal_mode = WAL");
+    }
   }
 
   private insertEvent(event: DomainEvent): DomainEvent {
@@ -411,6 +428,9 @@ export class SqliteEventStore implements EventStore {
 
   private persistReadModels(event: DomainEvent): void {
     this.persistEventPayload(event);
+    if (event.version !== 1) {
+      return;
+    }
 
     switch (event.type) {
       case "project.registered":

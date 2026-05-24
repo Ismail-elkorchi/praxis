@@ -8,7 +8,7 @@ import { providerId, type ProviderCapabilities } from "../src/core";
 import { createPraxisApp } from "../src/composition/createPraxisApp";
 import { SqliteEventStore } from "../src/events/SqliteEventStore";
 import type { ProviderAdapter } from "../src/providers/interface";
-import { startPraxisRuntime } from "../src/runtime/PraxisRuntimeHost";
+import { runtimeLifecycleSettingKey, startPraxisRuntime, type RuntimeLifecycleRecord } from "../src/runtime/PraxisRuntimeHost";
 import { defaultAppSettings, SettingsService } from "../src/settings/SettingsService";
 import { createTempProject } from "./helpers/tempProject";
 
@@ -98,6 +98,36 @@ describe("release hardening", () => {
     expect(second.app.snapshot().dashboard.projectCards.some((card) => card.projectId === project.id)).toBe(true);
     expect(second.app.snapshot().approvals.history).toEqual([]);
     await second.shutdown();
+  });
+
+  it("recovers active sessions after an unclean runtime restart", async () => {
+    const databasePath = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-runtime-recovery-")), "praxis.sqlite");
+    const first = await startPraxisRuntime({ databasePath, listen: false });
+    const rootPath = await createTempProject({ packageJson: false });
+    const project = await first.app.projects.registerProject({ rootPath });
+    const sessionId = await first.app.providers.startSession({
+      providerId: providerId("fake"),
+      projectId: project.id,
+      cwd: rootPath,
+      goal: "Recover active session"
+    });
+
+    first.app.eventStore.close?.();
+
+    const second = await startPraxisRuntime({ databasePath, listen: false });
+    const recoveredProject = second.app.snapshot().projects[project.id];
+    expect(second.startupSteps).toContain("recover_crashed_runtime");
+    expect(recoveredProject?.sessions[sessionId]?.state).toBe("stale_or_disconnected");
+    expect(recoveredProject?.runtimeState).toBe("stale");
+    expect(second.app.snapshot().dashboard.mode).toBe("stale_sessions");
+    expect((await second.app.events.queryEvents({ sessionId })).some((event) => event.type === "agent.session.stale")).toBe(true);
+    expect((second.app.eventStore as SqliteEventStore).integrityCheck()).toMatchObject({ ok: true });
+
+    await second.shutdown();
+
+    const closedStore = new SqliteEventStore(databasePath);
+    expect(closedStore.readSetting<RuntimeLifecycleRecord>(runtimeLifecycleSettingKey)?.status).toBe("clean_shutdown");
+    closedStore.close();
   });
 
   it("ships public fake-provider onboarding examples without private-surface terms", async () => {

@@ -44,6 +44,37 @@ describe("GenericProcessProviderAdapter", () => {
     expect(events.some((event) => event.type === "provider.rawEvent")).toBe(true);
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("agent_ready");
   });
+
+  it("normalizes provider process crashes without crashing the app", async () => {
+    const scriptPath = await createCrashingProviderScript();
+    const adapter = new GenericProcessProviderAdapter({
+      id: providerId("generic-process-crash-test"),
+      displayName: "Crashing process provider",
+      command: [process.execPath, scriptPath]
+    });
+    const app = await createPraxisApp({ providerAdapters: [adapter] });
+    const rootPath = await createTempProject({ packageJson: false });
+    const project = await app.projects.registerProject({ rootPath });
+    const sessionId = await app.providers.startSession({
+      providerId: providerId("generic-process-crash-test"),
+      projectId: project.id,
+      cwd: rootPath
+    });
+
+    await expect(
+      app.providers.sendTurn({
+        providerId: providerId("generic-process-crash-test"),
+        projectId: project.id,
+        sessionId,
+        instruction: "Provider process exits"
+      })
+    ).resolves.toEqual(expect.any(String));
+
+    const events = await app.events.queryEvents({ providerId: providerId("generic-process-crash-test") });
+    expect(events.some((event) => event.type === "provider.error")).toBe(true);
+    expect(events.some((event) => event.type === "agent.turn.failed")).toBe(true);
+    expect(app.snapshot().projects[project.id]?.runtimeState).toBe("error");
+  });
 });
 
 async function createProviderScript(): Promise<string> {
@@ -55,6 +86,19 @@ async function createProviderScript(): Promise<string> {
       "console.log(JSON.stringify({ type: 'agent.turn.delta', payload: { text: 'process event' } }));",
       "console.log('not-json');",
       "console.log(JSON.stringify({ type: 'agent.turn.completed', payload: { result: 'done' } }));"
+    ].join("\n")
+  );
+  return scriptPath;
+}
+
+async function createCrashingProviderScript(): Promise<string> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "praxis-provider-crash-"));
+  const scriptPath = path.join(dir, "provider-crash.mjs");
+  await writeFile(
+    scriptPath,
+    [
+      "console.error('provider process crashed');",
+      "process.exit(2);"
     ].join("\n")
   );
   return scriptPath;

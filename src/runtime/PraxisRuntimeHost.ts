@@ -1,5 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { AddressInfo } from "node:net";
 import path from "node:path";
+import type { AgentSession, AgentTurn } from "../core";
+import { createDomainEvent } from "../events/eventFactory";
 import type { FakeProviderScenarioName } from "../providers/fake/FakeProviderScenarios";
 import type { ProviderAdapter } from "../providers/interface";
 import { createPraxisApp, type PraxisApp } from "../composition/createPraxisApp";
@@ -14,6 +17,7 @@ export type RuntimeStartupStep =
   | "load_provider_registry"
   | "register_fake_provider"
   | "discover_configured_providers"
+  | "recover_crashed_runtime"
   | "restore_projections"
   | "check_provider_availability"
   | "start_local_server"
@@ -40,6 +44,16 @@ export type StartPraxisRuntimeOptions = {
   deploymentMode?: RuntimeDeploymentMode;
 };
 
+export type RuntimeLifecycleRecord = {
+  runtimeId: string;
+  status: "starting" | "running" | "clean_shutdown";
+  deploymentMode: RuntimeDeploymentMode;
+  pid: number;
+  startedAt: string;
+  updatedAt: string;
+  stoppedAt?: string;
+};
+
 export type PraxisRuntimeHost = {
   app: PraxisApp;
   startupSteps: RuntimeStartupStep[];
@@ -49,11 +63,17 @@ export type PraxisRuntimeHost = {
   shutdown(): Promise<RuntimeShutdownStep[]>;
 };
 
+export const runtimeLifecycleSettingKey = "runtime:lifecycle";
+
 export async function startPraxisRuntime(options: StartPraxisRuntimeOptions = {}): Promise<PraxisRuntimeHost> {
   const startupSteps: RuntimeStartupStep[] = [];
   const shutdownSteps: RuntimeShutdownStep[] = [];
   const deploymentMode = options.deploymentMode ?? "local_browser";
+  const runtimeId = randomUUID();
+  const runtimeStartedAt = new Date().toISOString();
   const eventStore = new SqliteEventStore(options.databasePath ?? defaultAppSettings.databasePath);
+  const previousLifecycle = eventStore.readSetting<RuntimeLifecycleRecord>(runtimeLifecycleSettingKey);
+  writeRuntimeLifecycle(eventStore, runtimeId, deploymentMode, "starting", runtimeStartedAt);
   startupSteps.push("open_database", "run_migrations");
 
   const app = await createPraxisApp({
@@ -69,8 +89,14 @@ export async function startPraxisRuntime(options: StartPraxisRuntimeOptions = {}
     "restore_projections"
   );
 
+  if (previousLifecycle && previousLifecycle.status !== "clean_shutdown") {
+    await recoverCrashedRuntime(app, previousLifecycle);
+    startupSteps.push("recover_crashed_runtime");
+  }
+
   await app.providers.checkAvailability();
   startupSteps.push("check_provider_availability");
+  writeRuntimeLifecycle(eventStore, runtimeId, deploymentMode, "running", runtimeStartedAt);
 
   const serverBundle = options.listen
     ? createLocalServer({ app, staticRoot: options.staticRoot ?? path.resolve("dist") })
@@ -98,9 +124,88 @@ export async function startPraxisRuntime(options: StartPraxisRuntimeOptions = {}
         await new Promise<void>((resolve) => serverBundle.server.close(() => resolve()));
         shutdownSteps.push("stop_local_server");
       }
+      writeRuntimeLifecycle(eventStore, runtimeId, deploymentMode, "clean_shutdown", runtimeStartedAt);
       app.eventStore.close?.();
       shutdownSteps.push("close_database");
       return [...shutdownSteps];
     }
   };
+}
+
+function writeRuntimeLifecycle(
+  eventStore: SqliteEventStore,
+  runtimeId: string,
+  deploymentMode: RuntimeDeploymentMode,
+  status: RuntimeLifecycleRecord["status"],
+  runtimeStartedAt: string
+): void {
+  const timestamp = new Date().toISOString();
+  eventStore.writeSetting(runtimeLifecycleSettingKey, {
+    runtimeId,
+    status,
+    deploymentMode,
+    pid: process.pid,
+    startedAt: runtimeStartedAt,
+    updatedAt: timestamp,
+    stoppedAt: status === "clean_shutdown" ? timestamp : undefined
+  });
+}
+
+async function recoverCrashedRuntime(app: PraxisApp, previousLifecycle: RuntimeLifecycleRecord): Promise<void> {
+  const events = Object.values(app.snapshot().projects).flatMap((project) => {
+    return Object.values(project.sessions).flatMap((session) => recoveryEventsForSession(session, Object.values(project.turns), previousLifecycle));
+  });
+
+  if (events.length > 0) {
+    await app.events.appendMany(events);
+  }
+}
+
+function recoveryEventsForSession(
+  session: AgentSession,
+  turns: AgentTurn[],
+  previousLifecycle: RuntimeLifecycleRecord
+) {
+  if (!sessionRequiresRecovery(session)) {
+    return [];
+  }
+
+  const activeTurn = turns.find((turn) => turn.sessionId === session.id && turn.status === "in_progress");
+  const payload = {
+    reason: "Runtime recovered after an unclean shutdown.",
+    previousRuntimeId: previousLifecycle.runtimeId,
+    previousStatus: previousLifecycle.status,
+    previousUpdatedAt: previousLifecycle.updatedAt
+  };
+  const interrupted = activeTurn
+    ? [
+        createDomainEvent({
+          type: "agent.turn.interrupted",
+          projectId: session.projectId,
+          sessionId: session.id,
+          turnId: activeTurn.id,
+          providerId: session.providerId,
+          source: "system",
+          payload,
+          evidence: [{ type: "provider" as const, providerId: session.providerId }]
+        })
+      ]
+    : [];
+
+  return [
+    ...interrupted,
+    createDomainEvent({
+      type: "agent.session.stale",
+      projectId: session.projectId,
+      sessionId: session.id,
+      providerId: session.providerId,
+      source: "system",
+      payload,
+      evidence: [{ type: "provider", providerId: session.providerId }]
+    })
+  ];
+}
+
+function sessionRequiresRecovery(session: AgentSession): boolean {
+  return session.state === "active" || session.state === "created" || session.state === "starting";
 }
