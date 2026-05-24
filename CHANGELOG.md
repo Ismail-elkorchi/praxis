@@ -1,0 +1,8 @@
+# Changelog
+
+## 0.1.0
+
+- Added the initial provider-neutral domain model, provider interface, fake provider, and optional generic process adapter.
+- Added append-only SQLite event storage, replayable projections, approval ordering, project registry, git status, check runs, diff handling, and redacted logging helpers.
+- Added a provider-neutral dashboard shell with project cards, approval center, provider status, activity timeline, explain mode, and keyboard smoke tests.
+- Added public verification scripts, CI, package metadata, and contributor-facing project files.

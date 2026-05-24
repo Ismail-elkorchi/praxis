@@ -1,6 +1,6 @@
 :root {
   color: #17202a;
-  background: #f6f8f7;
+  background: #f4f6f8;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -18,20 +18,42 @@ body {
 }
 
 button,
-a {
+a,
+input {
   font: inherit;
 }
 
 button:focus-visible,
-a:focus-visible {
+a:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
   outline: 3px solid #1f6feb;
   outline-offset: 3px;
+}
+
+button {
+  border: 1px solid #b7c3c9;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #17202a;
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #edf2f5;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  color: #64737b;
+  background: #eef1f2;
 }
 
 .appShell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 320px;
+  grid-template-columns: 224px minmax(0, 1fr) 336px;
   color: #17202a;
 }
 
@@ -40,7 +62,7 @@ a:focus-visible {
   flex-direction: column;
   gap: 0.35rem;
   padding: 1rem;
-  border-right: 1px solid #cfd8d3;
+  border-right: 1px solid #cbd5da;
   background: #ffffff;
 }
 
@@ -49,15 +71,29 @@ a:focus-visible {
   font-size: 1.1rem;
 }
 
-.leftNav a {
-  color: #25313c;
-  text-decoration: none;
-  padding: 0.55rem 0.65rem;
-  border-radius: 6px;
+.navItem {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  border: 0;
+  background: transparent;
+  text-align: left;
 }
 
-.leftNav a:hover {
-  background: #e8efeb;
+.navItem.active {
+  background: #e7f0f8;
+  color: #0d4e8c;
+}
+
+.navBadge {
+  min-width: 1.45rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: #d9e2e8;
+  text-align: center;
+  font-size: 0.78rem;
 }
 
 .mainPanel {
@@ -75,12 +111,13 @@ a:focus-visible {
 
 .eyebrow {
   margin: 0 0 0.25rem;
-  color: #52615d;
+  color: #586971;
   font-size: 0.875rem;
 }
 
 h1,
 h2,
+h3,
 p {
   margin-top: 0;
 }
@@ -90,6 +127,21 @@ h1 {
   font-size: 1.9rem;
 }
 
+h2 {
+  margin-bottom: 0.45rem;
+  font-size: 1.15rem;
+}
+
+h3 {
+  margin-bottom: 0.4rem;
+  font-size: 1rem;
+}
+
+p {
+  color: #52636b;
+  line-height: 1.5;
+}
+
 .statusRail {
   display: flex;
   flex-wrap: wrap;
@@ -97,86 +149,341 @@ h1 {
   justify-content: flex-end;
 }
 
-.statusRail span {
+.statusRail span,
+.stateBadge {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.4rem 0.55rem;
-  border: 1px solid #cfd8d3;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #cbd5da;
   border-radius: 6px;
   background: #ffffff;
-  color: #25313c;
-  font-size: 0.9rem;
+  color: #25323a;
+  font-size: 0.86rem;
 }
 
-.emptyState {
+.stateBadge.active {
+  border-color: #7aa7c7;
+  background: #e5f1f8;
+}
+
+.stateBadge.waiting {
+  border-color: #d1a64b;
+  background: #fff6df;
+}
+
+.stateBadge.review {
+  border-color: #6aa985;
+  background: #e6f5ed;
+}
+
+.stateBadge.passed {
+  border-color: #5a9d74;
+  background: #e5f5ea;
+}
+
+.stateBadge.failed,
+.stateBadge.unsafe {
+  border-color: #c65d5d;
+  background: #fdecec;
+}
+
+.stateBadge.stale,
+.stateBadge.blocked,
+.stateBadge.unknown {
+  border-color: #8d98a1;
+  background: #eef1f3;
+}
+
+.dashboardMode {
   display: grid;
-  justify-items: start;
+  gap: 1rem;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.cardGrid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.projectCard,
+.approvalCard,
+.emptyPanel,
+.splitPanel,
+.settingsPanel {
+  border: 1px solid #cbd5da;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 1rem;
+}
+
+.projectCard.selected {
+  border-color: #1f6feb;
+  box-shadow: inset 0 0 0 1px #1f6feb;
+}
+
+.projectCard.urgency-4,
+.projectCard.urgency-5,
+.approvalCard.risk-critical,
+.approvalCard.risk-unknown {
+  border-left: 5px solid #c65d5d;
+}
+
+.projectCard.urgency-3 {
+  border-left: 5px solid #d1a64b;
+}
+
+.cardHeader {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.cardHeader strong,
+.cardHeader small {
+  display: block;
+}
+
+.cardHeader small {
+  margin-top: 0.2rem;
+  color: #64737b;
+}
+
+.stateRow,
+.actionRow,
+.decisionGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.8rem 0;
+}
+
+.metricGrid,
+.approvalMeta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.metricGrid div,
+.approvalMeta div {
+  padding: 0.55rem;
+  border: 1px solid #e1e6e9;
+  border-radius: 6px;
+  background: #f8fafb;
+}
+
+dt {
+  color: #64737b;
+  font-size: 0.78rem;
+}
+
+dd {
+  margin: 0.1rem 0 0;
+  font-weight: 700;
+}
+
+.sectionHeader {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.approvalPanel,
+.timeline {
+  display: grid;
   gap: 0.75rem;
-  max-width: 720px;
-  padding: 1.5rem;
-  border: 1px solid #cfd8d3;
+}
+
+.approvalCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  gap: 1rem;
+  align-items: start;
+}
+
+.decisionGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.decisionGrid button:first-child {
+  background: #185a9d;
+  border-color: #185a9d;
+  color: #ffffff;
+}
+
+.secondaryDanger {
+  border-color: #bd4b4b;
+  color: #8f2424;
+}
+
+.timelineItem {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 0.7rem;
+  padding: 0.8rem;
+  border: 1px solid #d7e0e4;
   border-radius: 8px;
   background: #ffffff;
 }
 
-.emptyState h2 {
-  margin-bottom: 0;
-  font-size: 1.35rem;
+.timelineItem time {
+  color: #64737b;
+  font-size: 0.82rem;
 }
 
-.emptyState p {
-  max-width: 62ch;
-  color: #52615d;
-  line-height: 1.55;
+.timelineIcon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #e7f0f8;
+  color: #0d4e8c;
 }
 
-.emptyState button {
-  border: 0;
+.splitPanel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 420px);
+  gap: 1rem;
+}
+
+pre {
+  min-width: 0;
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: 0.85rem;
   border-radius: 6px;
-  background: #185a9d;
-  color: #ffffff;
-  padding: 0.65rem 0.9rem;
-  cursor: pointer;
+  background: #17202a;
+  color: #f8fafb;
+  font-size: 0.9rem;
 }
 
 .detailPanel {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
   padding: 1rem;
-  border-left: 1px solid #cfd8d3;
+  border-left: 1px solid #cbd5da;
   background: #ffffff;
 }
 
-.detailPanel p {
-  color: #52615d;
-  line-height: 1.5;
+.detailPanel section {
+  border-bottom: 1px solid #e1e6e9;
+  padding-bottom: 1rem;
 }
 
-@media (max-width: 900px) {
+.evidenceList {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.evidenceList li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid #eef1f3;
+}
+
+.diffPreview {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.7rem;
+  border: 1px solid #d7e0e4;
+  border-radius: 6px;
+  background: #f8fafb;
+}
+
+.diffPreview code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.settingsPanel {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.settingsPanel label {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+@media (max-width: 1100px) {
+  .appShell {
+    grid-template-columns: 80px minmax(0, 1fr);
+  }
+
+  .leftNav strong,
+  .navItem span:not(.navBadge),
+  .detailPanel {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
   .appShell {
     grid-template-columns: 1fr;
   }
 
-  .leftNav,
-  .detailPanel {
-    border: 0;
-    border-bottom: 1px solid #cfd8d3;
-  }
-
   .leftNav {
+    position: sticky;
+    top: 0;
+    z-index: 5;
     flex-flow: row wrap;
-    align-items: center;
+    border-right: 0;
+    border-bottom: 1px solid #cbd5da;
   }
 
-  .leftNav strong {
-    width: 100%;
-    margin-bottom: 0.25rem;
+  .navItem {
+    width: auto;
+    grid-template-columns: 20px auto;
   }
 
-  .topBar {
+  .navItem span:not(.navBadge) {
+    display: inline;
+  }
+
+  .topBar,
+  .approvalCard,
+  .splitPanel {
+    grid-template-columns: 1fr;
     flex-direction: column;
   }
 
   .statusRail {
     justify-content: flex-start;
+  }
+
+  .metricGrid,
+  .approvalMeta {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
   }
 }

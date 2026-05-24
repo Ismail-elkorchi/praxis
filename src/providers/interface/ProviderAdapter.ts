@@ -13,6 +13,7 @@ import type {
 } from "../../core";
 
 export type StartSessionInput = {
+  sessionId?: AgentSessionId;
   projectId: ProjectId;
   cwd: string;
   goal?: string;
@@ -38,6 +39,7 @@ export type StopSessionInput = {
 };
 
 export type SendTurnInput = {
+  turnId?: AgentTurnId;
   sessionId: AgentSessionId;
   projectId: ProjectId;
   input: string;

@@ -1,4 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
+import { existsSync } from "node:fs";
+
+const useSystemChrome = !process.env.CI && (existsSync("/usr/bin/google-chrome") || existsSync("/usr/bin/google-chrome-stable"));
 
 export default defineConfig({
   testDir: "./tests/ui",
@@ -16,7 +19,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"], channel: "chrome" }
+      use: { ...devices["Desktop Chrome"], ...(useSystemChrome ? { channel: "chrome" } : {}) }
     }
   ]
 });

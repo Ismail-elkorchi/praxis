@@ -5,6 +5,30 @@
   "type": "module",
   "private": false,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/Ismail-elkorchi/praxis.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Ismail-elkorchi/praxis/issues"
+  },
+  "homepage": "https://github.com/Ismail-elkorchi/praxis#readme",
+  "keywords": [
+    "agent",
+    "control-plane",
+    "local-first",
+    "provider-neutral",
+    "sqlite",
+    "dashboard"
+  ],
+  "files": [
+    "dist",
+    "src",
+    "scripts",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=24"
   },
@@ -23,6 +47,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",
+    "better-sqlite3": "^12.10.0",
     "lucide-react": "^0.475.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -31,6 +56,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.2",
