@@ -18,6 +18,20 @@ npm run dev
 
 The development server opens the provider-neutral dashboard with fake-provider data available for local workflows and tests.
 
+To run the local app server against the production build:
+
+```sh
+npm run build
+npm run server
+```
+
+The local server exposes:
+
+- `GET /health`
+- `POST /api`
+- `WS /ws`
+- static UI assets from `dist/`
+
 ## Core Guarantees
 
 - Core modules use provider-neutral domain types.

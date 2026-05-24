@@ -16,7 +16,7 @@ import {
   ShieldCheck,
   SlidersHorizontal
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ApprovalDecision } from "../core";
 import type {
   ApprovalCardViewModel,
@@ -25,6 +25,7 @@ import type {
   ProviderStatusViewModel,
   TimelineItemViewModel
 } from "../dashboard/types";
+import { callApi, decideApprovalThroughApi, subscribeDashboard, type ApiStatus } from "./apiClient";
 import "./styles.css";
 
 type Route = "Dashboard" | "Projects" | "Approvals" | "Activity" | "Checks" | "Providers" | "Settings";
@@ -33,10 +34,47 @@ export function App() {
   const [route, setRoute] = useState<Route>("Dashboard");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("project-alpha");
   const [resolvedApprovalIds, setResolvedApprovalIds] = useState<string[]>([]);
-  const dashboard = useMemo(() => demoDashboard(resolvedApprovalIds), [resolvedApprovalIds]);
+  const [liveDashboard, setLiveDashboard] = useState<DashboardProjection | undefined>();
+  const [apiStatus, setApiStatus] = useState<ApiStatus>("connecting");
+  const fallbackDashboard = useMemo(() => demoDashboard(resolvedApprovalIds), [resolvedApprovalIds]);
+  const dashboard = liveDashboard ?? fallbackDashboard;
   const selectedProject = dashboard.projectCards.find((project) => project.projectId === selectedProjectId);
 
-  function decideApproval(approvalId: string, _decision: ApprovalDecision) {
+  useEffect(() => {
+    const controller = new AbortController();
+    callApi<DashboardProjection>("dashboard.getSnapshot", undefined, controller.signal)
+      .then((snapshot) => {
+        setLiveDashboard(snapshot);
+        setApiStatus("live");
+        if (snapshot.projectCards[0]) {
+          setSelectedProjectId(snapshot.projectCards[0].projectId);
+        }
+      })
+      .catch(() => setApiStatus("fallback"));
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (apiStatus !== "live") return undefined;
+    return subscribeDashboard((snapshot) => {
+      setLiveDashboard(snapshot);
+      if (snapshot.projectCards[0] && !snapshot.projectCards.some((project) => project.projectId === selectedProjectId)) {
+        setSelectedProjectId(snapshot.projectCards[0].projectId);
+      }
+    });
+  }, [apiStatus, selectedProjectId]);
+
+  async function decideApproval(approvalId: string, decision: ApprovalDecision) {
+    const approval = dashboard.approvals.find((item) => item.approvalId === approvalId);
+    const provider = dashboard.providerStatus[0];
+    if (apiStatus === "live" && approval && provider) {
+      await decideApprovalThroughApi({ providerId: provider.providerId, approvalId, decision }).catch(() => undefined);
+      const snapshot = await callApi<DashboardProjection>("dashboard.getSnapshot").catch(() => undefined);
+      if (snapshot) {
+        setLiveDashboard(snapshot);
+        return;
+      }
+    }
     setResolvedApprovalIds((current) => [...new Set([...current, approvalId])]);
   }
 
@@ -44,7 +82,7 @@ export function App() {
     <main className={`appShell mode-${dashboard.mode}`}>
       <LeftNav route={route} dashboard={dashboard} onRoute={setRoute} />
       <section className="mainPanel" id="dashboard" aria-label={`${route} workspace`}>
-        <TopBar dashboard={dashboard} />
+        <TopBar dashboard={dashboard} apiStatus={apiStatus} />
         {route === "Dashboard" && (
           <DashboardView
             dashboard={dashboard}
@@ -109,7 +147,7 @@ function LeftNav({
   );
 }
 
-function TopBar({ dashboard }: { dashboard: DashboardProjection }) {
+function TopBar({ dashboard, apiStatus }: { dashboard: DashboardProjection; apiStatus: ApiStatus }) {
   return (
     <header className="topBar">
       <div>
@@ -117,6 +155,9 @@ function TopBar({ dashboard }: { dashboard: DashboardProjection }) {
         <h1>{modeTitle(dashboard.mode)}</h1>
       </div>
       <div className="statusRail" aria-label="Global status">
+        <span>
+          <Activity size={16} /> {apiStatus === "live" ? "live runtime" : apiStatus === "fallback" ? "fallback state" : "connecting"}
+        </span>
         <span>
           <Activity size={16} /> {dashboard.globalStatus.activeTurnCount} active turns
         </span>
@@ -174,6 +215,17 @@ function ProjectGrid({
   onSelectProject(projectId: string): void;
   compact?: boolean;
 }) {
+  if (dashboard.projectCards.length === 0) {
+    return (
+      <section className="emptyPanel" aria-label="Projects">
+        <GitBranch size={28} aria-hidden="true" />
+        <h2>No projects registered</h2>
+        <p>Register a local project to start tracking sessions, approvals, file changes, checks, and review state.</p>
+        <button type="button">Register project</button>
+      </section>
+    );
+  }
+
   return (
     <section className={compact ? "cardGrid compact" : "cardGrid"} aria-label="Projects">
       {dashboard.projectCards.map((project) => (

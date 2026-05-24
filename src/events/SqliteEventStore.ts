@@ -119,6 +119,13 @@ export class SqliteEventStore implements EventStore {
     this.db.close();
   }
 
+  tableNames(): string[] {
+    return this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+      .all()
+      .map((row) => (row as { name: string }).name);
+  }
+
   private migrate(): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS schema_versions (
@@ -142,6 +149,65 @@ export class SqliteEventStore implements EventStore {
         correlation_id TEXT,
         payload_json TEXT NOT NULL,
         evidence_json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        root_path TEXT NOT NULL,
+        canonical_path TEXT NOT NULL UNIQUE,
+        repo_remote TEXT,
+        default_branch TEXT,
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        archived INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS worktrees (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        root_path TEXT NOT NULL,
+        branch TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS providers (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        adapter_version TEXT NOT NULL,
+        availability_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS provider_capabilities (
+        provider_id TEXT PRIMARY KEY,
+        capabilities_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS agent_sessions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        cwd TEXT NOT NULL,
+        state TEXT NOT NULL,
+        goal TEXT,
+        active_turn_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS agent_turns (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        input_summary TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT
       );
 
       CREATE TABLE IF NOT EXISTS provider_session_refs (
@@ -171,10 +237,63 @@ export class SqliteEventStore implements EventStore {
         created_at TEXT NOT NULL,
         resolved_at TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS event_payloads (
+        event_id TEXT PRIMARY KEY,
+        payload_json TEXT NOT NULL,
+        redacted INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS check_definitions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        command_json TEXT NOT NULL,
+        cwd TEXT NOT NULL,
+        timeout_ms INTEGER NOT NULL,
+        required INTEGER NOT NULL,
+        source TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS check_runs (
+        id TEXT PRIMARY KEY,
+        check_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        exit_code INTEGER,
+        stdout_ref TEXT,
+        stderr_ref TEXT,
+        related_files_json TEXT NOT NULL DEFAULT '[]'
+      );
+
+      CREATE TABLE IF NOT EXISTS git_snapshots (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        snapshot_json TEXT NOT NULL,
+        captured_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS propositions (
+        id TEXT PRIMARY KEY,
+        subject TEXT NOT NULL,
+        predicate TEXT NOT NULL,
+        value TEXT NOT NULL,
+        evidence_json TEXT NOT NULL,
+        checked_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
 
     this.db
-      .prepare("INSERT OR REPLACE INTO schema_versions (id, version, updated_at) VALUES (1, 1, ?)")
+      .prepare("INSERT OR REPLACE INTO schema_versions (id, version, updated_at) VALUES (1, 2, ?)")
       .run(new Date().toISOString());
   }
 

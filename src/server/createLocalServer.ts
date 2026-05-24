@@ -1,0 +1,131 @@
+import { createReadStream, existsSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
+import { createServer, type IncomingMessage, type ServerResponse as HttpResponse } from "node:http";
+import path from "node:path";
+import { WebSocketServer } from "ws";
+import type { PraxisRuntime } from "../app/PraxisApp";
+import { PraxisApi, type ClientRequest } from "../app/PraxisApi";
+
+export type LocalServerOptions = {
+  app: PraxisRuntime;
+  staticRoot?: string;
+};
+
+const pushChannelsByMethod: Record<string, string[]> = {
+  "projects.register": ["dashboard.snapshotChanged", "project.stateChanged"],
+  "projects.refresh": ["dashboard.snapshotChanged", "project.stateChanged"],
+  "agents.startSession": ["dashboard.snapshotChanged", "agent.sessionUpdated"],
+  "agents.sendTurn": ["dashboard.snapshotChanged", "agent.turnUpdated"],
+  "agents.interruptTurn": ["dashboard.snapshotChanged", "agent.turnUpdated"],
+  "agents.respondToApproval": ["dashboard.snapshotChanged", "approval.resolved"],
+  "checks.run": ["dashboard.snapshotChanged", "check.updated"]
+};
+
+export function createLocalServer(options: LocalServerOptions) {
+  const api = new PraxisApi(options.app);
+  const server = createServer(async (request, response) => {
+    try {
+      if (request.method === "GET" && request.url === "/health") {
+        writeJson(response, 200, { ok: true });
+        return;
+      }
+
+      if (request.method === "POST" && request.url === "/api") {
+        const body = await readBody(request);
+        const clientRequest = JSON.parse(body) as ClientRequest;
+        const result = await api.handle(clientRequest);
+        writeJson(response, "error" in result ? 400 : 200, result);
+        if (!("error" in result)) {
+          broadcastMethodPushes(clientRequest.method);
+        }
+        return;
+      }
+
+      if (request.method === "GET" && options.staticRoot) {
+        if (await serveStatic(options.staticRoot, request, response)) {
+          return;
+        }
+      }
+
+      writeJson(response, 404, { error: "not_found" });
+    } catch (error) {
+      writeJson(response, 500, { error: "internal_error", message: error instanceof Error ? error.message : "Unexpected error." });
+    }
+  });
+
+  const sockets = new WebSocketServer({ server, path: "/ws" });
+
+  sockets.on("connection", (socket) => {
+    socket.send(JSON.stringify({ type: "push", channel: "dashboard.snapshotChanged", data: options.app.snapshot().dashboard }));
+    socket.on("message", async (message) => {
+      const clientRequest = JSON.parse(String(message)) as ClientRequest;
+      const result = await api.handle(clientRequest);
+      socket.send(JSON.stringify(result));
+      if (!("error" in result)) {
+        broadcastMethodPushes(clientRequest.method);
+      }
+    });
+  });
+
+  function broadcastMethodPushes(method: string): void {
+    const channels = pushChannelsByMethod[method] ?? [];
+    for (const channel of channels) {
+      broadcast(channel, options.app.snapshot().dashboard);
+    }
+  }
+
+  function broadcast(channel: string, data: unknown): void {
+    const payload = JSON.stringify({ type: "push", channel, data });
+    for (const client of sockets.clients) {
+      if (client.readyState === client.OPEN) {
+        client.send(payload);
+      }
+    }
+  }
+
+  return { server, sockets, api, broadcast };
+}
+
+async function serveStatic(staticRoot: string, request: IncomingMessage, response: HttpResponse): Promise<boolean> {
+  const parsed = new URL(request.url ?? "/", "http://127.0.0.1");
+  const requestedPath = parsed.pathname === "/" ? "/index.html" : parsed.pathname;
+  const resolved = path.resolve(staticRoot, `.${requestedPath}`);
+  const root = path.resolve(staticRoot);
+  if (!resolved.startsWith(root)) {
+    return false;
+  }
+
+  const filePath = existsSync(resolved) ? resolved : path.join(root, "index.html");
+  const fileStat = await stat(filePath).catch(() => undefined);
+  if (!fileStat?.isFile()) {
+    return false;
+  }
+
+  response.writeHead(200, { "content-type": contentType(filePath) });
+  createReadStream(filePath).pipe(response);
+  return true;
+}
+
+function contentType(filePath: string): string {
+  if (filePath.endsWith(".html")) return "text/html; charset=utf-8";
+  if (filePath.endsWith(".js")) return "text/javascript; charset=utf-8";
+  if (filePath.endsWith(".css")) return "text/css; charset=utf-8";
+  if (filePath.endsWith(".svg")) return "image/svg+xml";
+  return "application/octet-stream";
+}
+
+function writeJson(response: HttpResponse, status: number, body: unknown): void {
+  response.writeHead(status, { "content-type": "application/json" });
+  response.end(JSON.stringify(body));
+}
+
+function readBody(request: IncomingMessage) {
+  return new Promise<string>((resolve, reject) => {
+    let data = "";
+    request.on("data", (chunk: Buffer) => {
+      data += String(chunk);
+    });
+    request.on("end", () => resolve(data));
+    request.on("error", reject);
+  });
+}
