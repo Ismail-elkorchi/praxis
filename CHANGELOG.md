@@ -23,3 +23,4 @@
 - Derived local WebSocket push channels from newly appended domain events so approval, provider, check, git, project, and agent updates reach subscribed clients consistently.
 - Added provider-neutral observability diagnostics for provider logs, event logs, projection/proposition/safety inspectors, replay health, redaction, and runtime timing metrics.
 - Made enabled plugin risk-rule contributions inspectable through safety diagnostics and removed from diagnostics when disabled.
+- Added provider adapter contract validation for plugin-contributed adapters before plugin enablement.

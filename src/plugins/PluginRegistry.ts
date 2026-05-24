@@ -2,6 +2,7 @@ import type { CheckDefinition, DomainEvent, PermissionProfile, ProviderId } from
 import type { AppEventLog } from "../events/AppEventLog";
 import { createDomainEvent } from "../events/eventFactory";
 import type { ProviderAdapter } from "../providers/interface";
+import { validateProviderAdapterContract } from "../providers/interface";
 
 export type PluginPermission =
   | "read_projects"
@@ -98,6 +99,9 @@ export class PluginRegistry {
     const plugin = this.discovered.get(pluginId);
     if (!plugin) {
       throw new Error("Plugin was not discovered.");
+    }
+    for (const contribution of plugin.contributes.providerAdapters ?? []) {
+      await validateProviderAdapterContract(contribution.adapter, { expectedId: contribution.id });
     }
     this.enabled.set(pluginId, { plugin, enabledAt: new Date().toISOString() });
     await this.events.append(

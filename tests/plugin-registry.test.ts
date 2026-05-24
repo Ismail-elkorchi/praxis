@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createPraxisApp } from "../src/composition/createPraxisApp";
 import { providerId } from "../src/core";
+import type { ProviderAdapter } from "../src/providers/interface";
 import type { Plugin } from "../src/plugins/PluginRegistry";
-import { FakeProviderAdapter } from "../src/providers/fake/FakeProviderAdapter";
+import { FakeProviderAdapter, fakeProviderCapabilities } from "../src/providers/fake/FakeProviderAdapter";
 
 describe("plugin registry", () => {
   it("emits commands for plugin actions instead of mutating core state directly", async () => {
@@ -69,4 +70,55 @@ describe("plugin registry", () => {
 
     expect(() => runtime.plugins.discover(plugin)).toThrow(/contribute_provider_adapter/);
   });
+
+  it("runs provider adapter contract checks before enabling provider plugins", async () => {
+    const runtime = await createPraxisApp();
+    const validProviderPlugin: Plugin = {
+      id: "valid-provider-plugin",
+      name: "Valid provider plugin",
+      permissions: ["contribute_provider_adapter"],
+      contributes: {
+        providerAdapters: [{ id: providerId("fake"), adapter: new FakeProviderAdapter() }]
+      }
+    };
+    const invalidProviderPlugin: Plugin = {
+      id: "invalid-provider-plugin",
+      name: "Invalid provider plugin",
+      permissions: ["contribute_provider_adapter"],
+      contributes: {
+        providerAdapters: [{ id: providerId("invalid-provider"), adapter: invalidProviderAdapter() }]
+      }
+    };
+
+    runtime.plugins.discover(validProviderPlugin);
+    runtime.plugins.discover(invalidProviderPlugin);
+
+    await expect(runtime.plugins.enable(validProviderPlugin.id)).resolves.toBeUndefined();
+    await expect(runtime.plugins.enable(invalidProviderPlugin.id)).rejects.toThrow(/interruptTurn is required/);
+    expect(runtime.plugins.listEnabled().map((entry) => entry.plugin.id)).not.toContain(invalidProviderPlugin.id);
+  });
 });
+
+function invalidProviderAdapter(): ProviderAdapter {
+  return {
+    id: providerId("invalid-provider"),
+    kind: "test",
+    displayName: "Invalid provider",
+    adapterVersion: "0.1.0",
+    async getCapabilities() {
+      return { ...fakeProviderCapabilities, canResumeSession: false, canSteerTurn: false, canInterruptTurn: true };
+    },
+    async checkAvailability() {
+      return { status: "available" as const, version: "0.1.0" };
+    },
+    async startSession() {
+      return { events: [] };
+    },
+    async stopSession() {},
+    async sendTurn() {
+      return { events: [] };
+    },
+    async respondToApproval() {},
+    async *watchEvents() {}
+  };
+}
