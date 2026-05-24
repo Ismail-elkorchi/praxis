@@ -172,6 +172,10 @@ export class SqliteEventStore implements EventStore {
       .run(key, JSON.stringify(value), new Date().toISOString());
   }
 
+  writePropositions(propositions: Proposition[]): void {
+    this.persistPropositions(propositions);
+  }
+
   private insertEvent(event: DomainEvent): DomainEvent {
     const sequence = this.nextSequence();
     const stored = { ...event, sequence };

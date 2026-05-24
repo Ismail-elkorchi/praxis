@@ -48,6 +48,7 @@ describe("SQLite durable projections", () => {
     expect(store.countRows("check_definitions")).toBeGreaterThanOrEqual(1);
     expect(store.countRows("check_runs")).toBe(1);
     expect(store.countRows("git_snapshots")).toBe(1);
+    expect(store.countRows("propositions")).toBeGreaterThan(0);
     expect(store.countRows("settings")).toBe(1);
     await expect(app.replay()).resolves.toEqual(app.snapshot());
 
@@ -79,6 +80,10 @@ describe("SQLite durable projections", () => {
     const checkRow = store.tableRows("check_runs")[0]!;
     expect(checkRow.id).toBe(checkRun.id);
     expect(checkRow.status).toBe("passed");
+
+    const proposition = store.tableRows("propositions").find((row) => String(row.predicate) === "ready_for_review");
+    expect(proposition).toBeDefined();
+    expect(JSON.parse(String(proposition!.evidence_json))).toEqual(expect.any(Array));
     store.close();
   });
 

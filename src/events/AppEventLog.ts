@@ -3,6 +3,10 @@ import type { AppSnapshot } from "../dashboard/types";
 import { emptySnapshot, replayEvents, reduceSnapshot } from "../dashboard/reducers";
 import type { EventStore } from "./EventStore";
 
+type PropositionSink = {
+  writePropositions(propositions: AppSnapshot["dashboard"]["explanation"]["propositions"]): void;
+};
+
 export class AppEventLog {
   private current: AppSnapshot = emptySnapshot();
 
@@ -11,6 +15,7 @@ export class AppEventLog {
   async append(event: DomainEvent): Promise<DomainEvent> {
     const stored = await this.store.append(event);
     this.current = reduceSnapshot(this.current, stored);
+    this.persistPropositions();
     return stored;
   }
 
@@ -19,12 +24,14 @@ export class AppEventLog {
     for (const event of stored) {
       this.current = reduceSnapshot(this.current, event);
     }
+    this.persistPropositions();
     return stored;
   }
 
   async restore(): Promise<AppSnapshot> {
     const events = await this.store.query();
     this.current = replayEvents(events);
+    this.persistPropositions();
     return this.current;
   }
 
@@ -39,4 +46,15 @@ export class AppEventLog {
   async queryEvents() {
     return this.store.query();
   }
+
+  private persistPropositions(): void {
+    if (!isPropositionSink(this.store)) return;
+    this.store.writePropositions(
+      Object.values(this.current.projects).flatMap((project) => project.propositions)
+    );
+  }
+}
+
+function isPropositionSink(value: EventStore): value is EventStore & PropositionSink {
+  return "writePropositions" in value && typeof value.writePropositions === "function";
 }
