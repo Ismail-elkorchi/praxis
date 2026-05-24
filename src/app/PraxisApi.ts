@@ -88,11 +88,17 @@ export class PraxisApi {
         return this.app.snapshot().dashboard.projectCards;
       }
       case "providers.list":
-        return this.app.providerRegistry.listProviders();
-      case "providers.getStatus":
-      case "providers.getCapabilities":
+        return this.app.providers.listProviders();
+      case "providers.getStatus": {
+        const input = params as { providerId?: ProviderId };
+        return this.app.providers.getStatus(input ?? {});
+      }
+      case "providers.getCapabilities": {
+        const input = params as { providerId?: ProviderId };
+        return this.app.providers.getCapabilities(input ?? {});
+      }
       case "providers.checkAvailability":
-        return this.app.providerRegistry.listProviders();
+        return this.app.providers.checkAvailability((params as { providerId?: ProviderId }) ?? {});
       case "agents.startSession": {
         const input = params as { providerId: ProviderId; projectId: ProjectId; cwd: string; goal?: string };
         return this.app.providers.startSession(input);

@@ -105,6 +105,25 @@ describe("provider-neutral API surface", () => {
     ).resolves.toMatchObject({ id: "read", result: expect.objectContaining({ session: expect.objectContaining({ id: sessionId }) }) });
   });
 
+  it("returns targeted provider status and emits availability events", async () => {
+    const app = await createPraxisApp();
+    const api = new PraxisApi(app);
+
+    await expect(
+      api.handle({ id: "status", method: "providers.getStatus", params: { providerId: providerId("fake") } })
+    ).resolves.toMatchObject({ id: "status", result: { status: "available" } });
+    await expect(
+      api.handle({ id: "capabilities", method: "providers.getCapabilities", params: { providerId: providerId("fake") } })
+    ).resolves.toMatchObject({ id: "capabilities", result: { canStartSession: true } });
+
+    app.fakeProvider.setScenario("unavailable_path");
+    await expect(
+      api.handle({ id: "availability", method: "providers.checkAvailability", params: { providerId: providerId("fake") } })
+    ).resolves.toMatchObject({ id: "availability", result: { status: "unavailable" } });
+    expect((await app.events.queryEvents()).map((event) => event.type)).toContain("provider.unavailable");
+    expect(app.snapshot().dashboard.providerStatus[0]?.availability.status).toBe("unavailable");
+  });
+
   it("emits a provider-neutral event for worktree creation", async () => {
     const databasePath = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-worktree-db-")), "praxis.sqlite");
     const store = new SqliteEventStore(databasePath);

@@ -12,7 +12,10 @@ import {
   type DomainEvent,
   type ProjectId,
   type ProviderId,
-  type AgentSession
+  type AgentSession,
+  type AgentProvider,
+  type ProviderAvailability,
+  type ProviderCapabilities
 } from "../core";
 import type { AppSnapshot } from "../dashboard/types";
 import { createDomainEvent } from "../events/eventFactory";
@@ -43,6 +46,65 @@ export class ProviderService {
         })
       )
     );
+  }
+
+  async listProviders(): Promise<AgentProvider[]> {
+    return this.registry.listProviders();
+  }
+
+  async getStatus(input: { providerId?: ProviderId } = {}): Promise<ProviderAvailability | { providerId: ProviderId; availability: ProviderAvailability }[]> {
+    const providers = await this.registry.listProviders();
+    if (input.providerId) {
+      const provider = providers.find((candidate) => candidate.id === input.providerId);
+      if (!provider) {
+        throw notFoundError("Provider is not registered.", { providerId: input.providerId });
+      }
+      return provider.availability;
+    }
+    return providers.map((provider) => ({ providerId: provider.id, availability: provider.availability }));
+  }
+
+  async getCapabilities(
+    input: { providerId?: ProviderId } = {}
+  ): Promise<ProviderCapabilities | { providerId: ProviderId; capabilities: ProviderCapabilities }[]> {
+    const providers = await this.registry.listProviders();
+    if (input.providerId) {
+      const provider = providers.find((candidate) => candidate.id === input.providerId);
+      if (!provider) {
+        throw notFoundError("Provider is not registered.", { providerId: input.providerId });
+      }
+      return provider.capabilities;
+    }
+    return providers.map((provider) => ({ providerId: provider.id, capabilities: provider.capabilities }));
+  }
+
+  async checkAvailability(
+    input: { providerId?: ProviderId } = {}
+  ): Promise<ProviderAvailability | { providerId: ProviderId; availability: ProviderAvailability }[]> {
+    const adapters = input.providerId ? [this.requireAdapter(input.providerId)] : this.registry.listAdapters();
+    const results: { providerId: ProviderId; availability: ProviderAvailability }[] = [];
+    const events: DomainEvent[] = [];
+
+    for (const adapter of adapters) {
+      const availability = await adapter
+        .checkAvailability()
+        .catch((error) => ({ status: "unavailable" as const, reason: error instanceof Error ? error.message : "Unavailable" }));
+      results.push({ providerId: adapter.id, availability });
+      events.push(
+        createDomainEvent({
+          type: providerAvailabilityEventType(availability),
+          providerId: adapter.id,
+          source: "system",
+          payload: { availability },
+          evidence: [{ type: "provider", providerId: adapter.id }]
+        })
+      );
+    }
+
+    if (events.length > 0) {
+      await this.events.appendMany(events);
+    }
+    return input.providerId ? results[0]!.availability : results;
   }
 
   async startSession(input: {
@@ -375,6 +437,14 @@ function approvalEventType(decision: ApprovalDecision): "approval.accepted" | "a
   if (decision === "decline") return "approval.declined";
   if (decision === "cancel") return "approval.cancelled";
   return "approval.accepted";
+}
+
+function providerAvailabilityEventType(
+  availability: ProviderAvailability
+): "provider.available" | "provider.unavailable" | "provider.incompatible" {
+  if (availability.status === "available") return "provider.available";
+  if (availability.status === "incompatible") return "provider.incompatible";
+  return "provider.unavailable";
 }
 
 function ensureSessionStartedEvent(

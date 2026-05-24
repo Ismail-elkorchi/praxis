@@ -2,6 +2,7 @@ import { once } from "node:events";
 import { AddressInfo } from "node:net";
 import { WebSocket } from "ws";
 import { describe, expect, it } from "vitest";
+import { providerId } from "../src/core";
 import { createPraxisApp } from "../src/composition/createPraxisApp";
 import { createLocalServer } from "../src/server/createLocalServer";
 import { createTempProject } from "./helpers/tempProject";
@@ -31,6 +32,22 @@ describe("local API and WebSocket server", () => {
       });
       await expect(response.json()).resolves.toMatchObject({ id: "register" });
       await waitFor(() => pushes.filter((push) => isDashboardPush(push)).length >= 2);
+
+      app.fakeProvider.setScenario("unavailable_path");
+      const availabilityResponse = await fetch(`${baseUrl}/api`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "availability",
+          method: "providers.checkAvailability",
+          params: { providerId: providerId("fake") }
+        })
+      });
+      await expect(availabilityResponse.json()).resolves.toMatchObject({
+        id: "availability",
+        result: { status: "unavailable" }
+      });
+      await waitFor(() => pushes.some((push) => isPushChannel(push, "provider.statusChanged")));
     } finally {
       socket.terminate();
       sockets.close();
@@ -49,12 +66,16 @@ async function waitFor(assertion: () => boolean): Promise<void> {
 }
 
 function isDashboardPush(value: unknown): boolean {
+  return isPushChannel(value, "dashboard.snapshotChanged");
+}
+
+function isPushChannel(value: unknown, channel: string): boolean {
   return (
     typeof value === "object" &&
     value !== null &&
     "type" in value &&
     value.type === "push" &&
     "channel" in value &&
-    value.channel === "dashboard.snapshotChanged"
+    value.channel === channel
   );
 }
