@@ -43,6 +43,41 @@ test("home work inbox routes decision actions", async ({ page }) => {
   await expect(page.getByRole("region", { name: "Approval center" })).toBeVisible();
 });
 
+test("home blocked work without project context is disabled with a visible reason", async ({ page }) => {
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result:
+          request.method === "dashboard.getSnapshot"
+            ? emptyDashboard({
+                home: {
+                  blockedWork: [
+                    {
+                      id: "blocked-without-project",
+                      title: "Blocked import",
+                      summary: "A project source is missing.",
+                      action: { id: "open-workspace", label: "Open workspace", method: "projects.getWorkspace" }
+                    }
+                  ]
+                }
+              })
+            : {}
+      })
+    });
+  });
+
+  await page.goto("/");
+  const blockedWork = page.getByRole("region", { name: "Blocked Work" });
+  const blockedItem = blockedWork.getByRole("button", { name: /Blocked import/ });
+  await expect(blockedItem).toHaveAttribute("data-method", "projects.getWorkspace");
+  await expect(blockedItem).toBeDisabled();
+  await expect(blockedItem).toContainText("Project context unavailable.");
+});
+
 test("dashboard modes expose primary user questions", async ({ page }) => {
   const questions: Array<[DashboardProjection["mode"], string]> = [
     ["portfolio", "What is the overall state of my projects?"],

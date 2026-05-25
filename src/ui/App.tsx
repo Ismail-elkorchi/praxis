@@ -497,12 +497,25 @@ function HomeList({ title, items, onSelectProject }: { title: string; items: Das
   return (
     <section className="cockpitBand" aria-label={title}>
       <h2>{title}</h2>
-      {items.map((item) => (
-        <button key={item.id} type="button" className="workspaceListButton" onClick={() => item.projectId && onSelectProject(item.projectId)}>
-          <strong>{item.title}</strong>
-          <span>{item.summary}</span>
-        </button>
-      ))}
+      {items.map((item) => {
+        const disabled = !item.projectId;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            className="workspaceListButton"
+            data-method={item.action.method}
+            disabled={disabled}
+            title={disabled ? "Project context is required before this work can be opened." : undefined}
+            onClick={() => {
+              if (item.projectId) onSelectProject(item.projectId);
+            }}
+          >
+            <strong>{item.title}</strong>
+            <span>{disabled ? `${item.summary} Project context unavailable.` : item.summary}</span>
+          </button>
+        );
+      })}
       {items.length === 0 ? <p className="emptyText">Nothing blocked.</p> : null}
     </section>
   );
