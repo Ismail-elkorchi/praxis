@@ -1,3 +1,4 @@
+import path from "node:path";
 import {
   agentSessionId,
   agentTurnId,
@@ -30,7 +31,10 @@ export class ProviderService {
   constructor(
     private readonly registry: ProviderRegistry,
     private readonly events: AppEventLog,
-    private readonly getSnapshot: () => AppSnapshot
+    private readonly getSnapshot: () => AppSnapshot,
+    private readonly worktrees?: {
+      createWorktree(input: { rootPath: string; worktreePath: string; branch?: string }): Promise<{ path: string; branch?: string }>;
+    }
   ) {}
 
   async registerAvailableProviders(): Promise<void> {
@@ -146,8 +150,9 @@ export class ProviderService {
     }
 
     const sessionId = agentSessionId();
+    const cwd = await this.prepareSessionCwd(input.projectId, input.cwd, sessionId);
     try {
-      const result = await adapter.startSession({ ...input, sessionId });
+      const result = await adapter.startSession({ ...input, cwd, sessionId });
       const normalized = ensureSessionStartedEvent(result.events, input.projectId, input.providerId, result.sessionId ?? sessionId);
       await this.recordProviderEvents(normalized);
       return result.sessionId ?? sessionId;
@@ -501,6 +506,44 @@ export class ProviderService {
     if (unseen.length > 0) {
       await this.events.appendMany(unseen);
     }
+  }
+
+  private async prepareSessionCwd(projectId: ProjectId, requestedCwd: string, sessionId: AgentSessionId): Promise<string> {
+    const project = this.getSnapshot().projects[projectId];
+    if (
+      !project ||
+      !this.worktrees ||
+      project.project.settings.preferredWorktreeMode !== "task_isolated" ||
+      !project.git.isRepo
+    ) {
+      return requestedCwd;
+    }
+
+    const baseName = path.basename(project.project.canonicalPath);
+    const worktreePath = path.join(path.dirname(project.project.canonicalPath), `${baseName}.task-${sessionId}`);
+    const branch = `praxis/${sessionId}`;
+    const created = await this.worktrees.createWorktree({
+      rootPath: project.project.canonicalPath,
+      worktreePath,
+      branch
+    });
+    await this.events.append(
+      createDomainEvent({
+        type: "git.worktree.created",
+        projectId,
+        source: "git",
+        payload: {
+          id: `worktree:${sessionId}`,
+          path: created.path,
+          branch: created.branch,
+          rootPath: project.project.canonicalPath,
+          reason: "task_isolated_session",
+          sessionId
+        },
+        evidence: [{ type: "git", repoPath: project.project.canonicalPath, sha: project.git.headSha }]
+      })
+    );
+    return created.path;
   }
 }
 

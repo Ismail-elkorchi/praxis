@@ -322,6 +322,18 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
       }
       break;
     }
+    case "git.worktree.created": {
+      const project = touchProject(next, event);
+      const payload = event.payload as { path?: string; branch?: string; headSha?: string };
+      if (project && payload.path) {
+        project.project.worktrees = upsertByPath(project.project.worktrees, {
+          path: payload.path,
+          branch: payload.branch,
+          headSha: payload.headSha
+        });
+      }
+      break;
+    }
     case "check.definitionDetected": {
       const project = touchProject(next, event);
       const definitions = (event.payload as { checkDefinitions: CheckDefinition[] }).checkDefinitions;
@@ -678,6 +690,12 @@ function upsertById<T extends { id: string }>(items: T[], item: T): T[] {
   const index = items.findIndex((existing) => existing.id === item.id);
   if (index === -1) return [...items, item];
   return items.map((existing) => (existing.id === item.id ? item : existing));
+}
+
+function upsertByPath<T extends { path: string }>(items: T[], item: T): T[] {
+  const index = items.findIndex((existing) => existing.path === item.path);
+  if (index === -1) return [...items, item];
+  return items.map((existing) => (existing.path === item.path ? item : existing));
 }
 
 function upsertApproval(items: ApprovalRequest[], item: ApprovalRequest): ApprovalRequest[] {

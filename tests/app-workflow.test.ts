@@ -330,6 +330,30 @@ describe("provider-neutral application workflow", () => {
     expect((await app.events.queryEvents({ type: "agent.session.started" })).some((event) => event.source === "system")).toBe(true);
   });
 
+  it("starts agent sessions in task-isolated worktrees when the project enables that mode", async () => {
+    const app = await createPraxisApp();
+    const rootPath = await createTempProject({ git: true, packageJson: false });
+    const project = await app.projects.registerProject({ rootPath });
+    await app.projects.updateProject(project.id, { settings: { preferredWorktreeMode: "task_isolated" } });
+
+    const sessionId = await app.providers.startSession({
+      providerId: providerId("fake"),
+      projectId: project.id,
+      cwd: rootPath,
+      goal: "Use isolated worktree"
+    });
+
+    const session = app.snapshot().projects[project.id]?.sessions[sessionId];
+    const createdWorktree = (await app.events.queryEvents({ type: "git.worktree.created" }))[0];
+    expect(createdWorktree).toBeDefined();
+    expect(session?.cwd).not.toBe(rootPath);
+    expect(session?.cwd).toBe((createdWorktree?.payload as { path?: string }).path);
+    expect(app.snapshot().projects[project.id]?.project.worktrees).toContainEqual(
+      expect.objectContaining({ path: session?.cwd, branch: expect.stringContaining("praxis/") })
+    );
+    await expect(app.replay()).resolves.toEqual(app.snapshot());
+  });
+
   it("marks stale sessions on provider disconnect", async () => {
     const app = await createPraxisApp({ fakeScenario: "stale_path" });
     const rootPath = await createTempProject();

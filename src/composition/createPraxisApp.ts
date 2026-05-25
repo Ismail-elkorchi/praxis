@@ -31,7 +31,7 @@ export async function createPraxisApp(
 
   const git = new GitService();
   const projects = new ProjectRegistryService(events, git, () => events.snapshot());
-  const providers = new ProviderService(providerRegistry, events, () => events.snapshot());
+  const providers = new ProviderService(providerRegistry, events, () => events.snapshot(), git);
   const checks = new CheckService(events, () => events.snapshot());
   const policies = new PolicyService();
   const plugins = new PluginRegistry(events);
