@@ -60,11 +60,46 @@ describe("GitService", () => {
     await expect(new GitService().getDiff(rootPath)).resolves.toEqual([]);
   });
 
+  it("detects default branch and upstream ahead/behind counts", async () => {
+    const remotePath = await mkdtemp(path.join(os.tmpdir(), "praxis-git-remote-"));
+    await git(remotePath, ["init", "--bare"]);
+
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), "praxis-git-divergence-"));
+    await git(rootPath, ["init"]);
+    await configureGitUser(rootPath);
+    await git(rootPath, ["branch", "-M", "main"]);
+    await writeFile(path.join(rootPath, "base.txt"), "base\n");
+    await git(rootPath, ["add", "."]);
+    await git(rootPath, ["commit", "-m", "base"]);
+    await git(rootPath, ["remote", "add", "origin", remotePath]);
+    await git(rootPath, ["push", "-u", "origin", "main"]);
+    await git(remotePath, ["symbolic-ref", "HEAD", "refs/heads/main"]);
+
+    const peerRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-git-peer-")), "peer");
+    await execFileAsync("git", ["clone", remotePath, peerRoot]);
+    await configureGitUser(peerRoot);
+    await writeFile(path.join(peerRoot, "remote.txt"), "remote\n");
+    await git(peerRoot, ["add", "."]);
+    await git(peerRoot, ["commit", "-m", "remote"]);
+    await git(peerRoot, ["push", "origin", "main"]);
+
+    await writeFile(path.join(rootPath, "local.txt"), "local\n");
+    await git(rootPath, ["add", "."]);
+    await git(rootPath, ["commit", "-m", "local"]);
+    await git(rootPath, ["fetch", "origin"]);
+
+    await expect(new GitService().getStatus(rootPath)).resolves.toMatchObject({
+      branch: "main",
+      baseBranch: "main",
+      ahead: 1,
+      behind: 1
+    });
+  });
+
   it("detects conflicted files in git status", async () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "praxis-git-conflict-"));
     await git(rootPath, ["init"]);
-    await git(rootPath, ["config", "user.email", "praxis@example.test"]);
-    await git(rootPath, ["config", "user.name", "Praxis Test"]);
+    await configureGitUser(rootPath);
     await writeFile(path.join(rootPath, "conflict.txt"), "base\n");
     await git(rootPath, ["add", "."]);
     await git(rootPath, ["commit", "-m", "initial"]);
@@ -87,4 +122,9 @@ describe("GitService", () => {
 
 async function git(cwd: string, args: string[]) {
   return execFileAsync("git", args, { cwd });
+}
+
+async function configureGitUser(cwd: string) {
+  await git(cwd, ["config", "user.email", "praxis@example.test"]);
+  await git(cwd, ["config", "user.name", "Praxis Test"]);
 }

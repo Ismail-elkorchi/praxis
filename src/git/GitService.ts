@@ -43,20 +43,24 @@ export class GitService {
       git(rootPath, ["rev-parse", "HEAD"]).then((result) => result.stdout.trim()).catch(() => undefined),
       git(rootPath, ["status", "--porcelain=v1", "-z"]).then((result) => result.stdout)
     ]);
+    const baseBranch = await detectBaseBranch(rootPath, branch);
+    const compareRef = await comparisonRef(rootPath, baseBranch);
+    const divergence = await detectDivergence(rootPath, compareRef);
 
     const parsed = parsePorcelain(porcelain);
     return {
       isRepo: true,
       branch,
       headSha,
+      baseBranch,
       dirty:
         parsed.stagedFiles.length +
           parsed.unstagedFiles.length +
           parsed.untrackedFiles.length +
           parsed.conflictedFiles.length >
         0,
-      ahead: 0,
-      behind: 0,
+      ahead: divergence.ahead,
+      behind: divergence.behind,
       stagedFiles: parsed.stagedFiles,
       unstagedFiles: parsed.unstagedFiles,
       untrackedFiles: parsed.untrackedFiles,
@@ -129,6 +133,53 @@ export class GitService {
 
 async function git(cwd: string, args: string[]) {
   return execFileAsync("git", args, { cwd, maxBuffer: 10 * 1024 * 1024 });
+}
+
+async function detectBaseBranch(rootPath: string, currentBranch: string | undefined): Promise<string | undefined> {
+  const remoteHead = await git(rootPath, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])
+    .then((result) => result.stdout.trim())
+    .catch(() => undefined);
+  if (remoteHead) {
+    return remoteHead.replace(/^origin\//, "");
+  }
+
+  for (const candidate of ["main", "master", "trunk", "develop"]) {
+    if (await refExists(rootPath, `refs/remotes/origin/${candidate}`)) return candidate;
+    if (await refExists(rootPath, `refs/heads/${candidate}`)) return candidate;
+  }
+
+  return currentBranch;
+}
+
+async function comparisonRef(rootPath: string, baseBranch: string | undefined): Promise<string | undefined> {
+  const upstream = await git(rootPath, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
+    .then((result) => result.stdout.trim())
+    .catch(() => undefined);
+  if (upstream) return upstream;
+  if (!baseBranch) return undefined;
+  if (await refExists(rootPath, `refs/remotes/origin/${baseBranch}`)) return `origin/${baseBranch}`;
+  if (await refExists(rootPath, `refs/heads/${baseBranch}`)) return baseBranch;
+  return undefined;
+}
+
+async function detectDivergence(rootPath: string, compareRef: string | undefined): Promise<{ ahead: number; behind: number }> {
+  if (!compareRef) return { ahead: 0, behind: 0 };
+  const output = await git(rootPath, ["rev-list", "--left-right", "--count", `HEAD...${compareRef}`])
+    .then((result) => result.stdout.trim())
+    .catch(() => "");
+  const [aheadText, behindText] = output.split(/\s+/);
+  const ahead = Number.parseInt(aheadText ?? "0", 10);
+  const behind = Number.parseInt(behindText ?? "0", 10);
+  return {
+    ahead: Number.isFinite(ahead) ? ahead : 0,
+    behind: Number.isFinite(behind) ? behind : 0
+  };
+}
+
+async function refExists(rootPath: string, ref: string): Promise<boolean> {
+  return git(rootPath, ["show-ref", "--verify", "--quiet", ref])
+    .then(() => true)
+    .catch(() => false);
 }
 
 function parsePorcelain(output: string): Pick<
