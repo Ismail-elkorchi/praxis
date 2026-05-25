@@ -268,6 +268,7 @@ function TopBar({
       <div>
         <p className="eyebrow">Provider-neutral control plane</p>
         <h1>{modeTitle(dashboard.mode)}</h1>
+        <p className="modeQuestion">{modeQuestion(dashboard.mode)}</p>
       </div>
       <div className="statusRail" aria-label="Global status">
         <button type="button" className="iconButton" aria-label="Open command palette" onClick={onOpenCommandPalette}>
@@ -1825,6 +1826,20 @@ function modeTitle(mode: DashboardProjection["mode"]) {
     stale_sessions: "Stale sessions",
     unsafe_attention: "Unsafe attention",
     single_project_focus: "Project focus"
+  }[mode];
+}
+
+function modeQuestion(mode: DashboardProjection["mode"]) {
+  return {
+    portfolio: "What is the overall state of my projects?",
+    active_work: "What is running now?",
+    approval_center: "What needs my decision?",
+    failure_triage: "What broke and what should happen next?",
+    diff_review: "What changed and is it safe to keep?",
+    planning: "What is being planned now?",
+    stale_sessions: "Which sessions need recovery?",
+    unsafe_attention: "What is risky right now?",
+    single_project_focus: "What is happening in this project?"
   }[mode];
 }
 

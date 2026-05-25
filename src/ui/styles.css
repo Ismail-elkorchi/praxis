@@ -137,6 +137,12 @@ h1 {
   font-size: 1.9rem;
 }
 
+.modeQuestion {
+  margin: 0.25rem 0 0;
+  color: #42535b;
+  font-size: 0.95rem;
+}
+
 h2 {
   margin-bottom: 0.45rem;
   font-size: 1.15rem;

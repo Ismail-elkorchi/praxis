@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
+import type { DashboardProjection } from "../../src/dashboard/types";
 
 test("dashboard shell uses provider-neutral language and keyboard focus", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "Approval center" }).first()).toBeVisible();
+  await expect(page.getByText("What needs my decision?")).toBeVisible();
   await expect(page.getByRole("button", { name: "Accept once" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Decline" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Primary" })).toContainText("Approvals");
@@ -15,6 +17,39 @@ test("dashboard shell uses provider-neutral language and keyboard focus", async 
 
   await page.keyboard.press("Tab");
   await expect(page.locator(":focus")).toBeVisible();
+});
+
+test("dashboard modes expose primary user questions", async ({ page }) => {
+  const questions: Array<[DashboardProjection["mode"], string]> = [
+    ["portfolio", "What is the overall state of my projects?"],
+    ["active_work", "What is running now?"],
+    ["approval_center", "What needs my decision?"],
+    ["failure_triage", "What broke and what should happen next?"],
+    ["diff_review", "What changed and is it safe to keep?"],
+    ["planning", "What is being planned now?"],
+    ["stale_sessions", "Which sessions need recovery?"],
+    ["unsafe_attention", "What is risky right now?"],
+    ["single_project_focus", "What is happening in this project?"]
+  ];
+  let currentMode: DashboardProjection["mode"] = "portfolio";
+
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result: request.method === "dashboard.getSnapshot" ? emptyDashboard({ mode: currentMode }) : {}
+      })
+    });
+  });
+
+  for (const [mode, question] of questions) {
+    currentMode = mode;
+    await page.goto("/");
+    await expect(page.getByText(question)).toBeVisible();
+  }
 });
 
 test("approval center can be resolved with keyboard", async ({ page }) => {
@@ -346,9 +381,10 @@ function parseCssDurations(value: string): number[] {
   });
 }
 
-function emptyDashboard() {
+function emptyDashboard(overrides: Partial<DashboardProjection> = {}): DashboardProjection {
+  const mode = overrides.mode ?? "portfolio";
   return {
-    mode: "portfolio",
+    mode,
     globalStatus: {
       activeProjectCount: 0,
       activeTurnCount: 0,
@@ -356,7 +392,8 @@ function emptyDashboard() {
       failedCheckCount: 0,
       staleSessionCount: 0,
       unsafeStateCount: 0,
-      providerIssues: []
+      providerIssues: [],
+      ...overrides.globalStatus
     },
     projectCards: [],
     approvals: [],
@@ -364,9 +401,11 @@ function emptyDashboard() {
     providerStatus: [],
     timeline: [],
     explanation: {
-      mode: "portfolio",
+      mode,
       propositions: [],
-      evidence: []
-    }
+      evidence: [],
+      ...overrides.explanation
+    },
+    ...overrides
   };
 }

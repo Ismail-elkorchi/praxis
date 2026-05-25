@@ -57,3 +57,4 @@
 - Tightened generic provider event normalization so unknown provider event types are stored as raw audit events and surfaced in diagnostics as normalization failures.
 - Hardened project registry API failures with machine-readable error codes for invalid paths and missing projects.
 - Completed empty-state next actions for no-projects and no-approvals UI states while preserving provider-neutral command mappings.
+- Added provider-neutral primary user questions for every dashboard mode with UI smoke coverage.
