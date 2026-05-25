@@ -2268,6 +2268,21 @@ type FormOption = {
   detail?: string;
   disabled?: boolean;
 };
+type EmptyChoiceAction = {
+  heading: string;
+  message: string;
+  buttonLabel: string;
+  replacement: PendingActionRequest;
+};
+type ActionOptionContext = {
+  workItemOptions: FormOption[];
+  agentRunOptions: FormOption[];
+  sessionOptions: FormOption[];
+  artifactOptions: FormOption[];
+  sourceOptions: FormOption[];
+  checkOptions: FormOption[];
+  checkRunOptions: FormOption[];
+};
 
 function defaultProviderIdForAction(action: PendingActionRequest, providers: ProviderStatusViewModel[]): string {
   if (action.providerId) {
@@ -2458,7 +2473,16 @@ function ActionRequestDialog({
         })),
     [dashboard.checkRuns, values.projectId]
   );
-  const blockedReason = actionBlockedReason(action.method, values, providerOptions, projectOptions);
+  const optionContext: ActionOptionContext = {
+    workItemOptions,
+    agentRunOptions,
+    sessionOptions,
+    artifactOptions,
+    sourceOptions,
+    checkOptions,
+    checkRunOptions
+  };
+  const blockedReason = actionBlockedReason(action.method, values, providerOptions, projectOptions, optionContext);
 
   useEffect(() => {
     dialogRef.current?.querySelector<HTMLInputElement>("input, select, textarea")?.focus();
@@ -2538,7 +2562,8 @@ function ActionRequestDialog({
     options,
     required = true,
     fallbackLabel = `${label} id`,
-    hint
+    hint,
+    emptyAction
   }: {
     label: string;
     field: ActionFormTextField;
@@ -2546,6 +2571,7 @@ function ActionRequestDialog({
     required?: boolean;
     fallbackLabel?: string;
     hint?: string;
+    emptyAction?: EmptyChoiceAction;
   }) {
     if (options.length > 0) {
       return (
@@ -2567,6 +2593,21 @@ function ActionRequestDialog({
           </label>
           {hint ? <p className="fieldHint">{hint}</p> : null}
         </>
+      );
+    }
+    if (emptyAction) {
+      return (
+        <section className="providerSetupBlock" aria-label={`${label} required`}>
+          <h3>{emptyAction.heading}</h3>
+          <p className="fieldHint">{emptyAction.message}</p>
+          <button
+            type="button"
+            data-method={emptyAction.replacement.method}
+            onClick={() => onReplaceAction(emptyAction.replacement)}
+          >
+            {emptyAction.buttonLabel}
+          </button>
+        </section>
       );
     }
     return (
@@ -2708,7 +2749,13 @@ function ActionRequestDialog({
                 field: "sourceId",
                 options: sourceOptions,
                 fallbackLabel: "Source id",
-                hint: "Removing a source detaches it from the project workspace history."
+                hint: "Removing a source detaches it from the project workspace history.",
+                emptyAction: {
+                  heading: "Add a source first",
+                  message: "This project does not have removable sources yet. Add a source before trying to remove one.",
+                  buttonLabel: "Add source instead",
+                  replacement: { method: "projects.addSource", label: "Add source", projectId: values.projectId }
+                }
               })
             : null}
           {action.method === "workItems.create" ? (
@@ -2732,7 +2779,13 @@ function ActionRequestDialog({
                 label: "Work item",
                 field: "workItemId",
                 options: workItemOptions,
-                hint: "Work item lifecycle changes stay scoped to the selected project."
+                hint: "Work item lifecycle changes stay scoped to the selected project.",
+                emptyAction: {
+                  heading: "Create a work item first",
+                  message: "This project does not have a work item to update yet.",
+                  buttonLabel: "Create work item instead",
+                  replacement: { method: "workItems.create", label: "Create work item", projectId: values.projectId }
+                }
               })
             : null}
           {action.method === "agentRuns.create" ? (
@@ -2741,7 +2794,13 @@ function ActionRequestDialog({
                 label: "Work item",
                 field: "workItemId",
                 options: workItemOptions,
-                hint: "Agent runs are always linked to a visible work item."
+                hint: "Agent runs are always linked to a visible work item.",
+                emptyAction: {
+                  heading: "Create a work item first",
+                  message: "Agent runs must be linked to a visible unit of project work.",
+                  buttonLabel: "Create work item instead",
+                  replacement: { method: "workItems.create", label: "Create work item", projectId: values.projectId }
+                }
               })}
               {renderChoiceField({
                 label: "Provider",
@@ -2766,7 +2825,13 @@ function ActionRequestDialog({
                 label: "Agent run",
                 field: "agentRunId",
                 options: agentRunOptions,
-                hint: "Runtime session details stay hidden behind the agent run."
+                hint: "Runtime session details stay hidden behind the agent run.",
+                emptyAction: {
+                  heading: "Create an agent run first",
+                  message: "There is no existing agent run to start or instruct in this project.",
+                  buttonLabel: "Create agent run instead",
+                  replacement: { method: "agentRuns.create", label: "Create agent run", projectId: values.projectId }
+                }
               })}
               <label>
                 {action.method === "agentRuns.start" ? "First instruction" : "Instruction"}
@@ -2786,7 +2851,13 @@ function ActionRequestDialog({
                 hint:
                   action.method === "agentRuns.stop"
                     ? "Stopping asks the provider to stop the linked runtime session before closing the run."
-                    : "Cancelling stops the selected project worker attempt, not the project."
+                    : "Cancelling stops the selected project worker attempt, not the project.",
+                emptyAction: {
+                  heading: "Create an agent run first",
+                  message: "This project does not have an agent run to stop or cancel yet.",
+                  buttonLabel: "Create agent run instead",
+                  replacement: { method: "agentRuns.create", label: "Create agent run", projectId: values.projectId }
+                }
               })
             : null}
           {action.method === "agentRuns.stop" ? (
@@ -2828,7 +2899,13 @@ function ActionRequestDialog({
                 field: "sessionId",
                 options: sessionOptions,
                 fallbackLabel: "Session id",
-                hint: "Session choices come from agent run details and the project timeline."
+                hint: "Session choices come from agent run details and the project timeline.",
+                emptyAction: {
+                  heading: "Start a session first",
+                  message: "This project does not have a provider session available for this advanced action.",
+                  buttonLabel: "Start session instead",
+                  replacement: { method: "agents.startSession", label: "Start session", projectId: values.projectId }
+                }
               })}
               {action.method === "agents.stopSession" ? (
                 <label>
@@ -2880,7 +2957,13 @@ function ActionRequestDialog({
                 field: "artifactId",
                 options: artifactOptions,
                 fallbackLabel: "Artifact id",
-                hint: "Artifact decisions stay scoped to the selected project workspace."
+                hint: "Artifact decisions stay scoped to the selected project workspace.",
+                emptyAction: {
+                  heading: "Create an artifact first",
+                  message: "This project does not have an artifact to review, accept, or reject yet.",
+                  buttonLabel: "Create artifact instead",
+                  replacement: { method: "artifacts.create", label: "Create artifact", projectId: values.projectId }
+                }
               })
             : null}
           {action.method === "checks.run" || action.method === "checks.waive" ? (
@@ -2888,7 +2971,13 @@ function ActionRequestDialog({
               label: "Check",
               field: "checkId",
               options: checkOptions,
-              hint: "Required failed checks block review readiness until they pass or are explicitly waived."
+              hint: "Required failed checks block review readiness until they pass or are explicitly waived.",
+              emptyAction: {
+                heading: "List available checks first",
+                message: "This project does not have a known check selection in the dashboard yet.",
+                buttonLabel: "List checks instead",
+                replacement: { method: "checks.list", label: "List available checks", projectId: values.projectId }
+              }
             })
           ) : null}
           {action.method === "checks.cancel" ? (
@@ -2897,7 +2986,13 @@ function ActionRequestDialog({
               field: "runId",
               options: checkRunOptions,
               fallbackLabel: "Run id",
-              hint: "Only active check runs can be cancelled by the runtime."
+              hint: "Only active check runs can be cancelled by the runtime.",
+              emptyAction: {
+                heading: "Run a check first",
+                message: "There is no active check run to cancel for this project.",
+                buttonLabel: "List checks instead",
+                replacement: { method: "checks.list", label: "List available checks", projectId: values.projectId }
+              }
             })
           ) : null}
           {action.method === "checks.waive" ? (
@@ -2950,10 +3045,15 @@ function actionBlockedReason(
   method: string,
   values: ActionFormValues,
   providerOptions: FormOption[],
-  projectOptions: FormOption[]
+  projectOptions: FormOption[],
+  optionContext: ActionOptionContext
 ): string | undefined {
   if (actionNeedsProject(method) && projectOptions.length === 0) {
     return "Choose or create a project workspace before running this action.";
+  }
+  const prerequisiteReason = actionPrerequisiteBlockedReason(method, optionContext);
+  if (prerequisiteReason) {
+    return prerequisiteReason;
   }
   if (actionStartsProvider(method)) {
     const selectedProvider = providerOptions.find((provider) => provider.value === values.providerId);
@@ -2963,6 +3063,46 @@ function actionBlockedReason(
     if (providerOptions.length > 0 && providerOptions.every((provider) => provider.disabled)) {
       return "No available provider can start sessions. Configure a provider or use the fake provider.";
     }
+  }
+  return undefined;
+}
+
+function actionPrerequisiteBlockedReason(method: string, options: ActionOptionContext): string | undefined {
+  if (method === "projects.removeSource" && options.sourceOptions.length === 0) {
+    return "Add a source before removing one.";
+  }
+  if (
+    (method === "workItems.queue" || method === "workItems.cancel" || method === "workItems.complete") &&
+    options.workItemOptions.length === 0
+  ) {
+    return "Create a work item before changing work item status.";
+  }
+  if (method === "agentRuns.create" && options.workItemOptions.length === 0) {
+    return "Create a work item before assigning an agent run.";
+  }
+  if (
+    (method === "agentRuns.start" || method === "agentRuns.sendInstruction" || method === "agentRuns.cancel" || method === "agentRuns.stop") &&
+    options.agentRunOptions.length === 0
+  ) {
+    return "Create an agent run before using this agent run action.";
+  }
+  if (
+    (method === "agents.resumeSession" || method === "agents.stopSession" || method === "agents.sendTurn") &&
+    options.sessionOptions.length === 0
+  ) {
+    return "Start a provider session before using this advanced session action.";
+  }
+  if (
+    (method === "artifacts.markReviewed" || method === "artifacts.accept" || method === "artifacts.reject") &&
+    options.artifactOptions.length === 0
+  ) {
+    return "Create an artifact before using this artifact review action.";
+  }
+  if ((method === "checks.run" || method === "checks.waive") && options.checkOptions.length === 0) {
+    return "List available checks before running or waiving a check.";
+  }
+  if (method === "checks.cancel" && options.checkRunOptions.length === 0) {
+    return "Start a check run before cancelling one.";
   }
   return undefined;
 }

@@ -926,6 +926,60 @@ test("project-scoped composer actions do not reuse stale selected projects", asy
   await expect(page.getByRole("dialog", { name: "Create project" }).getByLabel("Root path")).toBeVisible();
 });
 
+test("project action dialogs expose prerequisite actions instead of raw ids", async ({ page }) => {
+  const dashboard = {
+    ...noCheckWorkspaceDashboard(),
+    providerStatus: [setupProviderStatus("Fake provider", "available")]
+  };
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result: request.method === "dashboard.getSnapshot" ? dashboard : {}
+      })
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: /^Projects/ }).click();
+  await page.getByRole("button", { name: "Assign agents" }).click();
+
+  const assignDialog = page.getByRole("dialog", { name: "Assign agents" });
+  await expect(assignDialog.getByRole("region", { name: "Work item required" })).toContainText("Create a work item first");
+  await expect(assignDialog).toContainText("Create a work item before assigning an agent run.");
+  await expect(assignDialog).not.toContainText("Work item id");
+  await expect(assignDialog.getByRole("button", { name: "Run action" })).toBeDisabled();
+  const createWorkItem = assignDialog.getByRole("button", { name: "Create work item instead" });
+  await expect(createWorkItem).toHaveAttribute("data-method", "workItems.create");
+  await createWorkItem.click();
+  await expect(page.getByRole("dialog", { name: "Create work item" }).getByLabel("Work item title")).toBeVisible();
+  await page.getByRole("dialog", { name: "Create work item" }).getByRole("button", { name: "Cancel" }).click();
+
+  await page.getByRole("button", { name: "Open command palette" }).click();
+  await page.getByLabel("Search commands").fill("start agent");
+  await page.getByRole("option", { name: /Start agent run/ }).click();
+  const startRunDialog = page.getByRole("dialog", { name: "Start agent run" });
+  await expect(startRunDialog.getByRole("region", { name: "Agent run required" })).toContainText("Create an agent run first");
+  await expect(startRunDialog).not.toContainText("Agent run id");
+  await expect(startRunDialog.getByRole("button", { name: "Run action" })).toBeDisabled();
+
+  await startRunDialog.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Open command palette" }).click();
+  await page.getByLabel("Search commands").fill("run checks");
+  await page.getByRole("option", { name: /Run checks/ }).click();
+  const runChecksDialog = page.getByRole("dialog", { name: "Run checks" });
+  await expect(runChecksDialog.getByRole("region", { name: "Check required" })).toContainText("List available checks first");
+  await expect(runChecksDialog).not.toContainText("Check id");
+  await expect(runChecksDialog.getByRole("button", { name: "Run action" })).toBeDisabled();
+  const listChecks = runChecksDialog.getByRole("button", { name: "List checks instead" });
+  await expect(listChecks).toHaveAttribute("data-method", "checks.list");
+  await listChecks.click();
+  await expect(page.getByRole("dialog", { name: "List available checks" })).toBeVisible();
+});
+
 test("empty states expose provider-neutral next actions", async ({ page }) => {
   await page.route("**/api", async (route) => {
     const request = route.request().postDataJSON() as { id: string; method: string };
