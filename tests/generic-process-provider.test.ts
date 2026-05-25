@@ -41,7 +41,15 @@ describe("GenericProcessProviderAdapter", () => {
 
     const events = await app.events.queryEvents();
     expect(events.some((event) => event.type === "agent.turn.delta")).toBe(true);
-    expect(events.some((event) => event.type === "provider.rawEvent")).toBe(true);
+    const rawEvents = events.filter((event) => event.type === "provider.rawEvent");
+    expect(rawEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ payload: expect.objectContaining({ normalizationFailure: "unknown_event_type" }) }),
+        expect.objectContaining({ payload: expect.objectContaining({ normalizationFailure: "invalid_json" }) })
+      ])
+    );
+    expect(events.some((event) => event.type === "provider.surprise")).toBe(false);
+    expect((await app.observability.diagnostics()).metrics.eventNormalizationFailureCount).toBe(2);
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("agent_ready");
   });
 
@@ -86,6 +94,7 @@ async function createProviderScript(): Promise<string> {
     scriptPath,
     [
       "console.log(JSON.stringify({ type: 'agent.turn.delta', payload: { text: 'process event' } }));",
+      "console.log(JSON.stringify({ type: 'provider.surprise', payload: { preservedForAudit: true } }));",
       "console.log('not-json');",
       "console.log(JSON.stringify({ type: 'agent.turn.completed', payload: { result: 'done' } }));"
     ].join("\n")

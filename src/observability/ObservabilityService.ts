@@ -94,6 +94,7 @@ export type ObservabilityDiagnostics = {
     checkDurationMs: SummaryStats;
     apiLatencyMs: SummaryStats;
     staleSessionCount: number;
+    eventNormalizationFailureCount: number;
   };
   replay: ReplayHealth;
 };
@@ -159,7 +160,8 @@ export class ObservabilityService {
         commandDurationMs: summarize(commandDurations(snapshot)),
         checkDurationMs: summarize(checkDurations(snapshot)),
         apiLatencyMs: summarize(this.apiLatency.map((entry) => entry.durationMs)),
-        staleSessionCount: snapshot.dashboard.globalStatus.staleSessionCount
+        staleSessionCount: snapshot.dashboard.globalStatus.staleSessionCount,
+        eventNormalizationFailureCount: eventNormalizationFailures(events)
       },
       replay
     };
@@ -332,6 +334,19 @@ function checkDurations(snapshot: AppSnapshot): number[] {
     .flatMap((project) => project.checkRuns)
     .map((run: CheckRun) => durationMs(run.startedAt, run.completedAt))
     .filter(isNumber);
+}
+
+function eventNormalizationFailures(events: DomainEvent[]): number {
+  return events.filter((event) => event.type === "provider.rawEvent" && payloadHasNormalizationFailure(event.payload)).length;
+}
+
+function payloadHasNormalizationFailure(payload: unknown): boolean {
+  return Boolean(
+    payload &&
+      typeof payload === "object" &&
+      "normalizationFailure" in payload &&
+      typeof payload.normalizationFailure === "string"
+  );
 }
 
 function durationMs(start: string | undefined, end: string | undefined): number | undefined {

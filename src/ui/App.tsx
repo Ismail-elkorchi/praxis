@@ -1583,7 +1583,8 @@ function demoDiagnostics(): ObservabilityDiagnostics {
       commandDurationMs: emptyStats(),
       checkDurationMs: emptyStats(),
       apiLatencyMs: emptyStats(),
-      staleSessionCount: 0
+      staleSessionCount: 0,
+      eventNormalizationFailureCount: 0
     },
     replay: {
       status: "ok",
