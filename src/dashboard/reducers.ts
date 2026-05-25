@@ -16,7 +16,8 @@ import type {
   Project,
   ProjectRuntimeState,
   Proposition,
-  ProviderAvailability
+  ProviderAvailability,
+  ProviderCapabilities
 } from "../core";
 import { gitStatusHash } from "../git/statusHash";
 import type {
@@ -533,7 +534,7 @@ function projectCard(project: ProjectSnapshot, snapshot: AppSnapshot): ProjectCa
     activeTurnCount,
     lastActivityAt: project.lastActivityAt,
     badges: badges(project),
-    primaryAction: primaryAction(project, provider?.capabilities.canStartSession ?? false),
+    primaryAction: primaryAction(project, provider?.capabilities),
     secondaryActions: secondaryActions(project, evidence),
     diffFiles: diffFiles(project),
     evidence
@@ -823,9 +824,24 @@ function badges(project: ProjectSnapshot): DashboardBadge[] {
   return result;
 }
 
-function primaryAction(project: ProjectSnapshot, canStartSession: boolean): DashboardAction {
+function primaryAction(project: ProjectSnapshot, capabilities: ProviderCapabilities | undefined): DashboardAction {
   if (project.approvals.some((approval) => approval.status === "pending")) {
     return { id: "open-approvals", label: "Open approvals", method: "agents.respondToApproval" };
+  }
+  if (project.runtimeState === "stale") {
+    if (capabilities?.canResumeSession) {
+      return { id: "resume-session", label: "Resume session", method: "agents.resumeSession" };
+    }
+    if (capabilities?.canStartSession) {
+      return { id: "recover-session", label: "Start recovery task", method: "agents.startSession" };
+    }
+    return {
+      id: "recover-session",
+      label: "Start recovery task",
+      method: "agents.startSession",
+      disabled: true,
+      disabledReason: "Provider does not support recovery actions."
+    };
   }
   if (project.runtimeState === "checks_failed") {
     return { id: "rerun-checks", label: "Rerun failed checks", method: "checks.run" };
@@ -836,7 +852,7 @@ function primaryAction(project: ProjectSnapshot, canStartSession: boolean): Dash
   if (project.runtimeState === "ready_to_merge" || project.runtimeState === "dirty_worktree") {
     return { id: "review-diff", label: "Review diff", method: "git.openDiff" };
   }
-  if (!canStartSession) {
+  if (!capabilities?.canStartSession) {
     return {
       id: "start-task",
       label: "Start task",
@@ -850,6 +866,7 @@ function primaryAction(project: ProjectSnapshot, canStartSession: boolean): Dash
 
 function secondaryActions(project: ProjectSnapshot, evidence: EvidenceRef[]): DashboardAction[] {
   return [
+    ...(project.runtimeState === "stale" ? [{ id: "stop-session", label: "Stop session", method: "agents.stopSession" }] : []),
     { id: "run-checks", label: "Run checks", method: "checks.run" },
     ...(evidence.length > 0 ? [{ id: "open-evidence", label: "Open evidence", method: "dashboard.explainMode" }] : []),
     ...(project.git.isRepo ? [{ id: "open-diff", label: "Open diff review", method: "git.openDiff" }] : [])

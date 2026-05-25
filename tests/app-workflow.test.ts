@@ -305,6 +305,10 @@ describe("provider-neutral application workflow", () => {
 
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("stale");
     expect(app.snapshot().dashboard.mode).toBe("stale_sessions");
+    expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)).toMatchObject({
+      primaryAction: { id: "resume-session", method: "agents.resumeSession" },
+      secondaryActions: expect.arrayContaining([expect.objectContaining({ id: "stop-session", method: "agents.stopSession" })])
+    });
   });
 
   it("normalizes thrown provider turn crashes into stale sessions", async () => {
