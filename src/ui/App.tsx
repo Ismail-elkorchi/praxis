@@ -1522,11 +1522,20 @@ function ProviderConfigurationPanel({
   onUpdateSettings(patch: Partial<AppSettings>): void;
 }) {
   const panelRef = useRef<HTMLElement>(null);
+  const [commandOverrideDraft, setCommandOverrideDraft] = useState("");
 
   useEffect(() => {
     if (!selectedProviderId) return;
     panelRef.current?.focus();
   }, [selectedProviderId]);
+
+  useEffect(() => {
+    if (!selectedProviderId) {
+      setCommandOverrideDraft("");
+      return;
+    }
+    setCommandOverrideDraft(settings.providerCommandOverrides[selectedProviderId] ?? "");
+  }, [selectedProviderId, settings.providerCommandOverrides]);
 
   if (!selectedProviderId) {
     return <p className="emptyText">Select Configure provider to review setup, availability, and activation details.</p>;
@@ -1556,7 +1565,9 @@ function ProviderConfigurationPanel({
   const setupDetails = providerSetupDetails(configuredProvider.availability);
   const providerEnabled = providerEnabledForNextStartup(settings, providers, configuredProvider.providerId);
   const providerIsDefault = settings.defaultProviderId === configuredProvider.providerId;
-  const nextStep = providerNextStep(configuredProvider, providerEnabled, providerIsDefault);
+  const savedCommandOverride = settings.providerCommandOverrides[configuredProvider.providerId];
+  const commandOverrideChanged = commandOverrideDraft.trim() !== (savedCommandOverride ?? "");
+  const nextStep = providerNextStep(configuredProvider, providerEnabled, providerIsDefault, savedCommandOverride, command);
 
   function toggleProviderEnabled() {
     const nextEnabledProviderIds = nextEnabledProviderIdsForToggle(settings, providers, configuredProvider.providerId);
@@ -1574,6 +1585,16 @@ function ProviderConfigurationPanel({
     onUpdateSettings({
       defaultProviderId: configuredProvider.providerId,
       enabledProviderIds: nextEnabledProviderIds as AppSettings["enabledProviderIds"]
+    });
+  }
+
+  function saveCommandOverride() {
+    onUpdateSettings({
+      providerCommandOverrides: nextProviderCommandOverrides(
+        settings.providerCommandOverrides,
+        configuredProvider.providerId,
+        commandOverrideDraft
+      )
     });
   }
 
@@ -1658,6 +1679,41 @@ function ProviderConfigurationPanel({
           </ul>
         </section>
       ) : null}
+      <section className="providerSetupBlock" aria-label="Provider command override">
+        <h5>Command override</h5>
+        <label className="settingsField">
+          Command for next startup
+          <input
+            value={commandOverrideDraft}
+            onChange={(event) => setCommandOverrideDraft(event.target.value)}
+            placeholder={command ?? "provider command"}
+          />
+        </label>
+        <p>Save a command path here when the provider binary is not on PATH. Restart the local runtime after saving.</p>
+        {savedCommandOverride ? (
+          <p>
+            Saved override: <code>{savedCommandOverride}</code>
+          </p>
+        ) : null}
+        <div className="actionRow">
+          <button type="button" data-method="settings.update" onClick={saveCommandOverride} disabled={!commandOverrideChanged}>
+            Save command override
+          </button>
+          <button
+            type="button"
+            data-method="settings.update"
+            onClick={() => {
+              setCommandOverrideDraft("");
+              onUpdateSettings({
+                providerCommandOverrides: nextProviderCommandOverrides(settings.providerCommandOverrides, configuredProvider.providerId, "")
+              });
+            }}
+            disabled={!savedCommandOverride && commandOverrideDraft.trim().length === 0}
+          >
+            Clear command override
+          </button>
+        </div>
+      </section>
       <div className="actionRow">
         <button type="button" data-method="providers.checkAvailability" onClick={() => onCheckAvailability(configuredProvider.providerId)}>
           Check availability
@@ -1776,12 +1832,36 @@ function nextEnabledProviderIdsForToggle(
     : [...current, providerIdValue];
 }
 
-function providerNextStep(provider: ProviderStatusViewModel, enabled: boolean, isDefault: boolean): string {
+function nextProviderCommandOverrides(
+  current: Record<string, string>,
+  providerIdValue: string,
+  commandValue: string
+): Record<string, string> {
+  const next = { ...current };
+  const command = commandValue.trim();
+  if (command) {
+    next[providerIdValue] = command;
+  } else {
+    delete next[providerIdValue];
+  }
+  return next;
+}
+
+function providerNextStep(
+  provider: ProviderStatusViewModel,
+  enabled: boolean,
+  isDefault: boolean,
+  commandOverride: string | undefined,
+  runtimeCommand: string | undefined
+): string {
   if (!enabled) {
     return "Next: enable this provider for the next runtime startup, then restart the local runtime.";
   }
+  if (commandOverride && commandOverride !== runtimeCommand) {
+    return "Next: restart the local runtime to apply the saved command override, then run Check availability.";
+  }
   if (provider.availability.status !== "available") {
-    return "Next: fix the provider command or environment, restart the local runtime, then run Check availability.";
+    return "Next: enter a command override or fix the provider environment, restart the local runtime, then run Check availability.";
   }
   if (!isDefault) {
     return "Next: set this provider as a default or assign it to a specific project agent run.";
@@ -3599,7 +3679,8 @@ function mergeSettings(settings: AppSettings, patch: Partial<AppSettings>): AppS
     ...settings,
     ...patch,
     enabledProviderIds: [...(patch.enabledProviderIds ?? settings.enabledProviderIds)],
-    projectRoots: [...(patch.projectRoots ?? settings.projectRoots)]
+    projectRoots: [...(patch.projectRoots ?? settings.projectRoots)],
+    providerCommandOverrides: { ...(patch.providerCommandOverrides ?? settings.providerCommandOverrides) }
   };
 }
 

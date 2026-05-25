@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -30,7 +30,8 @@ describe("release hardening", () => {
     first.settings.update({
       telemetryMode: "off",
       projectRoots: ["/workspace/projects"],
-      enabledProviderIds: [providerId("fake")]
+      enabledProviderIds: [providerId("fake")],
+      providerCommandOverrides: { "provider-custom": "/usr/local/bin/provider-custom" }
     });
     first.eventStore.close?.();
 
@@ -40,7 +41,8 @@ describe("release hardening", () => {
     expect(second.settings.get()).toMatchObject({
       telemetryMode: "off",
       projectRoots: ["/workspace/projects"],
-      enabledProviderIds: [providerId("fake")]
+      enabledProviderIds: [providerId("fake")],
+      providerCommandOverrides: { "provider-custom": "/usr/local/bin/provider-custom" }
     });
     expect(secondStore.countRows("settings")).toBe(1);
     second.eventStore.close?.();
@@ -112,6 +114,33 @@ describe("release hardening", () => {
     expect(runtime.app.providerRegistry.listRealProviders()).toEqual([]);
     expect(runtime.app.snapshot().dashboard.providerStatus.map((provider) => provider.name)).toEqual(["Fake provider"]);
     await runtime.shutdown();
+  });
+
+  it("uses persisted provider command overrides when auto-registering optional providers", async () => {
+    const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "praxis-provider-command-"));
+    const providerCommand = path.join(runtimeDir, "provider-command");
+    await writeFile(providerCommand, "#!/usr/bin/env sh\nif [ \"$1\" = \"--version\" ]; then echo \"1.2.3\"; else exit 0; fi\n", "utf8");
+    await chmod(providerCommand, 0o755);
+    const databasePath = path.join(runtimeDir, "praxis.sqlite");
+    const first = await startPraxisRuntime({ databasePath, listen: false, autoRegisterCodexAppServer: false });
+    first.app.settings.update({
+      providerCommandOverrides: { "codex-app-server": providerCommand }
+    });
+    await first.shutdown();
+
+    const second = await startPraxisRuntime({ databasePath, listen: false });
+    const codexProvider = second.app.snapshot().dashboard.providerStatus.find(
+      (provider) => provider.providerId === providerId("codex-app-server")
+    );
+
+    expect(codexProvider).toMatchObject({
+      name: "Codex app-server",
+      availability: expect.objectContaining({
+        status: "available",
+        details: expect.objectContaining({ command: providerCommand })
+      })
+    });
+    await second.shutdown();
   });
 
   it("can disable optional providers while preserving fake-provider operation", async () => {

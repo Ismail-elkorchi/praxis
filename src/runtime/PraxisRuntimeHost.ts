@@ -8,7 +8,7 @@ import type { FakeProviderScenarioName } from "../providers/fake/FakeProviderSce
 import type { ProviderAdapter } from "../providers/interface";
 import { createPraxisApp, type PraxisApp } from "../composition/createPraxisApp";
 import { SqliteEventStore } from "../events/SqliteEventStore";
-import { defaultAppSettings } from "../settings/SettingsService";
+import { defaultAppSettings, SettingsService } from "../settings/SettingsService";
 import { createLocalServer } from "../server/createLocalServer";
 
 export type RuntimeStartupStep =
@@ -83,7 +83,7 @@ export async function startPraxisRuntime(options: StartPraxisRuntimeOptions = {}
   const app = await createPraxisApp({
     eventStore,
     fakeScenario: options.fakeScenario,
-    providerAdapters: runtimeProviderAdapters(options)
+    providerAdapters: runtimeProviderAdapters(options, eventStore)
   });
   startupSteps.push(
     "load_settings",
@@ -136,13 +136,15 @@ export async function startPraxisRuntime(options: StartPraxisRuntimeOptions = {}
   };
 }
 
-function runtimeProviderAdapters(options: StartPraxisRuntimeOptions): ProviderAdapter[] {
+function runtimeProviderAdapters(options: StartPraxisRuntimeOptions, eventStore: SqliteEventStore): ProviderAdapter[] {
   const adapters: ProviderAdapter[] = [];
+  const settings = new SettingsService(eventStore).get();
   if (options.autoRegisterCodexAppServer !== false) {
+    const codexProviderId = providerId("codex-app-server");
     adapters.push(
       new CodexAppServerProviderAdapter({
-        id: providerId("codex-app-server"),
-        command: options.codexCommand ?? process.env.CODEX_BIN ?? "codex",
+        id: codexProviderId,
+        command: options.codexCommand ?? settings.providerCommandOverrides[codexProviderId] ?? process.env.CODEX_BIN ?? "codex",
         args: options.codexArgs ?? ["app-server", "--stdio"]
       })
     );

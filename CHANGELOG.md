@@ -77,3 +77,4 @@
 - Auto-registered the optional Codex app-server adapter during local runtime startup while keeping fake-provider-only app construction and explicit opt-out support.
 - Hardened project workspace action wiring so Home and Projects share the same dispatcher, workspace header actions stay contextual, query actions show results, provider setup empty states are actionable, and agent details expand without dead API dialogs.
 - Wired workspace source removal, work-item lifecycle, artifact review decisions, agent-run stop/cancel, and provider session import through explicit action dialogs with project/provider context, and gated start/default-provider controls on provider availability.
+- Added provider-neutral command overrides in Settings so optional provider binaries can be configured from the provider setup panel and applied on the next runtime startup.

@@ -724,6 +724,12 @@ test("provider configuration shows setup steps and updates from availability che
   await expect(providerConfiguration.getByRole("region", { name: "Provider commands" })).toContainText("agentctl --version");
   await expect(providerConfiguration.getByRole("region", { name: "Provider environment overrides" })).toContainText("AGENTCTL_BIN");
   await expect(providerConfiguration.getByRole("button", { name: "Set as default provider" })).toBeDisabled();
+  const commandOverride = providerConfiguration.getByLabel("Command for next startup");
+  await expect(commandOverride).toHaveAttribute("placeholder", "agentctl");
+  await commandOverride.fill("/opt/bin/agentctl");
+  await providerConfiguration.getByRole("button", { name: "Save command override" }).click();
+  await expect(providerConfiguration).toContainText("Saved override: /opt/bin/agentctl");
+  await expect(providerConfiguration).toContainText("restart the local runtime to apply the saved command override");
 
   await providerConfiguration.getByRole("button", { name: "Check availability" }).click();
   await expect(providerConfiguration).toContainText("Availability check passed with version 1.2.3.");

@@ -202,7 +202,12 @@ describe("provider-neutral API surface", () => {
         id: "settings-update",
         method: "settings.update",
         params: {
-          patch: { rawProviderLogsEnabled: true, telemetryMode: "off", enabledProviderIds: [providerId("fake")] },
+          patch: {
+            rawProviderLogsEnabled: true,
+            telemetryMode: "off",
+            enabledProviderIds: [providerId("fake")],
+            providerCommandOverrides: { "provider-custom": "/usr/local/bin/provider-custom" }
+          },
           confirmRawProviderLogs: true
         }
       })
@@ -211,7 +216,8 @@ describe("provider-neutral API surface", () => {
       result: {
         rawProviderLogsEnabled: true,
         telemetryMode: "off",
-        enabledProviderIds: [providerId("fake")]
+        enabledProviderIds: [providerId("fake")],
+        providerCommandOverrides: { "provider-custom": "/usr/local/bin/provider-custom" }
       }
     });
 
