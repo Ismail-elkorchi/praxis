@@ -1268,6 +1268,7 @@ function ProviderConfigurationPanel({
 
   const configuredProvider = provider;
   const command = providerAvailabilityCommand(configuredProvider.availability);
+  const setupDetails = providerSetupDetails(configuredProvider.availability);
   const providerEnabled = providerEnabledForNextStartup(settings, providers, configuredProvider.providerId);
   const providerIsDefault = settings.defaultProviderId === configuredProvider.providerId;
   const nextStep = providerNextStep(configuredProvider, providerEnabled, providerIsDefault);
@@ -1334,6 +1335,44 @@ function ProviderConfigurationPanel({
         <li>Set any provider binary or environment overrides before startup.</li>
         <li>Restart the local runtime after changing provider environment or command configuration.</li>
       </ul>
+      {setupDetails.steps.length > 0 ? (
+        <section className="providerSetupBlock" aria-label="Provider setup checklist">
+          <h5>Setup checklist</h5>
+          <ol>
+            {setupDetails.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+      {setupDetails.commands.length > 0 ? (
+        <section className="providerSetupBlock" aria-label="Provider commands">
+          <h5>Commands to verify</h5>
+          <dl className="settingsGrid compact">
+            {setupDetails.commands.map((item) => (
+              <div key={item.label}>
+                <dt>{item.label}</dt>
+                <dd>
+                  <code>{item.command}</code>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ) : null}
+      {setupDetails.environment.length > 0 ? (
+        <section className="providerSetupBlock" aria-label="Provider environment overrides">
+          <h5>Environment overrides</h5>
+          <ul className="settingsList">
+            {setupDetails.environment.map((item) => (
+              <li key={item.name}>
+                <code>{item.name}</code>
+                {item.description ? <span>{item.description}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <div className="actionRow">
         <button type="button" data-method="providers.checkAvailability" onClick={() => onCheckAvailability(configuredProvider.providerId)}>
           Check availability
@@ -1364,6 +1403,57 @@ function providerAvailabilityCommand(availability: ProviderAvailability): string
 
 function providerAvailabilityReason(availability: ProviderAvailability): string | undefined {
   return "reason" in availability ? availability.reason : undefined;
+}
+
+type ProviderSetupDetails = {
+  steps: string[];
+  commands: Array<{ label: string; command: string }>;
+  environment: Array<{ name: string; description?: string }>;
+};
+
+function providerSetupDetails(availability: ProviderAvailability): ProviderSetupDetails {
+  const details = availability.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return { steps: [], commands: [], environment: [] };
+  }
+  const record = details as Record<string, unknown>;
+  const commands: Array<{ label: string; command: string }> = [];
+  addCommand(commands, "Version check", record.versionCommand);
+  addCommand(commands, "Launch command", record.launchCommand);
+  addSchemaCommands(commands, record.schemaStrategy);
+  const environment = Array.isArray(record.environmentOverrides)
+    ? record.environmentOverrides
+        .map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return undefined;
+          const entry = item as { name?: unknown; description?: unknown };
+          if (typeof entry.name !== "string") return undefined;
+          return typeof entry.description === "string" ? { name: entry.name, description: entry.description } : { name: entry.name };
+        })
+        .filter((item): item is { name: string; description?: string } => Boolean(item))
+    : [];
+  return {
+    steps: Array.isArray(record.setupSteps) ? record.setupSteps.filter((step): step is string => typeof step === "string") : [],
+    commands,
+    environment
+  };
+}
+
+function addCommand(commands: Array<{ label: string; command: string }>, label: string, value: unknown) {
+  const command = commandText(value);
+  if (command) commands.push({ label, command });
+}
+
+function addSchemaCommands(commands: Array<{ label: string; command: string }>, value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const strategy = value as { typescriptCommand?: unknown; jsonSchemaCommand?: unknown };
+  addCommand(commands, "Type schema", strategy.typescriptCommand);
+  addCommand(commands, "JSON schema", strategy.jsonSchemaCommand);
+}
+
+function commandText(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && value.every((part) => typeof part === "string")) return value.join(" ");
+  return undefined;
 }
 
 function providerEnabledForNextStartup(
@@ -2548,8 +2638,13 @@ function SettingsPanel({
   const [pendingRawLogChange, setPendingRawLogChange] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState<string | undefined>();
   const [providerCheckMessage, setProviderCheckMessage] = useState<string | undefined>();
+  const [checkedAvailabilityByProviderId, setCheckedAvailabilityByProviderId] = useState<Record<string, ProviderAvailability>>({});
   const [message, setMessage] = useState("Settings are ready.");
-  const selectedProvider = providers.find((provider) => provider.providerId === selectedProviderId);
+  const providersForDisplay = providers.map((provider) => ({
+    ...provider,
+    availability: checkedAvailabilityByProviderId[provider.providerId] ?? provider.availability
+  }));
+  const selectedProvider = providersForDisplay.find((provider) => provider.providerId === selectedProviderId);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2607,6 +2702,7 @@ function SettingsPanel({
       setProviderCheckMessage("Availability check needs the local runtime API.");
       return;
     }
+    setCheckedAvailabilityByProviderId((current) => ({ ...current, [providerIdValue]: availability }));
     setProviderCheckMessage(
       availability.status === "available"
         ? `Availability check passed${availability.version ? ` with version ${availability.version}` : ""}.`
@@ -2703,7 +2799,7 @@ function SettingsPanel({
       <section className="settingsGroup" aria-label="Advanced provider status">
         <h3>Advanced provider status</h3>
         <ProviderGrid
-          providers={providers}
+          providers={providersForDisplay}
           onConfigureProvider={configureProvider}
           onCheckAvailability={(providerIdValue) => void checkProviderAvailability(providerIdValue)}
         />
@@ -2712,7 +2808,7 @@ function SettingsPanel({
           selectedProviderId={selectedProviderId}
           checkMessage={providerCheckMessage}
           settings={settings}
-          providers={providers}
+          providers={providersForDisplay}
           onCheckAvailability={(providerIdValue) => void checkProviderAvailability(providerIdValue)}
           onUpdateSettings={(patch) => void updateSettings(patch)}
         />

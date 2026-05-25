@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { DashboardProjection, ProjectCardViewModel, TimelineItemViewModel } from "../../src/dashboard/types";
+import type { DashboardProjection, ProjectCardViewModel, ProviderStatusViewModel, TimelineItemViewModel } from "../../src/dashboard/types";
 
 test("dashboard shell uses provider-neutral language and keyboard focus", async ({ page }) => {
   await page.goto("/");
@@ -394,6 +394,60 @@ test("provider status cards show capability and compatibility details", async ({
   await expect(unavailableProvider.getByRole("list", { name: "Unavailable provider capabilities" })).toContainText("unavailable");
 });
 
+test("provider configuration shows setup steps and updates from availability checks", async ({ page }) => {
+  const dashboard = emptyDashboard({
+    providerStatus: [setupProviderStatus("Setup provider", "unavailable")]
+  });
+
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string; params?: unknown };
+    if (request.method === "dashboard.getSnapshot") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: request.id, result: dashboard })
+      });
+      return;
+    }
+    if (request.method === "providers.checkAvailability") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: request.id,
+          result: {
+            status: "available",
+            version: "1.2.3",
+            details: setupProviderDetails("agentctl")
+          }
+        })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ id: request.id, error: { message: "No mocked response." } })
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+
+  const providerCard = page.getByRole("article").filter({ hasText: "Setup provider" });
+  await providerCard.getByRole("button", { name: "Configure provider" }).click();
+
+  const providerConfiguration = page.getByRole("region", { name: "Provider configuration" });
+  await expect(providerConfiguration.getByRole("region", { name: "Provider setup checklist" })).toContainText("Install the provider command.");
+  await expect(providerConfiguration.getByRole("region", { name: "Provider commands" })).toContainText("agentctl --version");
+  await expect(providerConfiguration.getByRole("region", { name: "Provider environment overrides" })).toContainText("AGENTCTL_BIN");
+
+  await providerConfiguration.getByRole("button", { name: "Check availability" }).click();
+  await expect(providerConfiguration).toContainText("Availability check passed with version 1.2.3.");
+  await expect(providerConfiguration.getByText("available").first()).toBeVisible();
+  await expect(providerCard.getByText("available").first()).toBeVisible();
+});
+
 test("settings panel confirms raw provider logs and keeps provider settings separate", async ({ page }) => {
   await page.goto("/");
 
@@ -598,6 +652,52 @@ function emptyDashboard(overrides: Partial<DashboardProjection> = {}): Dashboard
       ...overrides.explanation
     },
     ...overrides
+  };
+}
+
+function setupProviderStatus(name: string, status: "available" | "unavailable"): ProviderStatusViewModel {
+  return {
+    providerId: "provider-setup" as ProviderStatusViewModel["providerId"],
+    name,
+    adapterVersion: "0.1.0",
+    availability:
+      status === "available"
+        ? { status: "available", version: "1.0.0", details: setupProviderDetails("agentctl") }
+        : { status: "unavailable", reason: "Provider command is not available.", details: setupProviderDetails("agentctl") },
+    capabilities: {
+      canStartSession: true,
+      canResumeSession: false,
+      canListSessions: false,
+      canImportExistingSessions: false,
+      canStreamEvents: true,
+      canStreamTokenDeltas: false,
+      canInterruptTurn: false,
+      canSteerTurn: false,
+      canRequestCommandApproval: true,
+      canRequestFileApproval: false,
+      canRunShellCommands: false,
+      canEditFiles: false,
+      canReportFileDiffs: false,
+      canReportTokenUsage: false,
+      canUseExternalTools: false,
+      supportsSandboxing: false,
+      supportsPermissionProfiles: false,
+      supportsStructuredProtocol: true
+    }
+  };
+}
+
+function setupProviderDetails(command: string): Record<string, unknown> {
+  return {
+    command,
+    versionCommand: [command, "--version"],
+    launchCommand: [command, "serve", "--stdio"],
+    environmentOverrides: [{ name: "AGENTCTL_BIN", description: "Set before starting Praxis to override the provider binary." }],
+    setupSteps: ["Install the provider command.", "Restart the local runtime.", "Run Check availability."],
+    schemaStrategy: {
+      typescriptCommand: [command, "generate-ts"],
+      jsonSchemaCommand: [command, "generate-json-schema"]
+    }
   };
 }
 
