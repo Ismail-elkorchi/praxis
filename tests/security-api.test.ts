@@ -74,6 +74,7 @@ describe("security, API, and provider-neutral surface", () => {
     expect(app.snapshot().dashboard.mode).toBe("unsafe_attention");
     expect(app.snapshot().dashboard.globalStatus.unsafeStateCount).toBe(1);
     expect(card?.stateReason).toMatch(/broad permission profile/i);
+    expect(card?.evidence.some((item) => item.type === "event")).toBe(true);
     await expect(app.replay()).resolves.toEqual(app.snapshot());
   });
 

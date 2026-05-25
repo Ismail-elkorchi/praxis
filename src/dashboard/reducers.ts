@@ -515,7 +515,7 @@ function projectCard(project: ProjectSnapshot, snapshot: AppSnapshot): ProjectCa
     (project.project.settings.defaultProviderId ? snapshot.providers[project.project.settings.defaultProviderId]?.provider : undefined) ??
     Object.values(snapshot.providers)[0]?.provider;
 
-  const evidence = projectEvidence(project);
+  const evidence = projectEvidence(project, snapshot.events);
 
   return {
     projectId: project.project.id,
