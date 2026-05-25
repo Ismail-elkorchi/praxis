@@ -1555,16 +1555,30 @@ function ProviderConfigurationPanel({
   }
 
   if (!provider) {
+    const optionalDiscoveryRestricted = settings.enabledProviderIds.length > 0;
     return (
       <section ref={panelRef} className="providerConfigPanel" aria-label="Provider configuration" tabIndex={-1}>
         <h4>Provider configuration</h4>
         <p>No optional provider is registered with the local runtime yet. The fake provider remains available for project work.</p>
+        {optionalDiscoveryRestricted ? (
+          <p>
+            Optional provider discovery is currently limited to the saved startup allowlist. Enable optional providers, restart the
+            local runtime, then reload provider status.
+          </p>
+        ) : (
+          <p>Optional provider discovery is enabled for startup. Install or configure a provider runtime, restart, then reload status.</p>
+        )}
         <ol className="settingsList" aria-label="Provider discovery checklist">
           <li>Install the provider runtime command you want to use.</li>
-          <li>Set any provider enablement or command environment before starting Praxis.</li>
+          <li>{optionalDiscoveryRestricted ? "Enable optional provider discovery for startup." : "Set any provider command environment before starting Praxis."}</li>
           <li>Restart the local runtime, then reload provider status.</li>
         </ol>
         <div className="actionRow">
+          {optionalDiscoveryRestricted ? (
+            <button type="button" data-method="settings.update" onClick={() => onUpdateSettings({ enabledProviderIds: [] })}>
+              Enable optional providers on next startup
+            </button>
+          ) : null}
           <button type="button" data-method="providers.checkAvailability" onClick={() => onCheckAvailability()}>
             Reload provider status
           </button>

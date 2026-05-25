@@ -781,6 +781,67 @@ test("provider configuration shows setup steps and updates from availability che
   await expect(providerConfiguration.getByRole("button", { name: "Set as default provider" })).toBeEnabled();
 });
 
+test("provider configuration can recover disabled optional provider discovery", async ({ page }) => {
+  const settings = {
+    databasePath: ".praxis/praxis.sqlite",
+    projectRoots: [],
+    enabledProviderIds: ["fake"],
+    providerCommandOverrides: {},
+    defaultPermissionProfileId: "permission-profile-guarded",
+    telemetryMode: "local_only",
+    rawProviderLogsEnabled: false
+  };
+  const requestedSettingsUpdates: unknown[] = [];
+
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string; params?: { patch?: unknown } };
+    if (request.method === "dashboard.getSnapshot") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: request.id, result: emptyDashboard() })
+      });
+      return;
+    }
+    if (request.method === "settings.get") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: request.id, result: settings })
+      });
+      return;
+    }
+    if (request.method === "settings.update") {
+      requestedSettingsUpdates.push(request.params?.patch);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: request.id, result: { ...settings, enabledProviderIds: [] } })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ id: request.id, error: { message: "No mocked response." } })
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Open provider status" }).click();
+
+  const providerConfiguration = page.getByRole("region", { name: "Provider configuration" });
+  await expect(providerConfiguration).toContainText("Optional provider discovery is currently limited");
+  const enableDiscovery = providerConfiguration.getByRole("button", { name: "Enable optional providers on next startup" });
+  await expect(enableDiscovery).toHaveAttribute("data-method", "settings.update");
+  await enableDiscovery.click();
+
+  expect(requestedSettingsUpdates).toContainEqual({ enabledProviderIds: [] });
+  await expect(providerConfiguration).toContainText("Optional provider discovery is enabled for startup");
+  await expect(enableDiscovery).toHaveCount(0);
+});
+
 test("settings panel confirms raw provider logs and keeps provider settings separate", async ({ page }) => {
   await page.goto("/");
 
