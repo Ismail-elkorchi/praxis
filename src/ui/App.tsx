@@ -233,6 +233,7 @@ export function App() {
             onProjectAction={handleProjectAction}
             onDecision={decideApproval}
             onAction={openActionRequest}
+            onOpenDiff={() => requestDetailFocus("diff")}
           />
         )}
         {route === "Decisions" && <ApprovalPanel approvals={dashboard.approvals} onDecision={decideApproval} onRoute={setRoute} />}
@@ -525,7 +526,8 @@ function ProjectsRoute({
   onSelectProject,
   onProjectAction,
   onDecision,
-  onAction
+  onAction,
+  onOpenDiff
 }: {
   dashboard: DashboardProjection;
   selectedProjectId: string;
@@ -534,6 +536,7 @@ function ProjectsRoute({
   onProjectAction(project: ProjectCardViewModel, action: DashboardAction): void;
   onDecision(approvalId: string, decision: ApprovalDecision): void;
   onAction(action: PendingActionRequest): void;
+  onOpenDiff(): void;
 }) {
   const workspace = dashboard.selectedWorkspace?.projectId === selectedProjectId ? dashboard.selectedWorkspace : undefined;
   if (workspace) {
@@ -544,6 +547,7 @@ function ProjectsRoute({
         onDecision={onDecision}
         onRoute={onRoute}
         onAction={onAction}
+        onOpenDiff={onOpenDiff}
       />
     );
   }
@@ -564,13 +568,15 @@ function ProjectWorkspace({
   checkRuns,
   onDecision,
   onRoute,
-  onAction
+  onAction,
+  onOpenDiff
 }: {
   workspace: ProjectWorkspaceViewModel;
   checkRuns: CheckRunViewModel[];
   onDecision(approvalId: string, decision: ApprovalDecision): void;
   onRoute(route: Route): void;
   onAction(action: PendingActionRequest): void;
+  onOpenDiff(): void;
 }) {
   const firstWorkItem = workspace.workItems.current[0] ?? workspace.workItems.queued[0] ?? workspace.workItems.blocked[0] ?? workspace.workItems.completed[0];
   return (
@@ -658,7 +664,7 @@ function ProjectWorkspace({
         </section>
         <section className="cockpitBand" aria-label="Checks inside project workspace">
           <h2>Checks</h2>
-          <CheckRunPanel checkRuns={checkRuns} onAction={onAction} />
+          <CheckRunPanel checkRuns={checkRuns} onAction={onAction} onOpenDiff={onOpenDiff} />
         </section>
       </div>
 
@@ -2451,7 +2457,15 @@ function requireValue(value: string, label: string): string {
   return trimmed;
 }
 
-function CheckRunPanel({ checkRuns, onAction }: { checkRuns: CheckRunViewModel[]; onAction(action: PendingActionRequest): void }) {
+function CheckRunPanel({
+  checkRuns,
+  onAction,
+  onOpenDiff
+}: {
+  checkRuns: CheckRunViewModel[];
+  onAction(action: PendingActionRequest): void;
+  onOpenDiff(): void;
+}) {
   const activeRuns = checkRuns.filter((run) => run.status === "queued" || run.status === "running");
   const recentRuns = checkRuns.filter((run) => run.status !== "queued" && run.status !== "running");
 
@@ -2482,8 +2496,8 @@ function CheckRunPanel({ checkRuns, onAction }: { checkRuns: CheckRunViewModel[]
         </div>
       </div>
       <div className="checkRunGroups">
-        <CheckRunGroup title="Active" runs={activeRuns} emptyText="No active check runs." onAction={onAction} />
-        <CheckRunGroup title="Recent" runs={recentRuns} emptyText="No recent check runs." onAction={onAction} />
+        <CheckRunGroup title="Active" runs={activeRuns} emptyText="No active check runs." onAction={onAction} onOpenDiff={onOpenDiff} />
+        <CheckRunGroup title="Recent" runs={recentRuns} emptyText="No recent check runs." onAction={onAction} onOpenDiff={onOpenDiff} />
       </div>
       <button
         type="button"
@@ -2507,12 +2521,14 @@ function CheckRunGroup({
   title,
   runs,
   emptyText,
-  onAction
+  onAction,
+  onOpenDiff
 }: {
   title: string;
   runs: CheckRunViewModel[];
   emptyText: string;
   onAction(action: PendingActionRequest): void;
+  onOpenDiff(): void;
 }) {
   return (
     <section className="checkRunGroup" aria-label={`${title} check runs`}>
@@ -2583,7 +2599,15 @@ function CheckRunGroup({
           <div className="triageFiles" aria-label="Failed check triage files">
             {run.relatedFiles.length > 0 ? (
               run.relatedFiles.map((file) => (
-                <a key={`${run.runId}-${file}`} href={`#${file}`} data-method="git.openDiff">
+                <a
+                  key={`${run.runId}-${file}`}
+                  href={`#${file}`}
+                  data-method="git.openDiff"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    onOpenDiff();
+                  }}
+                >
                   {file}
                 </a>
               ))
