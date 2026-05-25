@@ -752,6 +752,11 @@ test("provider status cards show capability and compatibility details", async ({
   await expect(unavailableProvider).toContainText("unavailable");
   await expect(unavailableProvider).toContainText("Provider is not configured.");
   await expect(unavailableProvider.getByRole("list", { name: "Unavailable provider capabilities" })).toContainText("unavailable");
+
+  const openProjects = providerConfiguration.getByRole("button", { name: "Open projects" });
+  await expect(openProjects).toHaveAttribute("data-method", "projects.getPortfolio");
+  await openProjects.click();
+  await expect(page.getByRole("button", { name: "Projects" })).toHaveAttribute("aria-current", "page");
 });
 
 test("provider configuration shows setup steps and updates from availability checks", async ({ page }) => {
@@ -1087,6 +1092,14 @@ test("empty states expose provider-neutral next actions", async ({ page }) => {
       });
       return;
     }
+    if (request.method === "providers.checkAvailability") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: request.id, result: [] })
+      });
+      return;
+    }
     await route.fulfill({
       status: 500,
       contentType: "application/json",
@@ -1134,6 +1147,8 @@ test("empty states expose provider-neutral next actions", async ({ page }) => {
     "data-method",
     "providers.checkAvailability"
   );
+  await providerConfiguration.getByRole("button", { name: "Reload provider status" }).click();
+  await expect(providerConfiguration.getByRole("status")).toContainText("No optional providers are registered by the local runtime.");
 });
 
 function parseCssDurations(value: string): number[] {

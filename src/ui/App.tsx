@@ -1537,7 +1537,8 @@ function ProviderConfigurationPanel({
   settings,
   providers,
   onCheckAvailability,
-  onUpdateSettings
+  onUpdateSettings,
+  onOpenProjects
 }: {
   provider?: ProviderStatusViewModel;
   selectedProviderId?: string;
@@ -1546,6 +1547,7 @@ function ProviderConfigurationPanel({
   providers: ProviderStatusViewModel[];
   onCheckAvailability(providerId?: string): void;
   onUpdateSettings(patch: Partial<AppSettings>): void;
+  onOpenProjects(): void;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const [commandOverrideDraft, setCommandOverrideDraft] = useState("");
@@ -1586,6 +1588,7 @@ function ProviderConfigurationPanel({
           <li>{optionalDiscoveryRestricted ? "Enable optional provider discovery for startup." : "Set any provider command environment before starting Praxis."}</li>
           <li>Restart the local runtime, then reload provider status.</li>
         </ol>
+        {checkMessage ? <p role="status">{checkMessage}</p> : null}
         <div className="actionRow">
           {optionalDiscoveryRestricted ? (
             <button type="button" data-method="settings.update" onClick={() => onUpdateSettings({ enabledProviderIds: [] })}>
@@ -1675,7 +1678,7 @@ function ProviderConfigurationPanel({
         </div>
       </dl>
       <p>{nextStep}</p>
-      {checkMessage ? <p>{checkMessage}</p> : null}
+      {checkMessage ? <p role="status">{checkMessage}</p> : null}
       {providerAvailabilityReason(configuredProvider.availability) ? <p>{providerAvailabilityReason(configuredProvider.availability)}</p> : null}
       <ul className="settingsList" aria-label="Provider setup">
         {builtInProvider ? (
@@ -1791,6 +1794,9 @@ function ProviderConfigurationPanel({
             Set as default provider
           </button>
         )}
+        <button type="button" data-method="projects.getPortfolio" onClick={onOpenProjects}>
+          Open projects
+        </button>
       </div>
     </section>
   );
@@ -3778,6 +3784,7 @@ function SettingsPanel({
           providers={providersForDisplay}
           onCheckAvailability={(providerIdValue) => void checkProviderAvailability(providerIdValue)}
           onUpdateSettings={(patch) => void updateSettings(patch)}
+          onOpenProjects={() => onRoute("Projects")}
         />
       </section>
       <section className="settingsGroup" aria-label="Plugin settings">
