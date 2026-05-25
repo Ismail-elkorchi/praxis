@@ -295,6 +295,48 @@ test("command palette opens from global search and runs provider-neutral command
   await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
 });
 
+test("empty states expose provider-neutral next actions", async ({ page }) => {
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    if (request.method === "dashboard.getSnapshot") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: request.id, result: emptyDashboard() })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ id: request.id, result: {} })
+    });
+  });
+  await page.goto("/");
+
+  const projects = page.getByRole("region", { name: "Projects" });
+  await expect(projects.getByRole("heading", { name: "No projects registered" })).toBeVisible();
+  await expect(projects.getByRole("button", { name: "Register project" })).toHaveAttribute("data-method", "projects.register");
+  await expect(projects.getByRole("button", { name: "Provider setup" })).toHaveAttribute("data-method", "providers.getStatus");
+
+  await page.getByRole("button", { name: "Approvals" }).click();
+  const approvals = page.getByRole("region", { name: "Approval center" });
+  await expect(approvals.getByRole("heading", { name: "No pending approvals" })).toBeVisible();
+  await expect(approvals.getByRole("button", { name: "Recent decisions" })).toHaveAttribute("data-method", "events.query");
+
+  await page.getByRole("button", { name: "Checks" }).click();
+  const checks = page.getByRole("region", { name: "Check runs" });
+  await expect(checks.getByRole("heading", { name: "No checks have run" })).toBeVisible();
+  await expect(checks).toContainText("detected project scripts");
+  await expect(checks.getByRole("button", { name: "Add check" })).toHaveAttribute("data-method", "checks.list");
+
+  await page.getByRole("button", { name: "Providers" }).click();
+  const providers = page.getByRole("region", { name: "Provider status" });
+  await expect(providers.getByRole("heading", { name: "No providers configured" })).toBeVisible();
+  await expect(providers).toContainText("fake provider remains available");
+  await expect(providers.getByRole("button", { name: "Configure provider" })).toHaveAttribute("data-method", "providers.list");
+});
+
 function parseCssDurations(value: string): number[] {
   return value.split(",").map((duration) => {
     const trimmed = duration.trim();
@@ -302,4 +344,29 @@ function parseCssDurations(value: string): number[] {
     if (trimmed.endsWith("s")) return Number(trimmed.slice(0, -1)) * 1000;
     return Number(trimmed);
   });
+}
+
+function emptyDashboard() {
+  return {
+    mode: "portfolio",
+    globalStatus: {
+      activeProjectCount: 0,
+      activeTurnCount: 0,
+      pendingApprovalCount: 0,
+      failedCheckCount: 0,
+      staleSessionCount: 0,
+      unsafeStateCount: 0,
+      providerIssues: []
+    },
+    projectCards: [],
+    approvals: [],
+    checkRuns: [],
+    providerStatus: [],
+    timeline: [],
+    explanation: {
+      mode: "portfolio",
+      propositions: [],
+      evidence: []
+    }
+  };
 }

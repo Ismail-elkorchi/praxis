@@ -389,9 +389,14 @@ function ProjectGrid({
         <GitBranch size={28} aria-hidden="true" />
         <h2>No projects registered</h2>
         <p>Register a local project to start tracking sessions, approvals, file changes, checks, and review state.</p>
-        <button type="button" data-method="projects.register">
-          Register project
-        </button>
+        <div className="actionRow">
+          <button type="button" data-method="projects.register">
+            Register project
+          </button>
+          <button type="button" data-method="providers.getStatus">
+            Provider setup
+          </button>
+        </div>
       </section>
     );
   }
@@ -573,6 +578,9 @@ function ApprovalPanel({
         <ShieldCheck size={26} aria-hidden="true" />
         <h2>No pending approvals</h2>
         <p>Recent decisions remain available in the activity timeline.</p>
+        <button type="button" data-method="events.query">
+          Recent decisions
+        </button>
       </section>
     );
   }
