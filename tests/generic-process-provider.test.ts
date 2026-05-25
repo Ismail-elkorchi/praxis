@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { providerId } from "../src/core";
 import { createPraxisApp } from "../src/composition/createPraxisApp";
 import { GenericProcessProviderAdapter } from "../src/providers/generic-process";
+import { validateProviderAdapterContract } from "../src/providers/interface";
 import { createTempProject } from "./helpers/tempProject";
 
 describe("GenericProcessProviderAdapter", () => {
@@ -26,6 +27,10 @@ describe("GenericProcessProviderAdapter", () => {
     const rootPath = await createTempProject({ packageJson: false });
     const project = await app.projects.registerProject({ rootPath });
 
+    await expect(validateProviderAdapterContract(adapter, { expectedId: adapter.id })).resolves.toEqual({
+      providerId: adapter.id,
+      failures: []
+    });
     await expect(adapter.checkAvailability()).resolves.toMatchObject({ status: "available" });
     const sessionId = await app.providers.startSession({
       providerId: providerId("generic-process-test"),
@@ -40,6 +45,9 @@ describe("GenericProcessProviderAdapter", () => {
     });
 
     const events = await app.events.queryEvents();
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining(["provider.client.started", "provider.client.stopped"])
+    );
     expect(events.some((event) => event.type === "agent.turn.delta")).toBe(true);
     const rawEvents = events.filter((event) => event.type === "provider.rawEvent");
     expect(rawEvents).toEqual(
@@ -49,7 +57,14 @@ describe("GenericProcessProviderAdapter", () => {
       ])
     );
     expect(events.some((event) => event.type === "provider.surprise")).toBe(false);
-    expect((await app.observability.diagnostics()).metrics.eventNormalizationFailureCount).toBe(2);
+    const diagnostics = await app.observability.diagnostics();
+    expect(diagnostics.metrics.eventNormalizationFailureCount).toBe(2);
+    expect(diagnostics.providerLog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: "Provider client started." }),
+        expect.objectContaining({ message: "Provider client stopped." })
+      ])
+    );
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("agent_ready");
   });
 
@@ -79,6 +94,9 @@ describe("GenericProcessProviderAdapter", () => {
     ).resolves.toEqual(expect.any(String));
 
     const events = await app.events.queryEvents({ providerId: providerId("generic-process-crash-test") });
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining(["provider.client.started", "provider.client.stopped"])
+    );
     expect(events.some((event) => event.type === "provider.error")).toBe(true);
     expect(events.some((event) => event.type === "agent.turn.failed")).toBe(true);
     expect(events.some((event) => event.type === "agent.session.stale")).toBe(true);

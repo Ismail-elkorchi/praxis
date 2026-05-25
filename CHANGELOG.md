@@ -64,3 +64,4 @@
 - Made unsafe dashboard mode visually distinct from active work at the shell level with UI smoke coverage.
 - Added dashboard snapshot generation timing to diagnostics with API and UI coverage.
 - Standardized local server malformed-request and route errors as machine-coded API errors.
+- Added provider-neutral client lifecycle events for the optional generic process adapter with diagnostics coverage.
