@@ -74,3 +74,4 @@
 - Added Home and Project Workspace projections covering work inbox, active projects, waiting decisions, running agents, blocked work, ready review, recent artifacts, work-item panels, agent boards, sources, artifacts, decisions, checks, and project-scoped timelines.
 - Fixed approval decision routing so UI decisions use the approval's provider id and added multi-provider coverage.
 - Added fake-provider-only broad-use coverage for code, writing, research, planning, and general projects with source-linked artifacts.
+- Auto-registered the optional Codex app-server adapter during local runtime startup while keeping fake-provider-only app construction and explicit opt-out support.

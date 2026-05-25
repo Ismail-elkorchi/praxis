@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { AddressInfo } from "node:net";
 import path from "node:path";
-import type { AgentSession, AgentTurn } from "../core";
+import { providerId, type AgentSession, type AgentTurn } from "../core";
 import { createDomainEvent } from "../events/eventFactory";
+import { CodexAppServerProviderAdapter } from "../providers/codex-app-server";
 import type { FakeProviderScenarioName } from "../providers/fake/FakeProviderScenarios";
 import type { ProviderAdapter } from "../providers/interface";
 import { createPraxisApp, type PraxisApp } from "../composition/createPraxisApp";
@@ -36,6 +37,9 @@ export type RuntimeDeploymentMode = "local_desktop" | "local_browser";
 export type StartPraxisRuntimeOptions = {
   databasePath?: string;
   providerAdapters?: ProviderAdapter[];
+  autoRegisterCodexAppServer?: boolean;
+  codexCommand?: string;
+  codexArgs?: string[];
   fakeScenario?: FakeProviderScenarioName;
   host?: string;
   port?: number;
@@ -79,7 +83,7 @@ export async function startPraxisRuntime(options: StartPraxisRuntimeOptions = {}
   const app = await createPraxisApp({
     eventStore,
     fakeScenario: options.fakeScenario,
-    providerAdapters: options.providerAdapters
+    providerAdapters: runtimeProviderAdapters(options)
   });
   startupSteps.push(
     "load_settings",
@@ -130,6 +134,21 @@ export async function startPraxisRuntime(options: StartPraxisRuntimeOptions = {}
       return [...shutdownSteps];
     }
   };
+}
+
+function runtimeProviderAdapters(options: StartPraxisRuntimeOptions): ProviderAdapter[] {
+  const adapters: ProviderAdapter[] = [];
+  if (options.autoRegisterCodexAppServer !== false) {
+    adapters.push(
+      new CodexAppServerProviderAdapter({
+        id: providerId("codex-app-server"),
+        command: options.codexCommand ?? process.env.CODEX_BIN ?? "codex",
+        args: options.codexArgs ?? ["app-server", "--stdio"]
+      })
+    );
+  }
+  adapters.push(...(options.providerAdapters ?? []));
+  return adapters;
 }
 
 function writeRuntimeLifecycle(

@@ -263,6 +263,12 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
       }
       break;
     }
+    case "provider.disabled": {
+      if (event.providerId) {
+        delete next.providers[event.providerId];
+      }
+      break;
+    }
     case "provider.error": {
       if (event.providerId && next.providers[event.providerId]) {
         const message = String((event.payload as { message?: string }).message ?? "Provider error");

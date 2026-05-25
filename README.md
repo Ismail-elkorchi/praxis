@@ -4,7 +4,7 @@ Praxis is a local-first control plane for coordinating agent work inside durable
 
 The core app runs with the built-in fake provider, so development and tests do not require any real provider account, binary, API key, or network service.
 
-Optional provider adapters are disabled unless they are explicitly configured. The Codex app-server adapter lives under `src/providers/codex-app-server/`, uses stdio JSONL, reports availability through `codex --version`, and keeps external thread and turn identifiers inside provider references, adapter-local state, redacted diagnostics, or raw provider events.
+The local runtime auto-registers the optional Codex app-server adapter when it starts. The adapter lives under `src/providers/codex-app-server/`, uses stdio JSONL, reports availability through `codex --version`, and keeps external thread and turn identifiers inside provider references, adapter-local state, redacted diagnostics, or raw provider events. Codex is not the default provider; if the binary is missing, Praxis still starts and reports the provider as unavailable. Set `CODEX_BIN` to use a non-default binary path.
 
 ## Status
 
@@ -52,7 +52,7 @@ dashboard snapshots, checks, git diff/worktree actions, and event replay/query.
 - Projects use extensible profile facets instead of a fixed project-kind enum.
 - Provider adapters live behind a stable interface.
 - The app starts and passes tests with the fake provider only.
-- Real provider adapters are optional and must not be imported by core-facing modules.
+- Real provider adapters are optional, must not be imported by core-facing modules, and must not become the default provider automatically.
 - Dashboard state is derived from domain events and can be replayed.
 - Approval decisions are persisted before they are forwarded to providers.
 - Approval decisions are routed by the approval's provider id, not by dashboard order.

@@ -76,9 +76,14 @@ describe("release hardening", () => {
         "start_ui"
       ])
     );
-    expect(runtime.app.providerRegistry.listRealProviders()).toEqual([]);
+    expect(runtime.app.providerRegistry.listRealProviders().map((provider) => provider.id)).toContain(providerId("codex-app-server"));
     expect(runtime.app.projects.listProjects()).toEqual([]);
-    expect(runtime.app.snapshot().dashboard.providerStatus[0]?.availability.status).toBe("available");
+    expect(runtime.app.snapshot().dashboard.providerStatus.find((provider) => provider.providerId === providerId("fake"))?.availability.status).toBe(
+      "available"
+    );
+    expect(runtime.app.snapshot().dashboard.providerStatus.find((provider) => provider.providerId === providerId("codex-app-server"))).toMatchObject({
+      name: "Codex app-server"
+    });
 
     await expect(runtime.shutdown()).resolves.toEqual(
       expect.arrayContaining(["stop_check_runs", "preserve_agent_sessions", "flush_event_store", "stop_local_server", "close_database"])
@@ -98,6 +103,15 @@ describe("release hardening", () => {
     expect(second.app.snapshot().dashboard.projectCards.some((card) => card.projectId === project.id)).toBe(true);
     expect(second.app.snapshot().approvals.history).toEqual([]);
     await second.shutdown();
+  });
+
+  it("can opt out of automatic Codex app-server registration", async () => {
+    const databasePath = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-runtime-no-codex-")), "praxis.sqlite");
+    const runtime = await startPraxisRuntime({ databasePath, listen: false, autoRegisterCodexAppServer: false });
+
+    expect(runtime.app.providerRegistry.listRealProviders()).toEqual([]);
+    expect(runtime.app.snapshot().dashboard.providerStatus.map((provider) => provider.name)).toEqual(["Fake provider"]);
+    await runtime.shutdown();
   });
 
   it("can disable optional providers while preserving fake-provider operation", async () => {
