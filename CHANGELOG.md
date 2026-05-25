@@ -61,3 +61,4 @@
 - Added explicit fake-provider contract validation coverage for the shared provider adapter interface.
 - Exposed provider-neutral disabled action reasons directly on project cards with UI smoke coverage.
 - Expanded activity timeline smoke coverage across project, provider, session, and event-type filters.
+- Made unsafe dashboard mode visually distinct from active work at the shell level with UI smoke coverage.

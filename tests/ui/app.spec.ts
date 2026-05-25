@@ -52,6 +52,31 @@ test("dashboard modes expose primary user questions", async ({ page }) => {
   }
 });
 
+test("unsafe mode is visually distinct from active work", async ({ page }) => {
+  let currentMode: DashboardProjection["mode"] = "unsafe_attention";
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result: request.method === "dashboard.getSnapshot" ? emptyDashboard({ mode: currentMode }) : {}
+      })
+    });
+  });
+
+  await page.goto("/");
+  const topBar = page.locator(".topBar");
+  await expect(topBar).toHaveCSS("border-bottom-color", "rgb(198, 93, 93)");
+  await expect(topBar).toHaveCSS("background-color", "rgb(255, 247, 247)");
+
+  currentMode = "active_work";
+  await page.goto("/");
+  await expect(topBar).toHaveCSS("border-bottom-color", "rgb(122, 167, 199)");
+  await expect(topBar).not.toHaveCSS("background-color", "rgb(255, 247, 247)");
+});
+
 test("approval center can be resolved with keyboard", async ({ page }) => {
   await page.goto("/");
 

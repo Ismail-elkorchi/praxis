@@ -119,6 +119,17 @@ button:disabled {
   margin-bottom: 1.25rem;
 }
 
+.appShell.mode-active_work .topBar {
+  padding-bottom: 1rem;
+  border-bottom: 3px solid #7aa7c7;
+}
+
+.appShell.mode-unsafe_attention .topBar {
+  padding-bottom: 1rem;
+  border-bottom: 3px solid #c65d5d;
+  background: #fff7f7;
+}
+
 .eyebrow {
   margin: 0 0 0.25rem;
   color: #586971;
