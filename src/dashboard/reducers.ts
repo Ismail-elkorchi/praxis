@@ -563,6 +563,7 @@ function approvalCards(snapshot: AppSnapshot): ApprovalCardViewModel[] {
       approval.risk !== "critical";
     return {
       approvalId: approval.id,
+      sessionId: approval.sessionId,
       projectTitle: project?.project.name ?? "Project",
       providerLabel: provider?.displayName ?? "Provider",
       kind: approval.kind,

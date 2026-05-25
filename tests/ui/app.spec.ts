@@ -8,6 +8,10 @@ test("dashboard shell uses provider-neutral language and keyboard focus", async 
   await expect(page.getByRole("button", { name: "Decline" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Primary" })).toContainText("Approvals");
   await expect(page.getByText("fake provider", { exact: false })).toBeVisible();
+  const approval = page.getByRole("article").filter({ hasText: "Run project command" });
+  await expect(approval).toContainText("Session");
+  await expect(approval).toContainText("session-alpha");
+  await expect(approval).toContainText("Evidence");
 
   await page.keyboard.press("Tab");
   await expect(page.locator(":focus")).toBeVisible();

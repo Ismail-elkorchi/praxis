@@ -160,6 +160,12 @@ describe("security, API, and provider-neutral surface", () => {
       sessionId,
       instruction: "Attempt approval bypass"
     });
+    const approval = app.snapshot().approvals.pending[0]!;
+
+    await expect(
+      app.providers.decideApproval({ providerId: providerId("fake"), approvalId: approval.id, decision: "accept_once" })
+    ).rejects.toMatchObject({ code: "approval_provider_mismatch" });
+    expect(app.snapshot().approvals.pending[0]?.status).toBe("pending");
 
     const providerResolution = (await app.events.queryEvents()).find(
       (event) => event.type === "approval.accepted" && event.source === "provider"

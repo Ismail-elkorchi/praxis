@@ -49,3 +49,4 @@
 - Added explicit required-check waivers, selected-provider capability gating for project actions, and acceptance coverage for declined approvals, pending-approval review blockers, conflicted git state, and out-of-date ready-to-merge confirmation.
 - Added capability-gated provider session import so providers that support import can map external sessions to internal sessions without exposing provider-owned identifiers as core primary keys.
 - Added task-isolated worktree startup for projects that enable isolated worktree mode, with provider sessions started in the created worktree and worktree evidence reflected in replayable project state.
+- Hardened approval decisions to fail closed on provider mismatches and expanded approval cards with session and evidence details.

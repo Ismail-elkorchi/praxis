@@ -277,6 +277,13 @@ export class ProviderService {
         approvalId: input.approvalId
       });
     }
+    if (approval.providerId !== input.providerId) {
+      throw new PraxisError("approval_provider_mismatch", "Approval decision provider does not match the approval request.", {
+        approvalId: input.approvalId,
+        requestedProviderId: approval.providerId,
+        decisionProviderId: input.providerId
+      });
+    }
 
     const eventType = approvalEventType(input.decision);
     const decisionEvent = await this.events.append(

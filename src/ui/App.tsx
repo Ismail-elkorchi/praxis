@@ -602,8 +602,16 @@ function ApprovalPanel({
                 <dd>{approval.providerLabel}</dd>
               </div>
               <div>
+                <dt>Session</dt>
+                <dd>{approval.sessionId}</dd>
+              </div>
+              <div>
                 <dt>Kind</dt>
                 <dd>{approval.kind.replace("_", " ")}</dd>
+              </div>
+              <div>
+                <dt>Evidence</dt>
+                <dd>{approval.evidence.length} reference(s)</dd>
               </div>
             </dl>
           </div>
@@ -1771,6 +1779,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
     : [
         {
           approvalId: "approval-alpha" as ApprovalCardViewModel["approvalId"],
+          sessionId: "session-alpha" as ApprovalCardViewModel["sessionId"],
           projectTitle: "Control Plane",
           providerLabel: "Fake provider",
           kind: "command",

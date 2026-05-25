@@ -108,6 +108,7 @@ export type ProjectCardViewModel = {
 
 export type ApprovalCardViewModel = {
   approvalId: ApprovalRequestId;
+  sessionId: AgentSessionId;
   projectTitle: string;
   providerLabel: string;
   kind: ApprovalKind;
