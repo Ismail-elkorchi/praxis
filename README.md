@@ -4,7 +4,7 @@ Praxis is a local-first control plane for coordinating agent work across durable
 
 The core app runs with the built-in fake provider, so development and tests do not require any real provider account, binary, API key, or network service.
 
-The local runtime auto-registers the optional Codex app-server adapter when it starts. The adapter lives under `src/providers/codex-app-server/`, uses stdio JSONL, reports availability through `codex --version`, and keeps external thread and turn identifiers inside provider references, adapter-local state, redacted diagnostics, or raw provider events. Codex is not the default provider; if the binary is missing, Praxis still starts and reports the provider as unavailable. Set `CODEX_BIN` or save a provider command override in Settings to use a non-default binary path on the next runtime startup.
+The local runtime discovers bundled optional provider adapters at startup without importing provider-specific code from runtime modules. The optional Codex app-server adapter lives under `src/providers/codex-app-server/`, uses stdio JSONL, reports availability through `codex --version`, and keeps external thread and turn identifiers inside provider references, adapter-local state, redacted diagnostics, or raw provider events. Codex is not the default provider; if the binary is missing, Praxis still starts and reports the provider as unavailable. Set `CODEX_BIN` or save a provider command override in Settings to use a non-default binary path on the next runtime startup.
 
 ## Status
 

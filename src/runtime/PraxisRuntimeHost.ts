@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { AddressInfo } from "node:net";
 import path from "node:path";
-import { providerId, type AgentSession, type AgentTurn } from "../core";
+import type { AgentSession, AgentTurn } from "../core";
 import { createDomainEvent } from "../events/eventFactory";
-import { CodexAppServerProviderAdapter } from "../providers/codex-app-server";
-import type { FakeProviderScenarioName } from "../providers/fake/FakeProviderScenarios";
 import type { ProviderAdapter } from "../providers/interface";
+import { discoverBundledProviderAdapters } from "../providers/discovery";
 import { createPraxisApp, type PraxisApp } from "../composition/createPraxisApp";
 import { SqliteEventStore } from "../events/SqliteEventStore";
 import { defaultAppSettings, SettingsService } from "../settings/SettingsService";
@@ -37,10 +36,8 @@ export type RuntimeDeploymentMode = "local_desktop" | "local_browser";
 export type StartPraxisRuntimeOptions = {
   databasePath?: string;
   providerAdapters?: ProviderAdapter[];
-  autoRegisterCodexAppServer?: boolean;
-  codexCommand?: string;
-  codexArgs?: string[];
-  fakeScenario?: FakeProviderScenarioName;
+  autoDiscoverProviderAdapters?: boolean;
+  fakeScenario?: NonNullable<Parameters<typeof createPraxisApp>[0]>["fakeScenario"];
   host?: string;
   port?: number;
   staticRoot?: string;
@@ -83,7 +80,7 @@ export async function startPraxisRuntime(options: StartPraxisRuntimeOptions = {}
   const app = await createPraxisApp({
     eventStore,
     fakeScenario: options.fakeScenario,
-    providerAdapters: runtimeProviderAdapters(options, eventStore)
+    providerAdapters: await runtimeProviderAdapters(options, eventStore)
   });
   startupSteps.push(
     "load_settings",
@@ -137,17 +134,14 @@ export async function startPraxisRuntime(options: StartPraxisRuntimeOptions = {}
   };
 }
 
-function runtimeProviderAdapters(options: StartPraxisRuntimeOptions, eventStore: SqliteEventStore): ProviderAdapter[] {
+async function runtimeProviderAdapters(options: StartPraxisRuntimeOptions, eventStore: SqliteEventStore): Promise<ProviderAdapter[]> {
   const adapters: ProviderAdapter[] = [];
   const settings = new SettingsService(eventStore).get();
-  if (options.autoRegisterCodexAppServer !== false) {
-    const codexProviderId = providerId("codex-app-server");
+  if (options.autoDiscoverProviderAdapters !== false) {
     adapters.push(
-      new CodexAppServerProviderAdapter({
-        id: codexProviderId,
-        command: options.codexCommand ?? settings.providerCommandOverrides[codexProviderId] ?? process.env.CODEX_BIN ?? "codex",
-        args: options.codexArgs ?? ["app-server", "--stdio"]
-      })
+      ...(await discoverBundledProviderAdapters({
+        commandOverrides: settings.providerCommandOverrides
+      }))
     );
   }
   adapters.push(...(options.providerAdapters ?? []));

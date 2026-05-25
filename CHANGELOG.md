@@ -74,7 +74,7 @@
 - Added Home and Project Workspace projections covering work inbox, active projects, waiting decisions, running agents, blocked work, ready review, recent artifacts, work-item panels, agent boards, sources, artifacts, decisions, checks, and project-scoped timelines.
 - Fixed approval decision routing so UI decisions use the approval's provider id and added multi-provider coverage.
 - Added fake-provider-only broad-use coverage for code, writing, research, planning, and general projects with source-linked artifacts.
-- Auto-registered the optional Codex app-server adapter during local runtime startup while keeping fake-provider-only app construction and explicit opt-out support.
+- Added provider-neutral bundled adapter discovery during local runtime startup, with the optional Codex app-server adapter self-registering from its provider folder while fake-provider-only app construction and explicit opt-out remain supported.
 - Hardened project workspace action wiring so Home and Projects share the same dispatcher, workspace header actions stay contextual, query actions show results, provider setup empty states are actionable, and agent details expand without dead API dialogs.
 - Wired workspace source removal, work-item lifecycle, artifact review decisions, agent-run stop/cancel, and provider session import through explicit action dialogs with project/provider context, and gated start/default-provider controls on provider availability.
 - Added provider-neutral command overrides in Settings so optional provider binaries can be configured from the provider setup panel and applied on the next runtime startup.

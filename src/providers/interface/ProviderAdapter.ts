@@ -110,6 +110,15 @@ export type WatchProviderEventsInput = {
 
 export type ProviderRuntimeEvent = DomainEvent;
 
+export type ProviderDiscoveryContext = {
+  commandOverrides: Record<string, string>;
+  env: NodeJS.ProcessEnv;
+};
+
+export type ProviderAdapterFactory = (
+  context: ProviderDiscoveryContext
+) => ProviderAdapter | undefined | Promise<ProviderAdapter | undefined>;
+
 export interface ProviderAdapter {
   id: ProviderId;
   kind: string;

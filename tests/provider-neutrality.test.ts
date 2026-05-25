@@ -3,7 +3,20 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
-const coreFolders = ["src/core", "src/app", "src/dashboard", "src/events", "src/policies", "src/projects", "src/ui"];
+const coreFolders = [
+  "src/core",
+  "src/app",
+  "src/dashboard",
+  "src/events",
+  "src/policies",
+  "src/projects",
+  "src/checks",
+  "src/git",
+  "src/runtime",
+  "src/server",
+  "src/ui",
+  "src/plugins"
+];
 const providerSpecificTerms = ["openai", "anthropic", "gemini", "claude", "codex"];
 
 async function listFiles(dir: string): Promise<string[]> {
@@ -36,7 +49,7 @@ describe("provider-neutral public core", () => {
       const source = await readFile(file, "utf8");
       const importLines = source.split("\n").filter((line) => /^\s*import\s/.test(line));
       for (const line of importLines) {
-        if (/providers\/(?!interface)/.test(line)) {
+        if (/providers\/(?!interface|discovery)/.test(line)) {
           violations.push(`${path.relative(root, file)}: ${line.trim()}`);
         }
       }

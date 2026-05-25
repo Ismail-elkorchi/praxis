@@ -107,9 +107,9 @@ describe("release hardening", () => {
     await second.shutdown();
   });
 
-  it("can opt out of automatic Codex app-server registration", async () => {
+  it("can opt out of automatic optional provider discovery", async () => {
     const databasePath = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-runtime-no-codex-")), "praxis.sqlite");
-    const runtime = await startPraxisRuntime({ databasePath, listen: false, autoRegisterCodexAppServer: false });
+    const runtime = await startPraxisRuntime({ databasePath, listen: false, autoDiscoverProviderAdapters: false });
 
     expect(runtime.app.providerRegistry.listRealProviders()).toEqual([]);
     expect(runtime.app.snapshot().dashboard.providerStatus.map((provider) => provider.name)).toEqual(["Fake provider"]);
@@ -122,7 +122,7 @@ describe("release hardening", () => {
     await writeFile(providerCommand, "#!/usr/bin/env sh\nif [ \"$1\" = \"--version\" ]; then echo \"1.2.3\"; else exit 0; fi\n", "utf8");
     await chmod(providerCommand, 0o755);
     const databasePath = path.join(runtimeDir, "praxis.sqlite");
-    const first = await startPraxisRuntime({ databasePath, listen: false, autoRegisterCodexAppServer: false });
+    const first = await startPraxisRuntime({ databasePath, listen: false, autoDiscoverProviderAdapters: false });
     first.app.settings.update({
       providerCommandOverrides: { "codex-app-server": providerCommand }
     });
