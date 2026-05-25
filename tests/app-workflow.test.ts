@@ -1,7 +1,15 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { agentTurnId, approvalRequestId, providerId, type ApprovalRequest, type DomainEvent, type ProviderCapabilities } from "../src/core";
+import {
+  agentTurnId,
+  approvalRequestId,
+  providerId,
+  type AgentSessionId,
+  type ApprovalRequest,
+  type DomainEvent,
+  type ProviderCapabilities
+} from "../src/core";
 import { createPraxisApp } from "../src/composition/createPraxisApp";
 import { createDomainEvent } from "../src/events/eventFactory";
 import { fakeProviderCapabilities } from "../src/providers/fake/FakeProviderAdapter";
@@ -295,6 +303,33 @@ describe("provider-neutral application workflow", () => {
     });
   });
 
+  it("imports provider sessions only when the selected provider supports import", async () => {
+    const provider = sessionImportProvider();
+    const app = await createPraxisApp({ providerAdapters: [provider] });
+    const rootPath = await createTempProject({ packageJson: false });
+    const project = await app.projects.registerProject({ rootPath, defaultProviderId: provider.id });
+
+    expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)?.secondaryActions).toContainEqual(
+      expect.objectContaining({ id: "import-sessions", method: "agents.importSessions" })
+    );
+    await expect(app.providers.importSessions({ providerId: providerId("fake"), projectId: project.id })).rejects.toMatchObject({
+      code: "capability_unavailable"
+    });
+
+    const result = await app.providers.importSessions({ providerId: provider.id, projectId: project.id });
+    expect(result.importedSessionIds).toHaveLength(1);
+    expect(result.importedSessionIds[0]).not.toBe("provider-session-1");
+    const importedSession = app.snapshot().projects[project.id]?.sessions[result.importedSessionIds[0]!];
+    expect(importedSession).toMatchObject({
+      providerId: provider.id,
+      providerSessionRef: {
+        providerId: provider.id,
+        externalId: "provider-session-1"
+      }
+    });
+    expect((await app.events.queryEvents({ type: "agent.session.started" })).some((event) => event.source === "system")).toBe(true);
+  });
+
   it("marks stale sessions on provider disconnect", async () => {
     const app = await createPraxisApp({ fakeScenario: "stale_path" });
     const rootPath = await createTempProject();
@@ -552,6 +587,91 @@ function noStartProvider(): ProviderAdapter {
     },
     async respondToApproval() {
       return undefined;
+    },
+    async *watchEvents() {
+      return undefined;
+    }
+  };
+}
+
+function sessionImportProvider(): ProviderAdapter {
+  const id = providerId("session-import-provider");
+  const capabilities: ProviderCapabilities = {
+    ...fakeProviderCapabilities,
+    canImportExistingSessions: true
+  };
+
+  return {
+    id,
+    kind: "contract-test",
+    displayName: "Session import provider",
+    adapterVersion: "0.1.0",
+    async getCapabilities() {
+      return capabilities;
+    },
+    async checkAvailability() {
+      return { status: "available", version: "0.1.0" };
+    },
+    async startSession(input) {
+      const sessionId = input.sessionId!;
+      return {
+        sessionId,
+        events: [
+          createDomainEvent({
+            type: "agent.session.started",
+            projectId: input.projectId,
+            sessionId,
+            providerId: id,
+            source: "provider",
+            payload: { cwd: input.cwd },
+            evidence: [{ type: "provider", providerId: id }]
+          })
+        ]
+      };
+    },
+    async stopSession() {
+      return undefined;
+    },
+    async sendTurn(input) {
+      const turnId = input.turnId ?? agentTurnId();
+      return {
+        turnId,
+        events: [
+          createDomainEvent({
+            type: "agent.turn.completed",
+            projectId: input.projectId,
+            sessionId: input.sessionId,
+            turnId,
+            providerId: id,
+            source: "provider",
+            payload: { result: "Imported-provider turn complete." },
+            evidence: [{ type: "provider", providerId: id }]
+          })
+        ]
+      };
+    },
+    async respondToApproval() {
+      return undefined;
+    },
+    async *importSessions(input) {
+      const now = new Date().toISOString();
+      yield {
+        providerSessionRef: { providerId: id, externalId: "provider-session-1" },
+        snapshot: input.projectId
+          ? {
+              session: {
+                id: "provider-session-1" as AgentSessionId,
+                projectId: input.projectId,
+                providerId: id,
+                cwd: "/provider-owned/session",
+                state: "idle",
+                createdAt: now,
+                updatedAt: now
+              },
+              events: []
+            }
+          : undefined
+      };
     },
     async *watchEvents() {
       return undefined;

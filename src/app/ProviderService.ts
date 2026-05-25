@@ -400,6 +400,42 @@ export class ProviderService {
     return { sessions };
   }
 
+  async importSessions(input: { providerId: ProviderId; projectId?: ProjectId }): Promise<{ importedSessionIds: AgentSessionId[] }> {
+    const adapter = this.requireAdapter(input.providerId);
+    const capabilities = await adapter.getCapabilities();
+    if (!capabilities.canImportExistingSessions || !adapter.importSessions) {
+      throw capabilityError("Provider does not support session import.", { providerId: input.providerId });
+    }
+
+    const events: DomainEvent[] = [];
+    const importedSessionIds: AgentSessionId[] = [];
+    for await (const imported of adapter.importSessions({ projectId: input.projectId })) {
+      const projectId = imported.snapshot?.session.projectId ?? input.projectId;
+      if (!projectId) continue;
+      const sessionId = agentSessionId();
+      importedSessionIds.push(sessionId);
+      events.push(
+        createDomainEvent({
+          type: "agent.session.started",
+          projectId,
+          sessionId,
+          providerId: input.providerId,
+          source: "system",
+          payload: {
+            cwd: imported.snapshot?.session.cwd,
+            goal: imported.snapshot?.session.goal,
+            providerSessionRef: imported.providerSessionRef,
+            imported: true
+          },
+          evidence: [{ type: "provider", providerId: input.providerId, externalId: imported.providerSessionRef.externalId }]
+        })
+      );
+    }
+
+    await this.events.appendMany(events);
+    return { importedSessionIds };
+  }
+
   createApprovalRequest(input: {
     projectId: ProjectId;
     sessionId: AgentSessionId;

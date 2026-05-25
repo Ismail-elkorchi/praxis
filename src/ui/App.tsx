@@ -131,6 +131,19 @@ export function App() {
       requestDetailFocus("project");
       return;
     }
+    if (action.id === "import-sessions") {
+      const provider = dashboard.providerStatus.find((item) => item.name === project.providerLabel) ?? dashboard.providerStatus[0];
+      if (apiStatus === "live" && provider) {
+        void callApi<unknown>("agents.importSessions", { providerId: provider.providerId, projectId: project.projectId })
+          .then(() => callApi<DashboardProjection>("dashboard.getSnapshot"))
+          .then((snapshot) => {
+            if (snapshot) setLiveDashboard(snapshot);
+          })
+          .catch(() => undefined);
+      }
+      requestDetailFocus("project");
+      return;
+    }
     if (action.id === "open-evidence") {
       requestDetailFocus("evidence");
       return;

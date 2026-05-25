@@ -535,7 +535,7 @@ function projectCard(project: ProjectSnapshot, snapshot: AppSnapshot): ProjectCa
     lastActivityAt: project.lastActivityAt,
     badges: badges(project),
     primaryAction: primaryAction(project, provider?.capabilities),
-    secondaryActions: secondaryActions(project, evidence),
+    secondaryActions: secondaryActions(project, evidence, provider?.capabilities),
     diffFiles: diffFiles(project),
     evidence
   };
@@ -864,9 +864,12 @@ function primaryAction(project: ProjectSnapshot, capabilities: ProviderCapabilit
   return { id: "start-task", label: "Start task", method: "agents.startSession" };
 }
 
-function secondaryActions(project: ProjectSnapshot, evidence: EvidenceRef[]): DashboardAction[] {
+function secondaryActions(project: ProjectSnapshot, evidence: EvidenceRef[], capabilities: ProviderCapabilities | undefined): DashboardAction[] {
   return [
     ...(project.runtimeState === "stale" ? [{ id: "stop-session", label: "Stop session", method: "agents.stopSession" }] : []),
+    ...(capabilities?.canImportExistingSessions
+      ? [{ id: "import-sessions", label: "Import sessions", method: "agents.importSessions" }]
+      : []),
     { id: "run-checks", label: "Run checks", method: "checks.run" },
     ...(evidence.length > 0 ? [{ id: "open-evidence", label: "Open evidence", method: "dashboard.explainMode" }] : []),
     ...(project.git.isRepo ? [{ id: "open-diff", label: "Open diff review", method: "git.openDiff" }] : [])

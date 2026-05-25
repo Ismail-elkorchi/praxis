@@ -51,6 +51,7 @@ export const apiMethods = [
   "agents.respondToUserInput",
   "agents.readSession",
   "agents.listSessions",
+  "agents.importSessions",
   "dashboard.getSnapshot",
   "dashboard.subscribe",
   "dashboard.explainMode",
@@ -165,6 +166,8 @@ export class PraxisApi {
         return this.app.providers.listSessions(
           params as { providerId?: ProviderId; projectId?: ProjectId; cursor?: string; limit?: number }
         );
+      case "agents.importSessions":
+        return this.app.providers.importSessions(params as { providerId: ProviderId; projectId?: ProjectId });
       case "dashboard.getSnapshot":
       case "dashboard.subscribe":
       case "dashboard.explainMode":

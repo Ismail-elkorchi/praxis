@@ -31,6 +31,7 @@ const requiredApiMethods = [
   "agents.respondToUserInput",
   "agents.readSession",
   "agents.listSessions",
+  "agents.importSessions",
   "dashboard.getSnapshot",
   "dashboard.subscribe",
   "dashboard.explainMode",
@@ -324,6 +325,10 @@ describe("provider-neutral API surface", () => {
     await expect(
       api.handle({ id: "read", method: "agents.readSession", params: { providerId: providerId("fake"), sessionId } })
     ).resolves.toMatchObject({ id: "read", result: expect.objectContaining({ session: expect.objectContaining({ id: sessionId }) }) });
+
+    await expect(
+      api.handle({ id: "import", method: "agents.importSessions", params: { providerId: providerId("fake"), projectId: project.id } })
+    ).resolves.toMatchObject({ id: "import", error: { code: "capability_unavailable" } });
   });
 
   it("responds to pending user input through the API when the provider supports it", async () => {
