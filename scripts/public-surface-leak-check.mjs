@@ -15,7 +15,7 @@ const denied = [
   join("raw spec", " pack"),
   join("/", "goal")
 ];
-const ignoredDirs = new Set([".git", "node_modules", "dist", "coverage", "playwright-report", "test-results"]);
+const ignoredDirs = new Set([".git", ".praxis", "node_modules", "dist", "coverage", "playwright-report", "test-results"]);
 
 async function listFiles(dir) {
   const entries = await readdir(dir, { withFileTypes: true });

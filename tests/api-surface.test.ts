@@ -272,11 +272,30 @@ describe("provider-neutral API surface", () => {
   it("waives failed required checks through event-producing API calls", async () => {
     const app = await createPraxisApp();
     const api = new PraxisApi(app);
-    const rootPath = await createTempProject({ git: true, failingTest: true });
+    const rootPath = await createTempProject({ failingTest: true });
     const project = await app.projects.registerProject({ rootPath });
 
-    await writeFile(path.join(rootPath, "reviewable.ts"), "export const value = 1;\n");
-    await app.projects.refreshProject(project.id);
+    await app.events.append(
+      createDomainEvent({
+        type: "git.statusChanged",
+        projectId: project.id,
+        source: "git",
+        payload: {
+          isRepo: true,
+          branch: "main",
+          headSha: "test-head",
+          baseBranch: "main",
+          dirty: true,
+          ahead: 0,
+          behind: 0,
+          stagedFiles: [],
+          unstagedFiles: [],
+          untrackedFiles: ["reviewable.ts"],
+          conflictedFiles: []
+        },
+        evidence: [{ type: "git", repoPath: rootPath, sha: "test-head" }]
+      })
+    );
     const testCheck = app.checks.listDefinitions(project.id).find((check) => check.name === "test");
     const typecheck = app.checks.listDefinitions(project.id).find((check) => check.name === "typecheck");
     expect(testCheck).toBeDefined();
