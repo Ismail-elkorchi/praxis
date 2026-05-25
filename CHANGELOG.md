@@ -66,3 +66,4 @@
 - Standardized local server malformed-request and route errors as machine-coded API errors.
 - Added provider-neutral client lifecycle events for the optional generic process adapter with diagnostics coverage.
 - Added app workflow coverage proving conflicted git files block project review state.
+- Added an optional Codex app-server provider adapter with stdio JSONL transport, availability and schema diagnostics, session and turn mapping, approval and user-input forwarding, redacted raw-event audit handling, fail-closed permission behavior, and fixture-backed tests that do not require Codex to be installed.
