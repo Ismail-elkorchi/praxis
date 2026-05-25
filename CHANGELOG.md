@@ -55,3 +55,4 @@
 - Added a confirmed git discard flow that reverts tracked changes, removes selected untracked files, refreshes git state, and records an audit event.
 - Added event-backed dashboard project focus so single-project focus and multi-turn active-work modes follow the specified priority order.
 - Tightened generic provider event normalization so unknown provider event types are stored as raw audit events and surfaced in diagnostics as normalization failures.
+- Hardened project registry API failures with machine-readable error codes for invalid paths and missing projects.

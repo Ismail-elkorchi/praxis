@@ -30,9 +30,12 @@ export class ProjectRegistryService {
   ) {}
 
   async registerProject(input: { rootPath: string; name?: string; defaultProviderId?: ProviderId }): Promise<Project> {
-    const stats = await stat(input.rootPath);
+    const stats = await stat(input.rootPath).catch(() => undefined);
+    if (!stats) {
+      throw new PraxisError("invalid_project_path", "Project path must be an existing directory.", { rootPath: input.rootPath });
+    }
     if (!stats.isDirectory()) {
-      throw new Error("Project path must be a directory.");
+      throw new PraxisError("invalid_project_path", "Project path must be a directory.", { rootPath: input.rootPath });
     }
 
     const canonicalPath = await realpath(input.rootPath);
@@ -100,7 +103,7 @@ export class ProjectRegistryService {
   ): Promise<Project> {
     const existing = this.getProject(projectId);
     if (!existing) {
-      throw new Error("Project was not found.");
+      throw new PraxisError("not_found", "Project was not found.", { projectId });
     }
 
     const settings = normalizeProjectSettings({ ...existing.settings, ...patch.settings });
@@ -211,7 +214,7 @@ export class ProjectRegistryService {
   async refreshProject(projectId: ProjectId): Promise<void> {
     const project = this.getProject(projectId);
     if (!project) {
-      throw new Error("Project was not found.");
+      throw new PraxisError("not_found", "Project was not found.", { projectId });
     }
     const gitSnapshot = await this.git.getStatus(project.canonicalPath);
     const discovery = await discoverProject(project.canonicalPath, projectId);

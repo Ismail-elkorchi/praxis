@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { apiMethods, PraxisApi } from "../src/app/PraxisApi";
-import { providerId } from "../src/core";
+import { projectId, providerId } from "../src/core";
 import { createPraxisApp } from "../src/composition/createPraxisApp";
 import { createDomainEvent } from "../src/events/eventFactory";
 import { SqliteEventStore } from "../src/events/SqliteEventStore";
@@ -111,6 +111,39 @@ describe("provider-neutral API surface", () => {
 
     const eventTypes = (await app.events.queryEvents()).map((event) => event.type);
     expect(eventTypes).toEqual(expect.arrayContaining(["project.updated", "project.archived", "git.statusChanged"]));
+  });
+
+  it("returns machine-code API errors for invalid project registry operations", async () => {
+    const app = await createPraxisApp();
+    const api = new PraxisApi(app);
+
+    await expect(
+      api.handle({
+        id: "invalid-path",
+        method: "projects.register",
+        params: { rootPath: path.join(os.tmpdir(), `praxis-missing-${randomUUID()}`) }
+      })
+    ).resolves.toMatchObject({
+      id: "invalid-path",
+      error: {
+        code: "invalid_project_path",
+        message: "Project path must be an existing directory."
+      }
+    });
+
+    await expect(
+      api.handle({
+        id: "missing-project",
+        method: "projects.update",
+        params: { projectId: projectId(), patch: { name: "Missing" } }
+      })
+    ).resolves.toMatchObject({
+      id: "missing-project",
+      error: {
+        code: "not_found",
+        message: "Project was not found."
+      }
+    });
   });
 
   it("reads and updates app settings through event-producing API calls", async () => {
