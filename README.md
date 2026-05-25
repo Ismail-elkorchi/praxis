@@ -1,6 +1,6 @@
 # Praxis
 
-Praxis is a local-first control plane for coordinating agent work inside durable project workspaces. It treats projects, sources, work items, agent runs, artifacts, events, approvals, checks, diffs, and review readiness as durable product state while keeping runtime providers replaceable behind adapters.
+Praxis is a local-first control plane for coordinating agent work across durable project workspaces. It treats projects, profile facets, sources, work items, agent runs, artifacts, events, approvals, checks, diffs, and review readiness as durable product state while keeping runtime providers replaceable behind adapters.
 
 The core app runs with the built-in fake provider, so development and tests do not require any real provider account, binary, API key, or network service.
 
@@ -8,7 +8,7 @@ The local runtime auto-registers the optional Codex app-server adapter when it s
 
 ## Status
 
-Praxis is an early implementation. The current focus is the provider-neutral core, fake-provider workflow, replayable event state, approval safety, project workspaces, project checks, and a dashboard built from evidence-backed projections.
+Praxis is an early implementation. The current focus is the provider-neutral core, fake-provider workflow, replayable event state, approval safety, project workspaces for broad work modes, project checks where applicable, and a dashboard built from evidence-backed projections.
 
 ## Quickstart
 

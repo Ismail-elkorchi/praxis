@@ -194,6 +194,17 @@ test("global UI avoids runtime-provider names", async ({ page }) => {
   expect(body).not.toMatch(/OpenAI|Anthropic|Gemini|Claude|Codex/);
 });
 
+test("demo cockpit includes non-code project work", async ({ page }) => {
+  await page.goto("/");
+
+  const researchBrief = page.getByRole("article").filter({ hasText: "Research Brief" });
+  await expect(researchBrief).toContainText("research");
+  await expect(researchBrief).toContainText("analyze");
+  await expect(researchBrief).toContainText("Synthesize source notes");
+  await expect(researchBrief).toContainText("Source-linked notes");
+  await expect(researchBrief.getByRole("button", { name: "Open workspace" })).toHaveAttribute("data-method", "projects.getWorkspace");
+});
+
 test("activity timeline filters by project, provider, session, and event type", async ({ page }) => {
   await page.route("**/api", async (route) => {
     const request = route.request().postDataJSON() as { id: string; method: string };
@@ -423,6 +434,7 @@ test("project workspace action dialogs use workspace choices", async ({ page }) 
   await expect(assignDialog.getByRole("combobox", { name: "Work item", exact: true })).toContainText("Implement provider-neutral control");
   await expect(assignDialog.getByRole("combobox", { name: "Provider", exact: true })).toContainText("Fake provider");
   await expect(assignDialog).toContainText("Agent runs are always linked to a visible work item.");
+  await expect(assignDialog).not.toContainText(/thread/i);
 
   await assignDialog.getByRole("button", { name: "Cancel" }).click();
   await page.getByRole("button", { name: "Run checks" }).click();

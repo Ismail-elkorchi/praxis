@@ -2382,7 +2382,7 @@ function ActionRequestDialog({
                 label: "Agent run",
                 field: "agentRunId",
                 options: agentRunOptions,
-                hint: "Session and thread details stay hidden behind the agent run."
+                hint: "Runtime session details stay hidden behind the agent run."
               })}
               <label>
                 {action.method === "agentRuns.start" ? "First instruction" : "Instruction"}
@@ -3649,6 +3649,10 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
     { type: "event", eventId: "event-check" as EventId },
     { type: "check", runId: "check-run-beta" as CheckRunId, status: "failed" }
   ];
+  const gammaEvidence: EvidenceRef[] = [
+    { type: "event", eventId: "event-research" as EventId },
+    { type: "user", commandId: "artifact:source-notes" }
+  ];
   const approvals: ApprovalCardViewModel[] = resolvedApprovalIds.includes("approval-alpha")
     ? []
     : [
@@ -3777,6 +3781,36 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
         }
       ],
       evidence: betaEvidence
+    },
+    {
+      projectId: "project-gamma" as ProjectCardViewModel["projectId"],
+      title: "Research Brief",
+      subtitle: "Shared workspace",
+      profileFacets: ["Research workspace", "research", "analyze", "write", "url", "structured note"],
+      runtimeState: "agent_ready",
+      urgency: 1,
+      stateLabel: "Agent ready",
+      stateReason: "Source notes are ready for the next research pass.",
+      providerLabel: "Fake provider",
+      changedFileCount: 0,
+      pendingApprovalCount: 0,
+      failedCheckCount: 0,
+      activeTurnCount: 0,
+      currentWorkItemTitle: "Synthesize source notes",
+      activeAgentCount: 0,
+      waitingAgentCount: 0,
+      blockedAgentCount: 0,
+      latestArtifactTitle: "Source-linked notes",
+      reviewCheckStatus: "No checks required",
+      lastActivityAt: now,
+      badges: [{ label: "Ready", tone: "active" }],
+      primaryAction: { id: "open-workspace", label: "Open workspace", method: "projects.getWorkspace" },
+      secondaryActions: [
+        { id: "open-evidence", label: "Open evidence", method: "dashboard.explainMode" },
+        { id: "create-artifact", label: "Create artifact", method: "artifacts.create" }
+      ],
+      diffFiles: [],
+      evidence: gammaEvidence
     }
   ];
   const recentArtifacts = [
