@@ -123,6 +123,7 @@ export async function startPraxisRuntime(options: StartPraxisRuntimeOptions = {}
     url,
     shutdown: async () => {
       shutdownSteps.push("stop_check_runs", "preserve_agent_sessions", "flush_event_store", "close_provider_clients");
+      await Promise.all(app.providerRegistry.listAdapters().map((adapter) => Promise.resolve(adapter.shutdown?.())));
       if (serverBundle) {
         serverBundle.sockets.close();
         await new Promise<void>((resolve) => serverBundle.server.close(() => resolve()));

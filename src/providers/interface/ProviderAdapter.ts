@@ -130,4 +130,5 @@ export interface ProviderAdapter {
   listSessions?(input: ListSessionsInput): Promise<AgentSessionListPage>;
   importSessions?(input: ImportSessionsInput): AsyncIterable<ImportedProviderSession>;
   watchEvents(input: WatchProviderEventsInput): AsyncIterable<ProviderRuntimeEvent>;
+  shutdown?(): Promise<void> | void;
 }

@@ -350,6 +350,12 @@ export class CodexAppServerProviderAdapter implements ProviderAdapter {
     }
   }
 
+  shutdown(): void {
+    this.client?.stop();
+    this.client = undefined;
+    this.initialized = false;
+  }
+
   capabilityMatrix() {
     return codexFeatureMatrix.map((entry) => ({ ...entry }));
   }
