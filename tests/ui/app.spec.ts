@@ -20,6 +20,18 @@ test("dashboard shell uses provider-neutral language and keyboard focus", async 
   await expect(page.locator(":focus")).toBeVisible();
 });
 
+test("home work inbox routes decision actions", async ({ page }) => {
+  await page.goto("/");
+
+  const workInbox = page.getByRole("region", { name: "Work inbox" });
+  const openDecisionCenter = workInbox.getByRole("button", { name: "Open decision center" });
+  await expect(openDecisionCenter).toHaveAttribute("data-method", "agents.respondToApproval");
+  await openDecisionCenter.click();
+
+  await expect(page.getByRole("button", { name: "Decisions" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("region", { name: "Approval center" })).toBeVisible();
+});
+
 test("dashboard modes expose primary user questions", async ({ page }) => {
   const questions: Array<[DashboardProjection["mode"], string]> = [
     ["portfolio", "What is the overall state of my projects?"],

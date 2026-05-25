@@ -383,6 +383,26 @@ function HomeView({
     onSelectProject(project.projectId);
   }
 
+  function handleHomeItemAction(item: DashboardProjection["home"]["workInbox"][number]) {
+    if (item.action.method === "agents.respondToApproval") {
+      onRoute("Decisions");
+      return;
+    }
+    if (item.action.method === "projects.getWorkspace" && item.projectId) {
+      onSelectProject(item.projectId);
+      return;
+    }
+    if (item.action.method === "checks.run") {
+      onAction({ method: item.action.method, label: item.action.label, projectId: item.projectId });
+      return;
+    }
+    if (item.projectId) {
+      onSelectProject(item.projectId);
+      return;
+    }
+    onAction({ method: item.action.method, label: item.action.label });
+  }
+
   return (
     <div className="workspaceCockpit" aria-label="Home">
       <section className="cockpitBand" aria-label="Work inbox">
@@ -399,7 +419,7 @@ function HomeView({
               <article key={item.id} className="workspaceMiniCard">
                 <h3>{item.title}</h3>
                 <p>{item.summary}</p>
-                <button type="button" data-method={item.action.method} onClick={() => item.projectId && onSelectProject(item.projectId)}>
+                <button type="button" data-method={item.action.method} onClick={() => handleHomeItemAction(item)}>
                   {item.action.label}
                 </button>
               </article>
