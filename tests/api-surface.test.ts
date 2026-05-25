@@ -40,6 +40,7 @@ const requiredApiMethods = [
   "checks.list",
   "checks.run",
   "checks.cancel",
+  "checks.waive",
   "git.getStatus",
   "git.openDiff",
   "git.createWorktree",
@@ -189,6 +190,41 @@ describe("provider-neutral API surface", () => {
     const second = await createPraxisApp({ eventStore: secondStore });
     expect(second.snapshot().projects[project.id]?.runtimeState).toBe("ready_to_merge");
     second.eventStore.close?.();
+  });
+
+  it("waives failed required checks through event-producing API calls", async () => {
+    const app = await createPraxisApp();
+    const api = new PraxisApi(app);
+    const rootPath = await createTempProject({ git: true, failingTest: true });
+    const project = await app.projects.registerProject({ rootPath });
+
+    await writeFile(path.join(rootPath, "reviewable.ts"), "export const value = 1;\n");
+    await app.projects.refreshProject(project.id);
+    const testCheck = app.checks.listDefinitions(project.id).find((check) => check.name === "test");
+    const typecheck = app.checks.listDefinitions(project.id).find((check) => check.name === "typecheck");
+    expect(testCheck).toBeDefined();
+    expect(typecheck).toBeDefined();
+    await app.checks.runCheck(typecheck!);
+    await app.checks.runCheck(testCheck!);
+    expect(app.snapshot().projects[project.id]?.runtimeState).toBe("checks_failed");
+
+    await expect(
+      api.handle({
+        id: "waive-check",
+        method: "checks.waive",
+        params: { projectId: project.id, checkId: testCheck!.id, reason: "Accepted with known failing fixture." }
+      })
+    ).resolves.toMatchObject({
+      id: "waive-check",
+      result: {
+        checkId: testCheck!.id,
+        status: "waived",
+        outputSummary: "Accepted with known failing fixture."
+      }
+    });
+
+    expect(app.snapshot().projects[project.id]?.runtimeState).toBe("ready_for_review");
+    expect((await app.events.queryEvents()).map((event) => event.type)).toContain("check.waived");
   });
 
   it("returns redacted diagnostics through a provider-neutral API method", async () => {

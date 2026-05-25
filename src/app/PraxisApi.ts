@@ -1,6 +1,7 @@
 import type {
   AgentSessionId,
   AgentTurnId,
+  CheckDefinitionId,
   ApprovalDecision,
   ApprovalRequestId,
   CheckRunId,
@@ -59,6 +60,7 @@ export const apiMethods = [
   "checks.list",
   "checks.run",
   "checks.cancel",
+  "checks.waive",
   "git.getStatus",
   "git.openDiff",
   "git.createWorktree",
@@ -210,6 +212,14 @@ export class PraxisApi {
       case "checks.cancel": {
         const input = params as { runId: CheckRunId };
         return this.app.checks.cancelRun(input.runId);
+      }
+      case "checks.waive": {
+        const input = params as { projectId: ProjectId; checkId: CheckDefinitionId; reason?: string };
+        return this.app.checks.waiveCheck({
+          projectId: input.projectId,
+          checkId: input.checkId,
+          reason: input.reason
+        });
       }
       case "git.getStatus": {
         const input = params as { rootPath: string };

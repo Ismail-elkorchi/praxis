@@ -332,7 +332,8 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
     case "check.started":
     case "check.completed":
     case "check.failed":
-    case "check.cancelled": {
+    case "check.cancelled":
+    case "check.waived": {
       const project = touchProject(next, event);
       const checkRun = event.payload as CheckRun;
       if (project) {
@@ -387,7 +388,7 @@ function deriveProjectRuntimeState(project: ProjectSnapshot): ProjectRuntimeStat
   if (Object.values(project.sessions).some((session) => session.state === "waiting_for_user_input")) {
     return "waiting_for_user_input";
   }
-  if (project.checkRuns.some((run) => run.status === "failed" && isRequiredCheck(project, run))) {
+  if (hasFailedRequiredCheck(project)) {
     return "checks_failed";
   }
   if (Object.values(project.turns).some((turn) => turn.status === "in_progress")) {
@@ -502,7 +503,7 @@ function selectDashboardMode(projects: ProjectSnapshot[], activeTurnCount: numbe
 
 function projectCard(project: ProjectSnapshot, snapshot: AppSnapshot): ProjectCardViewModel {
   const pendingApprovalCount = project.approvals.filter((approval) => approval.status === "pending").length;
-  const failedCheckCount = project.checkRuns.filter((run) => run.status === "failed" && isRequiredCheck(project, run)).length;
+  const failedCheckCount = failedRequiredCheckCount(project);
   const activeTurnCount = Object.values(project.turns).filter((turn) => turn.status === "in_progress").length;
   const changedFileCount = new Set([
     ...project.fileChanges.map((change) => change.path),
@@ -510,7 +511,9 @@ function projectCard(project: ProjectSnapshot, snapshot: AppSnapshot): ProjectCa
     ...project.git.unstagedFiles,
     ...project.git.untrackedFiles
   ]).size;
-  const provider = Object.values(snapshot.providers)[0]?.provider;
+  const provider =
+    (project.project.settings.defaultProviderId ? snapshot.providers[project.project.settings.defaultProviderId]?.provider : undefined) ??
+    Object.values(snapshot.providers)[0]?.provider;
 
   const evidence = projectEvidence(project);
 
@@ -641,7 +644,7 @@ function globalStatus(snapshot: AppSnapshot): GlobalStatusViewModel {
     activeProjectCount: projects.filter((project) => project.runtimeState !== "idle").length,
     activeTurnCount: snapshot.activeTurns.length,
     pendingApprovalCount: snapshot.approvals.pending.length,
-    failedCheckCount: projects.flatMap((project) => project.checkRuns).filter((run) => run.status === "failed").length,
+    failedCheckCount: projects.reduce((count, project) => count + failedRequiredCheckCount(project), 0),
     staleSessionCount: projects.flatMap((project) => Object.values(project.sessions)).filter((session) => session.state === "stale_or_disconnected").length,
     unsafeStateCount: projects.filter((project) => project.runtimeState === "unsafe_mode").length,
     providerIssues: Object.values(snapshot.providers).flatMap((provider) =>
@@ -762,12 +765,22 @@ function requiredChecksPassed(project: ProjectSnapshot): boolean {
     const latest = project.checkRuns
       .filter((run) => run.checkId === definition.id)
       .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
-    return latest?.status === "passed";
+    return latest?.status === "passed" || latest?.status === "waived";
   });
 }
 
-function isRequiredCheck(project: ProjectSnapshot, run: CheckRun): boolean {
-  return project.checkDefinitions.some((definition) => definition.id === run.checkId && definition.required);
+function hasFailedRequiredCheck(project: ProjectSnapshot): boolean {
+  return failedRequiredCheckCount(project) > 0;
+}
+
+function failedRequiredCheckCount(project: ProjectSnapshot): number {
+  return project.checkDefinitions.filter((definition) => {
+    if (!definition.required) return false;
+    const latest = project.checkRuns
+      .filter((run) => run.checkId === definition.id)
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
+    return latest?.status === "failed";
+  }).length;
 }
 
 function requiresUnsafeAttention(approval: ApprovalRequest): boolean {
@@ -803,7 +816,7 @@ function badges(project: ProjectSnapshot): DashboardBadge[] {
   ) {
     result.push({ label: "Outside workspace", tone: "unsafe" });
   }
-  if (project.checkRuns.some((run) => run.status === "failed" && isRequiredCheck(project, run))) {
+  if (hasFailedRequiredCheck(project)) {
     result.push({ label: "Required check failed", tone: "failed" });
   }
   if (project.git.dirty) result.push({ label: "Changed files", tone: "review" });

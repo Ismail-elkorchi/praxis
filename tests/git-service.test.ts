@@ -59,6 +59,30 @@ describe("GitService", () => {
 
     await expect(new GitService().getDiff(rootPath)).resolves.toEqual([]);
   });
+
+  it("detects conflicted files in git status", async () => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), "praxis-git-conflict-"));
+    await git(rootPath, ["init"]);
+    await git(rootPath, ["config", "user.email", "praxis@example.test"]);
+    await git(rootPath, ["config", "user.name", "Praxis Test"]);
+    await writeFile(path.join(rootPath, "conflict.txt"), "base\n");
+    await git(rootPath, ["add", "."]);
+    await git(rootPath, ["commit", "-m", "initial"]);
+    const baseBranch = (await git(rootPath, ["branch", "--show-current"])).stdout.trim();
+
+    await git(rootPath, ["checkout", "-b", "feature-conflict"]);
+    await writeFile(path.join(rootPath, "conflict.txt"), "feature\n");
+    await git(rootPath, ["commit", "-am", "feature"]);
+    await git(rootPath, ["checkout", baseBranch]);
+    await writeFile(path.join(rootPath, "conflict.txt"), "base branch\n");
+    await git(rootPath, ["commit", "-am", "base branch"]);
+    await git(rootPath, ["merge", "feature-conflict"]).catch(() => undefined);
+
+    await expect(new GitService().getStatus(rootPath)).resolves.toMatchObject({
+      dirty: true,
+      conflictedFiles: ["conflict.txt"]
+    });
+  });
 });
 
 async function git(cwd: string, args: string[]) {

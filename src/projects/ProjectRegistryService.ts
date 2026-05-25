@@ -277,7 +277,7 @@ function requiredChecksGreen(project: AppSnapshot["projects"][ProjectId]): boole
     const latest = project.checkRuns
       .filter((run) => run.checkId === definition.id)
       .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
-    return latest?.status === "passed";
+    return latest?.status === "passed" || latest?.status === "waived";
   });
 }
 

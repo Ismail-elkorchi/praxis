@@ -81,6 +81,57 @@ describe("provider-neutral application workflow", () => {
     expect(app.snapshot().approvals.history[0]?.status).toBe("accepted");
   });
 
+  it("does not silently retry declined approvals", async () => {
+    const app = await createPraxisApp({ fakeScenario: "approval_path" });
+    const rootPath = await createTempProject({ git: true });
+    const project = await app.projects.registerProject({ rootPath });
+    const sessionId = await app.providers.startSession({
+      providerId: providerId("fake"),
+      projectId: project.id,
+      cwd: rootPath,
+      goal: "Decline approval"
+    });
+    await app.providers.sendTurn({
+      providerId: providerId("fake"),
+      projectId: project.id,
+      sessionId,
+      instruction: "Run the check"
+    });
+    const approval = app.snapshot().approvals.pending[0]!;
+
+    await app.providers.decideApproval({ providerId: providerId("fake"), approvalId: approval.id, decision: "decline" });
+
+    const events = await app.events.queryEvents();
+    const declinedIndex = events.findIndex((event) => event.type === "approval.declined");
+    const failedIndex = events.findIndex((event) => event.type === "agent.turn.failed");
+    expect(declinedIndex).toBeGreaterThan(-1);
+    expect(failedIndex).toBeGreaterThan(declinedIndex);
+    expect(events.filter((event) => event.type === "approval.requested")).toHaveLength(1);
+    expect(app.snapshot().approvals.pending).toHaveLength(0);
+    expect(app.snapshot().approvals.history[0]).toMatchObject({ id: approval.id, status: "declined" });
+    expect(app.snapshot().projects[project.id]?.commandRuns).toEqual([]);
+    await expect(app.replay()).resolves.toEqual(app.snapshot());
+  });
+
+  it("keeps a global approval queue across projects", async () => {
+    const app = await createPraxisApp({ fakeScenario: "approval_path" });
+    const firstRoot = await createTempProject({ packageJson: false });
+    const secondRoot = await createTempProject({ packageJson: false });
+    const first = await app.projects.registerProject({ rootPath: firstRoot, name: "First project" });
+    const second = await app.projects.registerProject({ rootPath: secondRoot, name: "Second project" });
+    const firstSession = await app.providers.startSession({ providerId: providerId("fake"), projectId: first.id, cwd: firstRoot });
+    const secondSession = await app.providers.startSession({ providerId: providerId("fake"), projectId: second.id, cwd: secondRoot });
+
+    await app.providers.sendTurn({ providerId: providerId("fake"), projectId: first.id, sessionId: firstSession, instruction: "Approve one" });
+    await app.providers.sendTurn({ providerId: providerId("fake"), projectId: second.id, sessionId: secondSession, instruction: "Approve two" });
+
+    expect(app.snapshot().approvals.pending).toHaveLength(2);
+    expect(app.snapshot().dashboard.approvals.map((approval) => approval.projectTitle)).toEqual(
+      expect.arrayContaining(["First project", "Second project"])
+    );
+    expect(app.snapshot().dashboard.mode).toBe("approval_center");
+  });
+
   it("hides session-scoped approval decisions when provider capabilities do not allow them", async () => {
     const limitedProvider = sessionApprovalLimitedProvider();
     const app = await createPraxisApp({ providerAdapters: [limitedProvider], fakeScenario: "happy_path" });
@@ -134,6 +185,34 @@ describe("provider-neutral application workflow", () => {
     });
   });
 
+  it("blocks git review readiness while approvals are pending", async () => {
+    const app = await createPraxisApp({ fakeScenario: "file_change_path" });
+    const rootPath = await createTempProject({ git: true, packageJson: false });
+    const project = await app.projects.registerProject({ rootPath });
+    const sessionId = await app.providers.startSession({
+      providerId: providerId("fake"),
+      projectId: project.id,
+      cwd: rootPath
+    });
+
+    await app.providers.sendTurn({
+      providerId: providerId("fake"),
+      projectId: project.id,
+      sessionId,
+      instruction: "Propose a file change"
+    });
+    await writeFile(path.join(rootPath, "pending-change.ts"), "export const pending = true;\n");
+    await app.projects.refreshProject(project.id);
+
+    expect(app.snapshot().projects[project.id]?.git.dirty).toBe(true);
+    expect(app.snapshot().projects[project.id]?.runtimeState).toBe("waiting_for_approval");
+    expect(app.snapshot().dashboard.mode).toBe("approval_center");
+    expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)?.primaryAction).toMatchObject({
+      id: "open-approvals",
+      method: "agents.respondToApproval"
+    });
+  });
+
   it("makes git-backed fake file changes reviewable when checks are not required", async () => {
     const app = await createPraxisApp({ fakeScenario: "file_change_path" });
     const rootPath = await createTempProject({ git: true, packageJson: false });
@@ -175,6 +254,45 @@ describe("provider-neutral application workflow", () => {
     await writeFile(path.join(rootPath, "another-change.ts"), "export const another = 2;\n");
     await app.projects.refreshProject(project.id);
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("ready_for_review");
+  });
+
+  it("requires confirmation before marking an out-of-date branch ready to merge", async () => {
+    const app = await createPraxisApp();
+    const rootPath = await createTempProject({ git: true, packageJson: false });
+    const project = await app.projects.registerProject({ rootPath });
+    await writeFile(path.join(rootPath, "behind-change.ts"), "export const value = 1;\n");
+    await app.projects.refreshProject(project.id);
+    const git = app.snapshot().projects[project.id]!.git;
+    await app.events.append(
+      createDomainEvent({
+        type: "git.statusChanged",
+        projectId: project.id,
+        source: "git",
+        payload: { ...git, behind: 2 },
+        evidence: [{ type: "git", repoPath: rootPath, sha: git.headSha }]
+      })
+    );
+
+    await expect(app.projects.markReadyToMerge(project.id)).rejects.toMatchObject({ code: "confirmation_required" });
+    await expect(app.projects.markReadyToMerge(project.id, { confirmOutOfDateBranch: true })).resolves.toMatchObject({
+      acceptedOutOfDateBranch: true
+    });
+    expect(app.snapshot().projects[project.id]?.runtimeState).toBe("ready_to_merge");
+  });
+
+  it("uses the selected provider capability when deriving project card actions", async () => {
+    const provider = noStartProvider();
+    const app = await createPraxisApp({ providerAdapters: [provider] });
+    const rootPath = await createTempProject({ packageJson: false });
+    const project = await app.projects.registerProject({ rootPath, defaultProviderId: provider.id });
+
+    expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)).toMatchObject({
+      providerLabel: "No-start provider",
+      primaryAction: {
+        method: "agents.startSession",
+        disabled: true
+      }
+    });
   });
 
   it("marks stale sessions on provider disconnect", async () => {
@@ -397,6 +515,42 @@ function sessionApprovalLimitedProvider(): ProviderAdapter {
       for (const event of events) {
         yield event;
       }
+    }
+  };
+}
+
+function noStartProvider(): ProviderAdapter {
+  const id = providerId("no-start-provider");
+  const capabilities: ProviderCapabilities = {
+    ...fakeProviderCapabilities,
+    canStartSession: false
+  };
+
+  return {
+    id,
+    kind: "contract-test",
+    displayName: "No-start provider",
+    adapterVersion: "0.1.0",
+    async getCapabilities() {
+      return capabilities;
+    },
+    async checkAvailability() {
+      return { status: "available", version: "0.1.0" };
+    },
+    async startSession() {
+      throw new Error("Start sessions are not supported.");
+    },
+    async stopSession() {
+      return undefined;
+    },
+    async sendTurn() {
+      throw new Error("Turns are not supported without sessions.");
+    },
+    async respondToApproval() {
+      return undefined;
+    },
+    async *watchEvents() {
+      return undefined;
     }
   };
 }

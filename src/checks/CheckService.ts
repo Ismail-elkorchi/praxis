@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { checkRunId, type CheckDefinition, type CheckRun, type CheckRunId, type ProjectId } from "../core";
+import { PraxisError } from "../app/errors";
 import type { AppSnapshot } from "../dashboard/types";
 import type { AppEventLog } from "../events/AppEventLog";
 import { createDomainEvent } from "../events/eventFactory";
@@ -109,6 +110,39 @@ export class CheckService {
       })
     );
     return cancelled;
+  }
+
+  async waiveCheck(input: { projectId: ProjectId; checkId: CheckDefinition["id"]; reason?: string }): Promise<CheckRun> {
+    const definition = this.listDefinitions(input.projectId).find((check) => check.id === input.checkId);
+    if (!definition) {
+      throw new PraxisError("not_found", "Check definition was not found.", { projectId: input.projectId, checkId: input.checkId });
+    }
+    const now = new Date().toISOString();
+    const waived: CheckRun = {
+      id: checkRunId(),
+      checkId: definition.id,
+      projectId: input.projectId,
+      status: "waived",
+      startedAt: now,
+      completedAt: now,
+      outputSummary: input.reason ?? "Waived by user.",
+      waivedReason: input.reason,
+      relatedFiles: relatedFiles(this.getSnapshot(), input.projectId)
+    };
+
+    await this.events.append(
+      createDomainEvent({
+        type: "check.waived",
+        projectId: input.projectId,
+        source: "user",
+        payload: waived,
+        evidence: [
+          { type: "check", runId: waived.id, status: waived.status },
+          { type: "user", commandId: "checks.waive" }
+        ]
+      })
+    );
+    return waived;
   }
 }
 

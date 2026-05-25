@@ -295,7 +295,7 @@ export type CheckDefinition = {
   source: "detected" | "user" | "system";
 };
 
-export type CheckRunStatus = "queued" | "running" | "passed" | "failed" | "cancelled";
+export type CheckRunStatus = "queued" | "running" | "passed" | "failed" | "cancelled" | "waived";
 
 export type CheckRun = {
   id: CheckRunId;
@@ -308,6 +308,7 @@ export type CheckRun = {
   stdoutRef?: string;
   stderrRef?: string;
   outputSummary?: string;
+  waivedReason?: string;
   relatedFiles: string[];
 };
 

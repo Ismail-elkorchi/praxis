@@ -192,6 +192,7 @@ test("check run panel shows active and recent runs with triage links", async ({ 
   await expect(recentRuns.getByText("1.2 s")).toBeVisible();
   await expect(recentRuns.getByText("src/example.ts: expected value to pass")).toBeVisible();
   await expect(recentRuns.getByRole("link", { name: "src/example.ts" })).toHaveAttribute("data-method", "git.openDiff");
+  await expect(recentRuns.getByRole("button", { name: "Waive" })).toHaveAttribute("data-method", "checks.waive");
   await expect(page.getByRole("region", { name: "Active check runs" }).getByRole("button", { name: "Cancel" })).toHaveAttribute(
     "data-method",
     "checks.cancel"

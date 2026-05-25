@@ -789,6 +789,13 @@ pre {
   margin: 0.45rem 0 0.15rem;
 }
 
+.checkActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
 .checkMeta {
   display: grid;
   grid-template-columns: 2fr minmax(0, 0.75fr) minmax(0, 0.75fr);

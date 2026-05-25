@@ -1081,16 +1081,23 @@ function CheckRunGroup({ title, runs, emptyText }: { title: string; runs: CheckR
         <article key={run.runId} className={`checkRunCard status-${run.status}`}>
           <div className="checkRunHeader">
             <div>
-              <span className={`stateBadge ${run.status === "failed" ? "failed" : run.status === "passed" ? "passed" : "active"}`}>
+              <span className={`stateBadge ${checkRunTone(run.status)}`}>
                 {run.status}
               </span>
               {run.required ? <span className="stateBadge waiting">required</span> : null}
               <h4>{run.name}</h4>
               <p>{run.projectTitle}</p>
             </div>
-            <button type="button" data-method={run.status === "running" ? "checks.cancel" : "checks.run"}>
-              {run.status === "running" ? "Cancel" : "Rerun"}
-            </button>
+            <div className="checkActions">
+              <button type="button" data-method={run.status === "running" ? "checks.cancel" : "checks.run"}>
+                {run.status === "running" ? "Cancel" : "Rerun"}
+              </button>
+              {run.status === "failed" && run.required ? (
+                <button type="button" data-method="checks.waive">
+                  Waive
+                </button>
+              ) : null}
+            </div>
           </div>
           <dl className="checkMeta">
             <div>
@@ -1125,6 +1132,12 @@ function CheckRunGroup({ title, runs, emptyText }: { title: string; runs: CheckR
       {runs.length === 0 ? <p className="emptyText">{emptyText}</p> : null}
     </section>
   );
+}
+
+function checkRunTone(status: CheckRunViewModel["status"]): string {
+  if (status === "failed") return "failed";
+  if (status === "passed" || status === "waived") return "passed";
+  return "active";
 }
 
 function formatDuration(durationMs: number | undefined): string {

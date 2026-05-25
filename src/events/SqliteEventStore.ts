@@ -471,6 +471,7 @@ export class SqliteEventStore implements EventStore {
       case "check.completed":
       case "check.failed":
       case "check.cancelled":
+      case "check.waived":
         this.persistCheckRun(event.payload as CheckRun);
         break;
       case "git.statusChanged":
