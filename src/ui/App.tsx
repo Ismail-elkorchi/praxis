@@ -2126,6 +2126,7 @@ type CommandItem = {
   method: string;
   route: Route;
   disabled?: boolean;
+  disabledReason?: string;
 };
 
 function CommandPalette({
@@ -2154,7 +2155,8 @@ function CommandPalette({
       label: "Start agent run",
       method: "agentRuns.start",
       route: "Projects",
-      disabled: dashboard.providerStatus.every((provider) => !providerCanStartSession(provider))
+      disabled: dashboard.providerStatus.every((provider) => !providerCanStartSession(provider)),
+      disabledReason: "No available provider can start agent runs."
     },
     { id: "ask-in-project", label: "Ask within selected project", method: "agentRuns.sendInstruction", route: "Projects" },
     { id: "create-artifact", label: "Create artifact", method: "artifacts.create", route: "Artifacts" },
@@ -2223,10 +2225,11 @@ function CommandPalette({
               role="option"
               data-method={command.method}
               disabled={command.disabled}
+              title={command.disabled ? command.disabledReason : undefined}
               onClick={() => runCommand(command)}
             >
               <span>{command.label}</span>
-              <small>{command.method}</small>
+              <small>{command.disabled ? command.disabledReason : command.method}</small>
             </button>
           ))}
           {filtered.length === 0 ? <p className="emptyText">No commands match the search.</p> : null}

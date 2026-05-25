@@ -958,6 +958,29 @@ test("command palette opens from global search and runs provider-neutral command
   await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
 });
 
+test("command palette disabled commands expose a visible reason", async ({ page }) => {
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result: request.method === "dashboard.getSnapshot" ? unavailableOnlyStartProviderDashboard() : {}
+      })
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open command palette" }).click();
+  await page.getByLabel("Search commands").fill("start agent");
+
+  const startAgentRun = page.getByRole("option", { name: /Start agent run/ });
+  await expect(startAgentRun).toBeDisabled();
+  await expect(startAgentRun).toHaveAttribute("title", "No available provider can start agent runs.");
+  await expect(startAgentRun).toContainText("No available provider can start agent runs.");
+});
+
 test("command palette opens executable project action flows", async ({ page }) => {
   await page.goto("/");
 
