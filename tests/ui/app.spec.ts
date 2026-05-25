@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { DashboardProjection, ProjectCardViewModel } from "../../src/dashboard/types";
+import type { DashboardProjection, ProjectCardViewModel, TimelineItemViewModel } from "../../src/dashboard/types";
 
 test("dashboard shell uses provider-neutral language and keyboard focus", async ({ page }) => {
   await page.goto("/");
@@ -143,17 +143,52 @@ test("global UI avoids runtime-provider names", async ({ page }) => {
   expect(body).not.toMatch(/OpenAI|Anthropic|Gemini|Claude|Codex/);
 });
 
-test("activity timeline filters by event type", async ({ page }) => {
+test("activity timeline filters by project, provider, session, and event type", async ({ page }) => {
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result: request.method === "dashboard.getSnapshot" ? timelineFilterDashboard() : {}
+      })
+    });
+  });
   await page.goto("/");
 
   await page.getByRole("button", { name: "Activity" }).click();
-  await expect(page.getByRole("heading", { name: "approval.requested" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "agent.turn.started" })).toBeVisible();
+  const started = page.getByRole("heading", { name: "agent.turn.started" });
+  const approval = page.getByRole("heading", { name: "approval.requested" });
+  const check = page.getByRole("heading", { name: "check.failed" });
 
+  await expect(started).toBeVisible();
+  await expect(approval).toBeVisible();
+  await expect(check).toBeVisible();
+
+  await page.getByLabel("Filter by project").selectOption("project-a");
+  await expect(started).toBeVisible();
+  await expect(approval).toHaveCount(0);
+  await expect(check).toHaveCount(0);
+
+  await page.getByLabel("Filter by project").selectOption("all");
+  await page.getByLabel("Filter by provider").selectOption("provider-b");
+  await expect(approval).toBeVisible();
+  await expect(started).toHaveCount(0);
+  await expect(check).toHaveCount(0);
+
+  await page.getByLabel("Filter by provider").selectOption("all");
+  await page.getByLabel("Filter by session").selectOption("session-c");
+  await expect(check).toBeVisible();
+  await expect(started).toHaveCount(0);
+  await expect(approval).toHaveCount(0);
+
+  await page.getByLabel("Filter by session").selectOption("all");
   await page.getByLabel("Filter by event type").selectOption("agent.turn.started");
 
-  await expect(page.getByRole("heading", { name: "agent.turn.started" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "approval.requested" })).toHaveCount(0);
+  await expect(started).toBeVisible();
+  await expect(approval).toHaveCount(0);
+  await expect(check).toHaveCount(0);
 });
 
 test("activity timeline groups by turn and expands details lazily", async ({ page }) => {
@@ -460,5 +495,65 @@ function disabledActionProjectCard(): ProjectCardViewModel {
     secondaryActions: [],
     diffFiles: [],
     evidence: []
+  };
+}
+
+function timelineFilterDashboard(): DashboardProjection {
+  return emptyDashboard({
+    timeline: [
+      timelineItem({
+        id: "timeline-started",
+        eventType: "agent.turn.started",
+        kind: "turn",
+        projectId: "project-a",
+        providerId: "provider-a",
+        sessionId: "session-a",
+        turnId: "turn-a"
+      }),
+      timelineItem({
+        id: "timeline-approval",
+        eventType: "approval.requested",
+        kind: "approval",
+        projectId: "project-b",
+        providerId: "provider-b",
+        sessionId: "session-b",
+        turnId: "turn-b"
+      }),
+      timelineItem({
+        id: "timeline-check",
+        eventType: "check.failed",
+        kind: "check",
+        projectId: "project-b",
+        providerId: "provider-a",
+        sessionId: "session-c",
+        turnId: "turn-c"
+      })
+    ]
+  });
+}
+
+function timelineItem(input: {
+  id: string;
+  eventType: string;
+  kind: TimelineItemViewModel["kind"];
+  projectId: string;
+  providerId: string;
+  sessionId: string;
+  turnId: string;
+}): TimelineItemViewModel {
+  return {
+    id: input.id,
+    eventType: input.eventType,
+    kind: input.kind,
+    projectId: input.projectId as TimelineItemViewModel["projectId"],
+    providerId: input.providerId as TimelineItemViewModel["providerId"],
+    sessionId: input.sessionId as TimelineItemViewModel["sessionId"],
+    turnId: input.turnId as TimelineItemViewModel["turnId"],
+    title: input.eventType,
+    summary: input.eventType,
+    timestamp: new Date(0).toISOString(),
+    status: "reported",
+    evidence: [],
+    expandable: true
   };
 }
