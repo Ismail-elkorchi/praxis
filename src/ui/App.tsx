@@ -119,6 +119,18 @@ export function App() {
       setRoute("Checks");
       return;
     }
+    if (action.id === "mark-reviewed") {
+      if (apiStatus === "live") {
+        void callApi<unknown>("projects.markReadyToMerge", { projectId: project.projectId })
+          .then(() => callApi<DashboardProjection>("dashboard.getSnapshot"))
+          .then((snapshot) => {
+            if (snapshot) setLiveDashboard(snapshot);
+          })
+          .catch(() => undefined);
+      }
+      requestDetailFocus("project");
+      return;
+    }
     if (action.id === "open-evidence") {
       requestDetailFocus("evidence");
       return;
@@ -1770,7 +1782,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       badges: approvals.length > 0 ? [{ label: "Approval pending", tone: "waiting" }] : [{ label: "Review", tone: "review" }],
       primaryAction: approvals.length > 0
         ? { id: "open-approvals", label: "Open approvals", method: "agents.respondToApproval" }
-        : { id: "review-diff", label: "Review diff", method: "git.openDiff" },
+        : { id: "mark-reviewed", label: "Mark reviewed", method: "projects.markReadyToMerge" },
       secondaryActions: [{ id: "open-evidence", label: "Open evidence", method: "dashboard.explainMode" }],
       diffFiles: [
         {

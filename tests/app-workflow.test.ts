@@ -128,6 +128,10 @@ describe("provider-neutral application workflow", () => {
     expect(app.snapshot().projects[project.id]?.git.isRepo).toBe(false);
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("agent_ready");
     expect(app.snapshot().dashboard.mode).toBe("portfolio");
+    await expect(app.projects.markReadyToMerge(project.id)).rejects.toMatchObject({
+      code: "review_not_ready",
+      details: { reasons: expect.arrayContaining(["not_git_repository", "no_git_changes"]) }
+    });
   });
 
   it("makes git-backed fake file changes reviewable when checks are not required", async () => {
@@ -155,6 +159,22 @@ describe("provider-neutral application workflow", () => {
     expect(app.snapshot().projects[project.id]?.git.dirty).toBe(true);
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("ready_for_review");
     expect(app.snapshot().dashboard.mode).toBe("diff_review");
+
+    const reviewState = await app.projects.markReadyToMerge(project.id);
+    expect(reviewState).toMatchObject({ acceptedOutOfDateBranch: false, statusHash: expect.any(String) });
+    expect(app.snapshot().projects[project.id]?.runtimeState).toBe("ready_to_merge");
+    expect(app.snapshot().dashboard.mode).toBe("diff_review");
+    expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)?.primaryAction).toMatchObject({
+      id: "review-diff",
+      method: "git.openDiff"
+    });
+    expect(app.snapshot().dashboard.explanation.propositions).toContainEqual(
+      expect.objectContaining({ predicate: "ready_to_merge", value: "true" })
+    );
+
+    await writeFile(path.join(rootPath, "another-change.ts"), "export const another = 2;\n");
+    await app.projects.refreshProject(project.id);
+    expect(app.snapshot().projects[project.id]?.runtimeState).toBe("ready_for_review");
   });
 
   it("marks stale sessions on provider disconnect", async () => {

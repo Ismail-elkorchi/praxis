@@ -20,6 +20,10 @@ test("approval center can be resolved with keyboard", async ({ page }) => {
   await page.keyboard.press("Enter");
 
   await expect(page.getByRole("heading", { name: "Diff review" }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Mark reviewed" }).first()).toHaveAttribute(
+    "data-method",
+    "projects.markReadyToMerge"
+  );
   await expect(page.getByRole("button", { name: "Accept once" })).toHaveCount(0);
 });
 

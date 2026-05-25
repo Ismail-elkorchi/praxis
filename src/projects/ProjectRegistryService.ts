@@ -18,6 +18,7 @@ import type { AppSnapshot } from "../dashboard/types";
 import type { AppEventLog } from "../events/AppEventLog";
 import { createDomainEvent } from "../events/eventFactory";
 import type { GitService } from "../git/GitService";
+import { gitStatusHash } from "../git/statusHash";
 import { PraxisError } from "../app/errors";
 import { isBroadPermissionProfileId } from "../policies/PolicyService";
 
@@ -150,6 +151,63 @@ export class ProjectRegistryService {
     return project;
   }
 
+  async markReadyToMerge(
+    projectId: ProjectId,
+    options: { confirmOutOfDateBranch?: boolean } = {}
+  ): Promise<AppSnapshot["projects"][ProjectId]["reviewState"]> {
+    const snapshot = this.getSnapshot();
+    const project = snapshot.projects[projectId];
+    if (!project) {
+      throw new PraxisError("not_found", "Project was not found.", { projectId });
+    }
+
+    const reasons = reviewNotReadyReasons(project);
+    if (reasons.length > 0) {
+      throw new PraxisError("review_not_ready", "Project is not ready to mark as reviewed.", { projectId, reasons });
+    }
+    if (project.git.behind > 0 && !options.confirmOutOfDateBranch) {
+      throw new PraxisError("confirmation_required", "Out-of-date branch review requires explicit confirmation.", {
+        projectId,
+        behind: project.git.behind
+      });
+    }
+
+    const markedAt = new Date().toISOString();
+    const statusHash = gitStatusHash(project.git);
+    const acceptedOutOfDateBranch = project.git.behind > 0 && options.confirmOutOfDateBranch === true;
+    const event = await this.events.append(
+      createDomainEvent({
+        type: "project.readyToMergeMarked",
+        projectId,
+        source: "user",
+        payload: {
+          projectId,
+          markedAt,
+          acceptedOutOfDateBranch,
+          statusHash,
+          git: {
+            branch: project.git.branch,
+            headSha: project.git.headSha,
+            ahead: project.git.ahead,
+            behind: project.git.behind,
+            dirty: project.git.dirty
+          }
+        },
+        evidence: [
+          { type: "git", repoPath: project.project.canonicalPath, sha: project.git.headSha, statusHash },
+          { type: "user", commandId: "projects.markReadyToMerge" }
+        ]
+      })
+    );
+
+    return {
+      readyToMergeMarkedAt: markedAt,
+      acceptedOutOfDateBranch,
+      statusHash,
+      evidence: event.evidence
+    };
+  }
+
   async refreshProject(projectId: ProjectId): Promise<void> {
     const project = this.getProject(projectId);
     if (!project) {
@@ -199,6 +257,28 @@ export class ProjectRegistryService {
   getProject(projectId: ProjectId): Project | undefined {
     return this.getSnapshot().projects[projectId]?.project;
   }
+}
+
+function reviewNotReadyReasons(project: AppSnapshot["projects"][ProjectId]): string[] {
+  const reasons: string[] = [];
+  if (!project.git.isRepo) reasons.push("not_git_repository");
+  if (!project.git.dirty) reasons.push("no_git_changes");
+  if (project.git.conflictedFiles.length > 0) reasons.push("has_conflicts");
+  if (project.approvals.some((approval) => approval.status === "pending")) reasons.push("pending_approvals");
+  if (Object.values(project.turns).some((turn) => turn.status === "in_progress")) reasons.push("active_turn");
+  if (!requiredChecksGreen(project)) reasons.push("required_checks_not_green");
+  return reasons;
+}
+
+function requiredChecksGreen(project: AppSnapshot["projects"][ProjectId]): boolean {
+  const required = project.checkDefinitions.filter((definition) => definition.required);
+  if (required.length === 0) return true;
+  return required.every((definition) => {
+    const latest = project.checkRuns
+      .filter((run) => run.checkId === definition.id)
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
+    return latest?.status === "passed";
+  });
 }
 
 function normalizeProjectSettings(settings: Partial<ProjectSettings> | undefined): ProjectSettings {

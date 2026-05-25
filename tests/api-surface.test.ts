@@ -16,6 +16,7 @@ const requiredApiMethods = [
   "projects.update",
   "projects.archive",
   "projects.refresh",
+  "projects.markReadyToMerge",
   "providers.list",
   "providers.getStatus",
   "providers.getCapabilities",
@@ -149,6 +150,45 @@ describe("provider-neutral API surface", () => {
     });
 
     expect((await app.events.queryEvents()).map((event) => event.type)).toContain("settings.updated");
+  });
+
+  it("marks review-ready projects as ready to merge through event-producing API calls", async () => {
+    const databasePath = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-ready-merge-")), "praxis.sqlite");
+    const firstStore = new SqliteEventStore(databasePath);
+    const first = await createPraxisApp({ eventStore: firstStore });
+    const api = new PraxisApi(first);
+    const rootPath = await createTempProject({ git: true, packageJson: false });
+    const project = await first.projects.registerProject({ rootPath });
+
+    await writeFile(path.join(rootPath, "reviewed.ts"), "export const reviewed = true;\n");
+    await api.handle({ id: "refresh-ready", method: "projects.refresh", params: { projectId: project.id } });
+    expect(first.snapshot().projects[project.id]?.runtimeState).toBe("ready_for_review");
+
+    await expect(
+      api.handle({ id: "mark-reviewed", method: "projects.markReadyToMerge", params: { projectId: project.id } })
+    ).resolves.toMatchObject({
+      id: "mark-reviewed",
+      result: {
+        acceptedOutOfDateBranch: false,
+        statusHash: expect.any(String),
+        evidence: expect.arrayContaining([
+          expect.objectContaining({ type: "user", commandId: "projects.markReadyToMerge" })
+        ])
+      }
+    });
+
+    expect(first.snapshot().projects[project.id]?.runtimeState).toBe("ready_to_merge");
+    expect(first.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)?.primaryAction).toMatchObject({
+      id: "review-diff",
+      method: "git.openDiff"
+    });
+    expect((await first.events.queryEvents()).map((event) => event.type)).toContain("project.readyToMergeMarked");
+    first.eventStore.close?.();
+
+    const secondStore = new SqliteEventStore(databasePath);
+    const second = await createPraxisApp({ eventStore: secondStore });
+    expect(second.snapshot().projects[project.id]?.runtimeState).toBe("ready_to_merge");
+    second.eventStore.close?.();
   });
 
   it("returns redacted diagnostics through a provider-neutral API method", async () => {

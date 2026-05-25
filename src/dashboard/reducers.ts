@@ -18,6 +18,7 @@ import type {
   Proposition,
   ProviderAvailability
 } from "../core";
+import { gitStatusHash } from "../git/statusHash";
 import type {
   AppSnapshot,
   ApprovalCardViewModel,
@@ -78,6 +79,7 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
         project,
         runtimeState: "idle",
         git: emptyGitSnapshot,
+        reviewState: { acceptedOutOfDateBranch: false, evidence: [] },
         sessions: {},
         turns: {},
         approvals: [],
@@ -97,6 +99,23 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
       if (project) {
         project.project = normalizeProject(payload.project);
         project.lastActivityAt = event.timestamp;
+      }
+      break;
+    }
+    case "project.readyToMergeMarked": {
+      const project = touchProject(next, event);
+      const payload = event.payload as {
+        markedAt?: string;
+        acceptedOutOfDateBranch?: boolean;
+        statusHash?: string;
+      };
+      if (project) {
+        project.reviewState = {
+          readyToMergeMarkedAt: payload.markedAt ?? event.timestamp,
+          acceptedOutOfDateBranch: payload.acceptedOutOfDateBranch === true,
+          statusHash: payload.statusHash,
+          evidence: event.evidence
+        };
       }
       break;
     }
@@ -374,6 +393,9 @@ function deriveProjectRuntimeState(project: ProjectSnapshot): ProjectRuntimeStat
   if (Object.values(project.turns).some((turn) => turn.status === "in_progress")) {
     return "agent_running";
   }
+  if (isReadyToMerge(project)) {
+    return "ready_to_merge";
+  }
   if (hasReviewableChanges(project) && requiredChecksPassed(project)) {
     return "ready_for_review";
   }
@@ -411,6 +433,14 @@ function deriveProjectPropositions(project: ProjectSnapshot, events: DomainEvent
       subject: project.project.id,
       predicate: "ready_for_review",
       value: project.runtimeState === "ready_for_review" ? "true" : "false",
+      evidence,
+      checkedAt
+    },
+    {
+      id: `project:${project.project.id}:ready-to-merge`,
+      subject: project.project.id,
+      predicate: "ready_to_merge",
+      value: project.runtimeState === "ready_to_merge" ? "true" : "false",
       evidence,
       checkedAt
     },
@@ -455,7 +485,14 @@ function selectDashboardMode(projects: ProjectSnapshot[], activeTurnCount: numbe
   if (projects.some((project) => project.runtimeState === "unsafe_mode")) return "unsafe_attention";
   if (projects.some((project) => project.approvals.some((approval) => approval.status === "pending"))) return "approval_center";
   if (projects.some((project) => project.runtimeState === "checks_failed")) return "failure_triage";
-  if (projects.some((project) => project.runtimeState === "ready_for_review" || project.runtimeState === "dirty_worktree")) {
+  if (
+    projects.some(
+      (project) =>
+        project.runtimeState === "ready_to_merge" ||
+        project.runtimeState === "ready_for_review" ||
+        project.runtimeState === "dirty_worktree"
+    )
+  ) {
     return "diff_review";
   }
   if (projects.some((project) => project.runtimeState === "stale")) return "stale_sessions";
@@ -707,6 +744,17 @@ function hasReviewableChanges(project: ProjectSnapshot): boolean {
   return project.git.isRepo && project.git.dirty;
 }
 
+function isReadyToMerge(project: ProjectSnapshot): boolean {
+  return (
+    hasReviewableChanges(project) &&
+    requiredChecksPassed(project) &&
+    project.git.conflictedFiles.length === 0 &&
+    (project.git.behind === 0 || project.reviewState.acceptedOutOfDateBranch) &&
+    project.reviewState.readyToMergeMarkedAt !== undefined &&
+    project.reviewState.statusHash === gitStatusHash(project.git)
+  );
+}
+
 function requiredChecksPassed(project: ProjectSnapshot): boolean {
   const required = project.checkDefinitions.filter((definition) => definition.required);
   if (required.length === 0) return true;
@@ -769,7 +817,10 @@ function primaryAction(project: ProjectSnapshot, canStartSession: boolean): Dash
   if (project.runtimeState === "checks_failed") {
     return { id: "rerun-checks", label: "Rerun failed checks", method: "checks.run" };
   }
-  if (project.runtimeState === "ready_for_review" || project.runtimeState === "dirty_worktree") {
+  if (project.runtimeState === "ready_for_review") {
+    return { id: "mark-reviewed", label: "Mark reviewed", method: "projects.markReadyToMerge" };
+  }
+  if (project.runtimeState === "ready_to_merge" || project.runtimeState === "dirty_worktree") {
     return { id: "review-diff", label: "Review diff", method: "git.openDiff" };
   }
   if (!canStartSession) {
@@ -827,7 +878,9 @@ function urgency(state: ProjectRuntimeState): 0 | 1 | 2 | 3 | 4 | 5 {
   if (state === "unsafe_mode") return 5;
   if (state === "waiting_for_approval" || state === "waiting_for_user_input" || state === "blocked") return 4;
   if (state === "checks_failed" || state === "stale") return 3;
-  if (state === "agent_running" || state === "dirty_worktree" || state === "ready_for_review") return 2;
+  if (state === "agent_running" || state === "dirty_worktree" || state === "ready_for_review" || state === "ready_to_merge") {
+    return 2;
+  }
   if (state === "agent_ready") return 1;
   return 0;
 }
@@ -844,6 +897,7 @@ function stateReason(project: ProjectSnapshot, changedFiles: number, approvals: 
   if (project.runtimeState === "waiting_for_user_input") return "A session is waiting for user input.";
   if (project.runtimeState === "checks_failed") return `${failedChecks} required check failed.`;
   if (project.runtimeState === "ready_for_review") return `${changedFiles} changed file(s) are ready for review.`;
+  if (project.runtimeState === "ready_to_merge") return `${changedFiles} changed file(s) are reviewed and ready to merge.`;
   if (project.runtimeState === "stale") return "A session is stale or disconnected.";
   if (project.project.settings.defaultPermissionProfileId === fullAccessPermissionProfileId) {
     return "A broad permission profile requires attention.";
@@ -870,7 +924,7 @@ function badgeTone(state: ProjectRuntimeState): DashboardBadge["tone"] {
   if (state === "checks_failed") return "failed";
   if (state === "blocked") return "blocked";
   if (state === "stale") return "stale";
-  if (state === "ready_for_review" || state === "dirty_worktree") return "review";
+  if (state === "ready_to_merge" || state === "ready_for_review" || state === "dirty_worktree") return "review";
   if (state === "agent_running" || state === "agent_ready") return "active";
   return "idle";
 }

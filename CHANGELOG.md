@@ -45,3 +45,4 @@
 - Added reduced-motion and color-independent project-state accessibility smoke tests, plus Node 24 CI action hardening.
 - Added control-plane normalization for thrown provider turn crashes into provider error, failed turn, and stale session events.
 - Required git-backed dirty state for review-ready and diff-review project states, while keeping non-git projects out of git-based review modes.
+- Added explicit reviewed-state marking for review-ready projects, with ready-to-merge projection, persisted evidence, API/UI wiring, and stale-mark invalidation when git status changes.

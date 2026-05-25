@@ -35,6 +35,7 @@ export const apiMethods = [
   "projects.update",
   "projects.archive",
   "projects.refresh",
+  "projects.markReadyToMerge",
   "providers.list",
   "providers.getStatus",
   "providers.getCapabilities",
@@ -106,6 +107,12 @@ export class PraxisApi {
           await this.app.projects.refreshProject(input.projectId);
         }
         return this.app.snapshot().dashboard.projectCards;
+      }
+      case "projects.markReadyToMerge": {
+        const input = params as { projectId: ProjectId; confirmOutOfDateBranch?: boolean };
+        return this.app.projects.markReadyToMerge(input.projectId, {
+          confirmOutOfDateBranch: input.confirmOutOfDateBranch
+        });
       }
       case "providers.list":
         return this.app.providers.listProviders();

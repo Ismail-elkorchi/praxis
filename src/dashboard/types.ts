@@ -37,6 +37,12 @@ export type ProjectSnapshot = {
   project: Project;
   runtimeState: ProjectRuntimeState;
   git: GitSnapshot;
+  reviewState: {
+    readyToMergeMarkedAt?: string;
+    acceptedOutOfDateBranch: boolean;
+    statusHash?: string;
+    evidence: EvidenceRef[];
+  };
   sessions: Record<AgentSessionId, AgentSession>;
   turns: Record<string, AgentTurn>;
   approvals: ApprovalRequest[];
