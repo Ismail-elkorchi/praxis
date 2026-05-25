@@ -443,7 +443,7 @@ function HomeView({
       <div className="workspaceColumns">
         <section className="cockpitBand" aria-label="Running Agents">
           <h2>Running Agents</h2>
-          <AgentRunList runs={dashboard.home.runningAgents} onAction={onAction} />
+          <AgentRunList runs={dashboard.home.runningAgents} onAction={onAction} onOpenDecisions={() => onRoute("Decisions")} />
         </section>
       </div>
 
@@ -638,7 +638,7 @@ function ProjectWorkspace({
             {(["queued", "running", "waiting", "blocked", "review", "done"] as const).map((column) => (
               <section key={column} aria-label={`${column} agents`}>
                 <h3>{column}</h3>
-                <AgentRunList runs={workspace.agentBoard[column]} onAction={onAction} />
+                <AgentRunList runs={workspace.agentBoard[column]} onAction={onAction} onOpenDecisions={() => onRoute("Decisions")} />
               </section>
             ))}
           </div>
@@ -773,7 +773,15 @@ function WorkItemColumn({
   );
 }
 
-function AgentRunList({ runs, onAction }: { runs: AgentRunCardViewModel[]; onAction(action: PendingActionRequest): void }) {
+function AgentRunList({
+  runs,
+  onAction,
+  onOpenDecisions
+}: {
+  runs: AgentRunCardViewModel[];
+  onAction(action: PendingActionRequest): void;
+  onOpenDecisions(): void;
+}) {
   const [expandedRunIds, setExpandedRunIds] = useState<string[]>([]);
 
   function toggleRunDetails(runId: string) {
@@ -783,6 +791,10 @@ function AgentRunList({ runs, onAction }: { runs: AgentRunCardViewModel[]; onAct
   function handleRunAction(run: AgentRunCardViewModel) {
     if (run.primaryAction.method === "agentRuns.listByProject") {
       toggleRunDetails(run.runId);
+      return;
+    }
+    if (run.primaryAction.method === "agents.respondToApproval") {
+      onOpenDecisions();
       return;
     }
     onAction({
@@ -2216,6 +2228,7 @@ function projectActionOpensDialog(method: string): boolean {
     "agentRuns.sendInstruction",
     "agentRuns.cancel",
     "artifacts.markReviewed",
+    "artifacts.create",
     "artifacts.accept",
     "artifacts.reject"
   ].includes(method);

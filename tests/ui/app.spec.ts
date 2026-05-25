@@ -215,6 +215,27 @@ test("demo cockpit includes non-code project work", async ({ page }) => {
   await expect(researchBrief).toContainText("Synthesize source notes");
   await expect(researchBrief).toContainText("Source-linked notes");
   await expect(researchBrief.getByRole("button", { name: "Open workspace" })).toHaveAttribute("data-method", "projects.getWorkspace");
+  await expect(researchBrief.getByRole("button", { name: "Create artifact" })).toHaveAttribute("data-method", "artifacts.create");
+  await researchBrief.getByRole("button", { name: "Create artifact" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Create artifact" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("combobox", { name: "Project", exact: true })).toContainText("Research Brief");
+  await expect(dialog.getByRole("textbox", { name: "Artifact title" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+});
+
+test("agent decision actions open the decision center instead of a raw API dialog", async ({ page }) => {
+  await page.goto("/");
+
+  const runningAgents = page.getByRole("region", { name: "Running Agents" });
+  const openDecisionCenter = runningAgents.getByRole("button", { name: "Open decision center" });
+  await expect(openDecisionCenter).toHaveAttribute("data-method", "agents.respondToApproval");
+  await openDecisionCenter.click();
+
+  await expect(page.getByRole("button", { name: "Decisions" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("region", { name: "Approval center" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Open decision center" })).toHaveCount(0);
 });
 
 test("activity timeline filters by project, provider, session, and event type", async ({ page }) => {
