@@ -105,7 +105,7 @@ describe("provider-neutral application workflow", () => {
     expect(approval?.riskSignals).toEqual(["runs_package_script"]);
   });
 
-  it("applies fake file changes and makes the project reviewable when checks are not required", async () => {
+  it("keeps non-git fake file changes out of git-based review states", async () => {
     const app = await createPraxisApp({ fakeScenario: "file_change_path" });
     const rootPath = await createTempProject({ packageJson: false });
     const project = await app.projects.registerProject({ rootPath });
@@ -125,6 +125,34 @@ describe("provider-neutral application workflow", () => {
     await app.providers.decideApproval({ providerId: providerId("fake"), approvalId: approval.id, decision: "accept_once" });
 
     expect(app.snapshot().projects[project.id]?.fileChanges.some((change) => change.status === "applied")).toBe(true);
+    expect(app.snapshot().projects[project.id]?.git.isRepo).toBe(false);
+    expect(app.snapshot().projects[project.id]?.runtimeState).toBe("agent_ready");
+    expect(app.snapshot().dashboard.mode).toBe("portfolio");
+  });
+
+  it("makes git-backed fake file changes reviewable when checks are not required", async () => {
+    const app = await createPraxisApp({ fakeScenario: "file_change_path" });
+    const rootPath = await createTempProject({ git: true, packageJson: false });
+    const project = await app.projects.registerProject({ rootPath });
+    const sessionId = await app.providers.startSession({
+      providerId: providerId("fake"),
+      projectId: project.id,
+      cwd: rootPath
+    });
+
+    await app.providers.sendTurn({
+      providerId: providerId("fake"),
+      projectId: project.id,
+      sessionId,
+      instruction: "Edit a file"
+    });
+    const approval = app.snapshot().approvals.pending[0];
+    await app.providers.decideApproval({ providerId: providerId("fake"), approvalId: approval.id, decision: "accept_once" });
+    await writeFile(path.join(rootPath, "src-example.ts"), "export const value = 1;\n");
+    await app.projects.refreshProject(project.id);
+
+    expect(app.snapshot().projects[project.id]?.fileChanges.some((change) => change.status === "applied")).toBe(true);
+    expect(app.snapshot().projects[project.id]?.git.dirty).toBe(true);
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("ready_for_review");
     expect(app.snapshot().dashboard.mode).toBe("diff_review");
   });

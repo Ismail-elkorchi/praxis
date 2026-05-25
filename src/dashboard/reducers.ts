@@ -377,7 +377,7 @@ function deriveProjectRuntimeState(project: ProjectSnapshot): ProjectRuntimeStat
   if (hasReviewableChanges(project) && requiredChecksPassed(project)) {
     return "ready_for_review";
   }
-  if (project.git.dirty || project.fileChanges.some((change) => change.status === "applied")) {
+  if (project.git.isRepo && project.git.dirty) {
     return "dirty_worktree";
   }
   if (Object.values(project.sessions).some((session) => session.state === "idle" || session.state === "active")) {
@@ -704,7 +704,7 @@ function approvalResolutionIsAuthoritative(event: DomainEvent): boolean {
 }
 
 function hasReviewableChanges(project: ProjectSnapshot): boolean {
-  return project.git.dirty || project.fileChanges.some((change) => change.status === "applied");
+  return project.git.isRepo && project.git.dirty;
 }
 
 function requiredChecksPassed(project: ProjectSnapshot): boolean {
