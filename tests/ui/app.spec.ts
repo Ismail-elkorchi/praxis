@@ -508,6 +508,12 @@ test("empty states expose provider-neutral next actions", async ({ page }) => {
   });
   await page.goto("/");
 
+  const homeProjects = page.getByRole("region", { name: "Projects" }).first();
+  await expect(homeProjects.getByRole("button", { name: "Register project" })).toHaveAttribute("data-method", "projects.register");
+  await homeProjects.getByRole("button", { name: "Register project" }).click();
+  await expect(page.getByRole("dialog", { name: "Register project" })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+
   await page.getByRole("button", { name: "Projects" }).click();
   const projects = page.getByRole("region", { name: "Projects" });
   await expect(projects.getByRole("heading", { name: "No projects registered" })).toBeVisible();
@@ -518,6 +524,8 @@ test("empty states expose provider-neutral next actions", async ({ page }) => {
   const approvals = page.getByRole("region", { name: "Approval center" });
   await expect(approvals.getByRole("heading", { name: "No pending approvals" })).toBeVisible();
   await expect(approvals.getByRole("button", { name: "Recent decisions" })).toHaveAttribute("data-method", "events.query");
+  await approvals.getByRole("button", { name: "Recent decisions" }).click();
+  await expect(page.getByRole("button", { name: "Activity" })).toHaveAttribute("aria-current", "page");
 
   await page.getByRole("button", { name: "Artifacts" }).click();
   const artifacts = page.getByRole("region", { name: "Artifacts" });

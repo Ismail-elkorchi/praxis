@@ -221,13 +221,14 @@ export function App() {
           <ProjectsRoute
             dashboard={dashboard}
             selectedProjectId={selectedProjectId}
+            onRoute={setRoute}
             onSelectProject={focusProject}
             onProjectAction={handleProjectAction}
             onDecision={decideApproval}
             onAction={openActionRequest}
           />
         )}
-        {route === "Decisions" && <ApprovalPanel approvals={dashboard.approvals} onDecision={decideApproval} />}
+        {route === "Decisions" && <ApprovalPanel approvals={dashboard.approvals} onDecision={decideApproval} onRoute={setRoute} />}
         {route === "Artifacts" && <ArtifactHub dashboard={dashboard} />}
         {route === "Activity" && <ActivityTimeline items={dashboard.timeline} />}
         {route === "Settings" && <SettingsPanel apiStatus={apiStatus} providers={dashboard.providerStatus} onRoute={setRoute} />}
@@ -380,7 +381,7 @@ function HomeView({
 
       <section className="cockpitBand" aria-label="Waiting Decisions">
         <h2>Waiting Decisions</h2>
-        <ApprovalPanel approvals={dashboard.home.waitingDecisions} onDecision={onDecision} />
+        <ApprovalPanel approvals={dashboard.home.waitingDecisions} onDecision={onDecision} onRoute={onRoute} />
       </section>
 
       <section className="cockpitBand" aria-label="Active Projects">
@@ -391,7 +392,14 @@ function HomeView({
             <p>Open the workspace that needs the next decision, review, or agent action.</p>
           </div>
         </div>
-        <ProjectGrid dashboard={dashboard} selectedProjectId={selectedProjectId} onSelectProject={onSelectProject} onProjectAction={(project) => onSelectProject(project.projectId)} compact />
+        <ProjectGrid
+          dashboard={dashboard}
+          selectedProjectId={selectedProjectId}
+          onSelectProject={onSelectProject}
+          onProjectAction={(project) => onSelectProject(project.projectId)}
+          onAction={onAction}
+          compact
+        />
       </section>
 
       <div className="workspaceColumns">
@@ -461,6 +469,7 @@ function HomeList({ title, items, onSelectProject }: { title: string; items: Das
 function ProjectsRoute({
   dashboard,
   selectedProjectId,
+  onRoute,
   onSelectProject,
   onProjectAction,
   onDecision,
@@ -468,6 +477,7 @@ function ProjectsRoute({
 }: {
   dashboard: DashboardProjection;
   selectedProjectId: string;
+  onRoute(route: Route): void;
   onSelectProject(projectId: string): void;
   onProjectAction(project: ProjectCardViewModel, action: DashboardAction): void;
   onDecision(approvalId: string, decision: ApprovalDecision): void;
@@ -480,6 +490,7 @@ function ProjectsRoute({
         workspace={workspace}
         checkRuns={dashboard.checkRuns.filter((run) => run.projectId === workspace.projectId)}
         onDecision={onDecision}
+        onRoute={onRoute}
         onAction={onAction}
       />
     );
@@ -499,11 +510,13 @@ function ProjectWorkspace({
   workspace,
   checkRuns,
   onDecision,
+  onRoute,
   onAction
 }: {
   workspace: ProjectWorkspaceViewModel;
   checkRuns: CheckRunViewModel[];
   onDecision(approvalId: string, decision: ApprovalDecision): void;
+  onRoute(route: Route): void;
   onAction(action: PendingActionRequest): void;
 }) {
   const firstWorkItem = workspace.workItems.current[0] ?? workspace.workItems.queued[0] ?? workspace.workItems.blocked[0] ?? workspace.workItems.completed[0];
@@ -588,7 +601,7 @@ function ProjectWorkspace({
       <div className="workspaceColumns">
         <section className="cockpitBand" aria-label="Decisions panel">
           <h2>Decisions</h2>
-          <ApprovalPanel approvals={workspace.decisions} onDecision={onDecision} />
+          <ApprovalPanel approvals={workspace.decisions} onDecision={onDecision} onRoute={onRoute} />
         </section>
         <section className="cockpitBand" aria-label="Checks inside project workspace">
           <h2>Checks</h2>
@@ -948,10 +961,12 @@ type PendingApprovalDecision = {
 
 function ApprovalPanel({
   approvals,
-  onDecision
+  onDecision,
+  onRoute
 }: {
   approvals: ApprovalCardViewModel[];
   onDecision(approvalId: string, decision: ApprovalDecision): void;
+  onRoute?(route: Route): void;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | undefined>(approvals[0]?.approvalId);
@@ -1022,7 +1037,11 @@ function ApprovalPanel({
         <ShieldCheck size={26} aria-hidden="true" />
         <h2>No pending approvals</h2>
         <p>Recent decisions remain available in the activity timeline.</p>
-        <button type="button" data-method="events.query" onClick={() => document.querySelector<HTMLElement>('[aria-label="Activity timeline"]')?.focus()}>
+        <button
+          type="button"
+          data-method="events.query"
+          onClick={() => (onRoute ? onRoute("Activity") : document.querySelector<HTMLElement>('[aria-label="Activity timeline"]')?.focus())}
+        >
           Recent decisions
         </button>
       </section>
