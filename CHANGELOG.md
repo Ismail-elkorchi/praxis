@@ -65,3 +65,4 @@
 - Added dashboard snapshot generation timing to diagnostics with API and UI coverage.
 - Standardized local server malformed-request and route errors as machine-coded API errors.
 - Added provider-neutral client lifecycle events for the optional generic process adapter with diagnostics coverage.
+- Added app workflow coverage proving conflicted git files block project review state.

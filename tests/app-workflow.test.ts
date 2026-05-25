@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
   agentTurnId,
@@ -15,6 +17,8 @@ import { createDomainEvent } from "../src/events/eventFactory";
 import { fakeProviderCapabilities } from "../src/providers/fake/FakeProviderAdapter";
 import type { ProviderAdapter } from "../src/providers/interface";
 import { createTempProject } from "./helpers/tempProject";
+
+const execFileAsync = promisify(execFile);
 
 describe("provider-neutral application workflow", () => {
   it("starts with the fake provider and no real providers", async () => {
@@ -550,7 +554,36 @@ describe("provider-neutral application workflow", () => {
     expect(projectedRun?.durationMs).toBeGreaterThanOrEqual(0);
     expect(projectedRun?.output).toBeDefined();
   });
+
+  it("blocks project runtime state when git conflicts are present", async () => {
+    const app = await createPraxisApp();
+    const rootPath = await createTempProject({ git: true, packageJson: false });
+    const baseBranch = (await git(rootPath, ["branch", "--show-current"])).trim();
+
+    await writeFile(path.join(rootPath, "conflict.txt"), "base\n");
+    await git(rootPath, ["add", "conflict.txt"]);
+    await git(rootPath, ["commit", "-m", "add conflict base"]);
+    await git(rootPath, ["checkout", "-b", "feature-conflict"]);
+    await writeFile(path.join(rootPath, "conflict.txt"), "feature\n");
+    await git(rootPath, ["commit", "-am", "feature conflict"]);
+    await git(rootPath, ["checkout", baseBranch]);
+    await writeFile(path.join(rootPath, "conflict.txt"), "base branch\n");
+    await git(rootPath, ["commit", "-am", "base conflict"]);
+    await git(rootPath, ["merge", "feature-conflict"]).catch(() => undefined);
+
+    const project = await app.projects.registerProject({ rootPath });
+    const snapshot = app.snapshot().projects[project.id];
+
+    expect(snapshot?.git.conflictedFiles).toEqual(["conflict.txt"]);
+    expect(snapshot?.runtimeState).toBe("blocked");
+    expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)?.stateLabel).toBe("Blocked");
+  });
 });
+
+async function git(rootPath: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, { cwd: rootPath });
+  return stdout;
+}
 
 function sessionApprovalLimitedProvider(): ProviderAdapter {
   const id = providerId("session-approval-limited");
