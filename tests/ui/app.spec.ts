@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { DashboardProjection } from "../../src/dashboard/types";
+import type { DashboardProjection, ProjectCardViewModel } from "../../src/dashboard/types";
 
 test("dashboard shell uses provider-neutral language and keyboard focus", async ({ page }) => {
   await page.goto("/");
@@ -196,6 +196,30 @@ test("project cards support keyboard navigation and provider-neutral action mapp
   await expect(projectEvidence).toContainText("Evidence for Package Metadata");
   await expect(projectEvidence).toContainText("failed required check blocks review");
   await expect(projectEvidence.getByRole("list", { name: "Evidence references" })).toContainText("Check check-run-beta failed");
+});
+
+test("disabled project actions expose provider-neutral reason text", async ({ page }) => {
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result:
+          request.method === "dashboard.getSnapshot"
+            ? emptyDashboard({ projectCards: [disabledActionProjectCard()] })
+            : {}
+      })
+    });
+  });
+  await page.goto("/");
+
+  const project = page.getByRole("article").filter({ hasText: "Capability gated project" });
+  await expect(project.getByRole("button", { name: "Start task" })).toBeDisabled();
+  await expect(project.getByRole("list", { name: "Unavailable actions" })).toContainText(
+    "Provider does not support starting sessions."
+  );
 });
 
 test("diff review supports file search, source links, renames, and binary metadata", async ({ page }) => {
@@ -407,5 +431,34 @@ function emptyDashboard(overrides: Partial<DashboardProjection> = {}): Dashboard
       ...overrides.explanation
     },
     ...overrides
+  };
+}
+
+function disabledActionProjectCard(): ProjectCardViewModel {
+  return {
+    projectId: "project-disabled" as ProjectCardViewModel["projectId"],
+    title: "Capability gated project",
+    subtitle: "/workspace/capability-gated",
+    runtimeState: "idle",
+    urgency: 0,
+    stateLabel: "Idle",
+    stateReason: "No urgent state detected.",
+    providerLabel: "Limited provider",
+    branchLabel: "main",
+    changedFileCount: 0,
+    pendingApprovalCount: 0,
+    failedCheckCount: 0,
+    activeTurnCount: 0,
+    badges: [{ label: "Idle", tone: "idle" }],
+    primaryAction: {
+      id: "start-task",
+      label: "Start task",
+      method: "agents.startSession",
+      disabled: true,
+      disabledReason: "Provider does not support starting sessions."
+    },
+    secondaryActions: [],
+    diffFiles: [],
+    evidence: []
   };
 }

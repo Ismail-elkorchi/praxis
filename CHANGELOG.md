@@ -59,3 +59,4 @@
 - Completed empty-state next actions for no-projects and no-approvals UI states while preserving provider-neutral command mappings.
 - Added provider-neutral primary user questions for every dashboard mode with UI smoke coverage.
 - Added explicit fake-provider contract validation coverage for the shared provider adapter interface.
+- Exposed provider-neutral disabled action reasons directly on project cards with UI smoke coverage.

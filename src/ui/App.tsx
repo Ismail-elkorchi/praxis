@@ -433,6 +433,10 @@ function ProjectCard({
   onOpenProject(): void;
   onAction(action: DashboardAction): void;
 }) {
+  const disabledActions = [project.primaryAction, ...project.secondaryActions].filter(
+    (action) => action.disabled && action.disabledReason
+  );
+
   return (
     <article className={`projectCard urgency-${project.urgency} ${selected ? "selected" : ""}`}>
       <button
@@ -493,6 +497,16 @@ function ProjectCard({
           </button>
         ))}
       </div>
+      {disabledActions.length > 0 ? (
+        <ul className="disabledReasons" aria-label="Unavailable actions">
+          {disabledActions.map((action) => (
+            <li key={action.id}>
+              <span>{action.label}</span>
+              <span>{action.disabledReason}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </article>
   );
 }

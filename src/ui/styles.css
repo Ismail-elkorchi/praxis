@@ -337,6 +337,31 @@ p {
   margin: 0.8rem 0;
 }
 
+.disabledReasons {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.disabledReasons li {
+  display: grid;
+  grid-template-columns: minmax(0, 8rem) minmax(0, 1fr);
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid #d9e2e8;
+  border-radius: 6px;
+  background: #f8fafb;
+  color: #42535b;
+  font-size: 0.86rem;
+}
+
+.disabledReasons li span:first-child {
+  color: #25323a;
+  font-weight: 600;
+}
+
 .metricGrid,
 .approvalMeta {
   display: grid;
