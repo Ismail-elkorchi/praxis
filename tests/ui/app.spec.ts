@@ -519,6 +519,8 @@ test("empty states expose provider-neutral next actions", async ({ page }) => {
   await expect(projects.getByRole("heading", { name: "No projects registered" })).toBeVisible();
   await expect(projects.getByRole("button", { name: "Register project" })).toHaveAttribute("data-method", "projects.register");
   await expect(projects.getByRole("button", { name: "Provider setup" })).toHaveAttribute("data-method", "providers.getStatus");
+  await projects.getByRole("button", { name: "Provider setup" }).click();
+  await expect(page.getByRole("button", { name: "Settings" })).toHaveAttribute("aria-current", "page");
 
   await page.getByRole("button", { name: "Decisions" }).click();
   const approvals = page.getByRole("region", { name: "Approval center" });

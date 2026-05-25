@@ -398,6 +398,7 @@ function HomeView({
           onSelectProject={onSelectProject}
           onProjectAction={(project) => onSelectProject(project.projectId)}
           onAction={onAction}
+          onRoute={onRoute}
           compact
         />
       </section>
@@ -502,6 +503,7 @@ function ProjectsRoute({
       onSelectProject={onSelectProject}
       onProjectAction={onProjectAction}
       onAction={onAction}
+      onRoute={onRoute}
     />
   );
 }
@@ -714,6 +716,7 @@ function ProjectGrid({
   onSelectProject,
   onProjectAction,
   onAction,
+  onRoute,
   compact = false
 }: {
   dashboard: DashboardProjection;
@@ -721,6 +724,7 @@ function ProjectGrid({
   onSelectProject(projectId: string): void;
   onProjectAction(project: ProjectCardViewModel, action: DashboardAction): void;
   onAction(action: PendingActionRequest): void;
+  onRoute(route: Route): void;
   compact?: boolean;
 }) {
   const gridRef = useRef<HTMLElement>(null);
@@ -760,7 +764,7 @@ function ProjectGrid({
           <button type="button" data-method="projects.register" onClick={() => onAction({ method: "projects.register", label: "Register project" })}>
             Register project
           </button>
-          <button type="button" data-method="providers.getStatus" onClick={() => onAction({ method: "providers.getStatus", label: "Provider setup" })}>
+          <button type="button" data-method="providers.getStatus" onClick={() => onRoute("Settings")}>
             Provider setup
           </button>
         </div>
