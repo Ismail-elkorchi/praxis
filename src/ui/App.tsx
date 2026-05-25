@@ -20,7 +20,7 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { FormEvent as ReactFormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ApprovalDecision, ApprovalRequestId, CheckRunId, EventId, EvidenceRef, ProviderAvailability } from "../core";
 import type {
   ApprovalCardViewModel,
@@ -41,12 +41,23 @@ import "./styles.css";
 type Route = "Home" | "Projects" | "Decisions" | "Artifacts" | "Activity" | "Settings";
 type DetailFocusTarget = "project" | "evidence" | "diff";
 type DetailFocusRequest = { target: DetailFocusTarget; nonce: number };
+type PendingActionRequest = {
+  method: string;
+  label: string;
+  projectId?: string;
+  workItemId?: string;
+  agentRunId?: string;
+  checkId?: string;
+  runId?: string;
+  providerId?: string;
+};
 
 export function App() {
   const [route, setRoute] = useState<Route>("Home");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("project-alpha");
   const [resolvedApprovalIds, setResolvedApprovalIds] = useState<string[]>([]);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingActionRequest | undefined>();
   const [detailFocusRequest, setDetailFocusRequest] = useState<DetailFocusRequest>({ target: "project", nonce: 0 });
   const [liveDashboard, setLiveDashboard] = useState<DashboardProjection | undefined>();
   const [apiStatus, setApiStatus] = useState<ApiStatus>("connecting");
@@ -124,6 +135,22 @@ export function App() {
       .catch(() => undefined);
   }
 
+  async function runPendingAction(action: PendingActionRequest, values: ActionFormValues) {
+    if (apiStatus !== "live") {
+      throw new Error("Connect the local runtime before executing this action.");
+    }
+    await callApi<unknown>(action.method, actionParams(action, values));
+    const snapshot = await callApi<DashboardProjection>("dashboard.getSnapshot").catch(() => undefined);
+    if (snapshot) {
+      setLiveDashboard(snapshot);
+      if (snapshot.focusedProjectId) setSelectedProjectId(snapshot.focusedProjectId);
+    }
+  }
+
+  function openActionRequest(action: PendingActionRequest) {
+    setPendingAction(action);
+  }
+
   function handleProjectAction(project: ProjectCardViewModel, action: DashboardAction) {
     if (action.disabled) return;
     setSelectedProjectId(project.projectId);
@@ -187,6 +214,7 @@ export function App() {
             onRoute={setRoute}
             onSelectProject={focusProject}
             onDecision={decideApproval}
+            onAction={openActionRequest}
           />
         )}
         {route === "Projects" && (
@@ -196,6 +224,7 @@ export function App() {
             onSelectProject={focusProject}
             onProjectAction={handleProjectAction}
             onDecision={decideApproval}
+            onAction={openActionRequest}
           />
         )}
         {route === "Decisions" && <ApprovalPanel approvals={dashboard.approvals} onDecision={decideApproval} />}
@@ -212,6 +241,15 @@ export function App() {
             setRoute(nextRoute);
             setCommandPaletteOpen(false);
           }}
+        />
+      ) : null}
+      {pendingAction ? (
+        <ActionRequestDialog
+          action={pendingAction}
+          selectedProjectId={selectedProjectId}
+          providers={dashboard.providerStatus}
+          onClose={() => setPendingAction(undefined)}
+          onRun={runPendingAction}
         />
       ) : null}
     </main>
@@ -301,13 +339,15 @@ function HomeView({
   selectedProjectId,
   onRoute,
   onSelectProject,
-  onDecision
+  onDecision,
+  onAction
 }: {
   dashboard: DashboardProjection;
   selectedProjectId: string;
   onRoute(route: Route): void;
   onSelectProject(projectId: string): void;
   onDecision(approvalId: string, decision: ApprovalDecision): void;
+  onAction(action: PendingActionRequest): void;
 }) {
   return (
     <div className="workspaceCockpit" aria-label="Home">
@@ -355,7 +395,7 @@ function HomeView({
       <div className="workspaceColumns">
         <section className="cockpitBand" aria-label="Running Agents">
           <h2>Running Agents</h2>
-          <AgentRunList runs={dashboard.home.runningAgents} />
+          <AgentRunList runs={dashboard.home.runningAgents} onAction={onAction} />
         </section>
       </div>
 
@@ -382,7 +422,16 @@ function HomeView({
         <h2>Universal composer</h2>
         <div className="actionRow">
           {dashboard.home.quickCreate.map((action) => (
-            <button key={action.id} type="button" data-method={action.method} onClick={() => action.id === "open-decisions" && onRoute("Decisions")}>
+            <button
+              key={action.id}
+              type="button"
+              data-method={action.method}
+              onClick={() =>
+                action.id === "open-decisions"
+                  ? onRoute("Decisions")
+                  : onAction({ method: action.method, label: action.label, projectId: selectedProjectId })
+              }
+            >
               {action.label}
             </button>
           ))}
@@ -412,17 +461,26 @@ function ProjectsRoute({
   selectedProjectId,
   onSelectProject,
   onProjectAction,
-  onDecision
+  onDecision,
+  onAction
 }: {
   dashboard: DashboardProjection;
   selectedProjectId: string;
   onSelectProject(projectId: string): void;
   onProjectAction(project: ProjectCardViewModel, action: DashboardAction): void;
   onDecision(approvalId: string, decision: ApprovalDecision): void;
+  onAction(action: PendingActionRequest): void;
 }) {
   const workspace = dashboard.selectedWorkspace?.projectId === selectedProjectId ? dashboard.selectedWorkspace : undefined;
   if (workspace) {
-    return <ProjectWorkspace workspace={workspace} checkRuns={dashboard.checkRuns.filter((run) => run.projectId === workspace.projectId)} onDecision={onDecision} />;
+    return (
+      <ProjectWorkspace
+        workspace={workspace}
+        checkRuns={dashboard.checkRuns.filter((run) => run.projectId === workspace.projectId)}
+        onDecision={onDecision}
+        onAction={onAction}
+      />
+    );
   }
   return (
     <ProjectGrid
@@ -430,6 +488,7 @@ function ProjectsRoute({
       selectedProjectId={selectedProjectId}
       onSelectProject={onSelectProject}
       onProjectAction={onProjectAction}
+      onAction={onAction}
     />
   );
 }
@@ -437,12 +496,15 @@ function ProjectsRoute({
 function ProjectWorkspace({
   workspace,
   checkRuns,
-  onDecision
+  onDecision,
+  onAction
 }: {
   workspace: ProjectWorkspaceViewModel;
   checkRuns: CheckRunViewModel[];
   onDecision(approvalId: string, decision: ApprovalDecision): void;
+  onAction(action: PendingActionRequest): void;
 }) {
+  const firstWorkItem = workspace.workItems.current[0] ?? workspace.workItems.queued[0] ?? workspace.workItems.blocked[0] ?? workspace.workItems.completed[0];
   return (
     <div className="projectWorkspace" role="region" aria-label="Project Workspace">
       <section className="workspaceHeader" aria-label="Project Header">
@@ -462,7 +524,13 @@ function ProjectWorkspace({
           <div><dt>Decisions</dt><dd>{workspace.header.pendingDecisionCount}</dd></div>
           <div><dt>Latest artifact</dt><dd>{workspace.header.latestArtifact?.title ?? "None"}</dd></div>
         </dl>
-        <button type="button" data-method={workspace.header.primaryAction.method}>{workspace.header.primaryAction.label}</button>
+        <button
+          type="button"
+          data-method={workspace.header.primaryAction.method}
+          onClick={() => onAction({ method: workspace.header.primaryAction.method, label: workspace.header.primaryAction.label, projectId: workspace.projectId })}
+        >
+          {workspace.header.primaryAction.label}
+        </button>
       </section>
 
       <div className="workspaceColumns">
@@ -473,9 +541,15 @@ function ProjectWorkspace({
           <WorkItemColumn title="Blocked work" items={workspace.workItems.blocked} />
           <WorkItemColumn title="Completed work" items={workspace.workItems.completed} />
           <div className="actionRow">
-            <button type="button" data-method="workItems.create">Create work item</button>
-            <button type="button" data-method="projects.addSource">Attach sources</button>
-            <button type="button" data-method="agentRuns.create">Assign agents</button>
+            <button type="button" data-method="workItems.create" onClick={() => onAction({ method: "workItems.create", label: "Create work item", projectId: workspace.projectId })}>Create work item</button>
+            <button type="button" data-method="projects.addSource" onClick={() => onAction({ method: "projects.addSource", label: "Attach sources", projectId: workspace.projectId })}>Attach sources</button>
+            <button
+              type="button"
+              data-method="agentRuns.create"
+              onClick={() => onAction({ method: "agentRuns.create", label: "Assign agents", projectId: workspace.projectId, workItemId: firstWorkItem?.id })}
+            >
+              Assign agents
+            </button>
           </div>
         </section>
 
@@ -485,7 +559,7 @@ function ProjectWorkspace({
             {(["queued", "running", "waiting", "blocked", "review", "done"] as const).map((column) => (
               <section key={column} aria-label={`${column} agents`}>
                 <h3>{column}</h3>
-                <AgentRunList runs={workspace.agentBoard[column]} />
+                <AgentRunList runs={workspace.agentBoard[column]} onAction={onAction} />
               </section>
             ))}
           </div>
@@ -516,7 +590,7 @@ function ProjectWorkspace({
         </section>
         <section className="cockpitBand" aria-label="Checks inside project workspace">
           <h2>Checks</h2>
-          <CheckRunPanel checkRuns={checkRuns} />
+          <CheckRunPanel checkRuns={checkRuns} onAction={onAction} />
         </section>
       </div>
 
@@ -544,7 +618,7 @@ function WorkItemColumn({ title, items }: { title: string; items: ProjectWorkspa
   );
 }
 
-function AgentRunList({ runs }: { runs: AgentRunCardViewModel[] }) {
+function AgentRunList({ runs, onAction }: { runs: AgentRunCardViewModel[]; onAction?: (action: PendingActionRequest) => void }) {
   if (runs.length === 0) return <p className="emptyText">No agent runs.</p>;
   return (
     <div className="agentRunList">
@@ -557,7 +631,22 @@ function AgentRunList({ runs }: { runs: AgentRunCardViewModel[] }) {
             <div><dt>Decisions</dt><dd>{run.pendingDecisionCount}</dd></div>
             <div><dt>Artifacts</dt><dd>{run.producedArtifactCount}</dd></div>
           </dl>
-          <button type="button" data-method={run.primaryAction.method}>{run.primaryAction.label}</button>
+          <button
+            type="button"
+            data-method={run.primaryAction.method}
+            onClick={() =>
+              onAction?.({
+                method: run.primaryAction.method,
+                label: run.primaryAction.label,
+                projectId: run.projectId,
+                workItemId: run.workItemId,
+                agentRunId: run.runId,
+                providerId: run.providerId
+              })
+            }
+          >
+            {run.primaryAction.label}
+          </button>
           <details>
             <summary>Advanced session details</summary>
             <p>{run.advanced.sessionId ?? "No provider session linked"}</p>
@@ -662,12 +751,14 @@ function ProjectGrid({
   selectedProjectId,
   onSelectProject,
   onProjectAction,
+  onAction,
   compact = false
 }: {
   dashboard: DashboardProjection;
   selectedProjectId: string;
   onSelectProject(projectId: string): void;
   onProjectAction(project: ProjectCardViewModel, action: DashboardAction): void;
+  onAction?(action: PendingActionRequest): void;
   compact?: boolean;
 }) {
   const gridRef = useRef<HTMLElement>(null);
@@ -704,10 +795,10 @@ function ProjectGrid({
         <h2>No projects registered</h2>
         <p>Register a local project to start tracking sessions, approvals, file changes, checks, and review state.</p>
         <div className="actionRow">
-          <button type="button" data-method="projects.register">
+          <button type="button" data-method="projects.register" onClick={() => onAction?.({ method: "projects.register", label: "Register project" })}>
             Register project
           </button>
-          <button type="button" data-method="providers.getStatus">
+          <button type="button" data-method="providers.getStatus" onClick={() => onAction?.({ method: "providers.getStatus", label: "Provider setup" })}>
             Provider setup
           </button>
         </div>
@@ -929,7 +1020,7 @@ function ApprovalPanel({
         <ShieldCheck size={26} aria-hidden="true" />
         <h2>No pending approvals</h2>
         <p>Recent decisions remain available in the activity timeline.</p>
-        <button type="button" data-method="events.query">
+        <button type="button" data-method="events.query" onClick={() => document.querySelector<HTMLElement>('[aria-label="Activity timeline"]')?.focus()}>
           Recent decisions
         </button>
       </section>
@@ -1169,11 +1260,19 @@ function providerCapabilityBadges(provider: ProviderStatusViewModel): Array<{ la
 function ProviderConfigurationPanel({
   provider,
   selectedProviderId,
-  checkMessage
+  checkMessage,
+  settings,
+  providers,
+  onCheckAvailability,
+  onUpdateSettings
 }: {
   provider?: ProviderStatusViewModel;
   selectedProviderId?: string;
   checkMessage?: string;
+  settings: AppSettings;
+  providers: ProviderStatusViewModel[];
+  onCheckAvailability(providerId: string): void;
+  onUpdateSettings(patch: Partial<AppSettings>): void;
 }) {
   const panelRef = useRef<HTMLElement>(null);
 
@@ -1195,41 +1294,91 @@ function ProviderConfigurationPanel({
     );
   }
 
-  const command = providerAvailabilityCommand(provider.availability);
+  const configuredProvider = provider;
+  const command = providerAvailabilityCommand(configuredProvider.availability);
+  const providerEnabled = providerEnabledForNextStartup(settings, providers, configuredProvider.providerId);
+  const providerIsDefault = settings.defaultProviderId === configuredProvider.providerId;
+  const nextStep = providerNextStep(configuredProvider, providerEnabled, providerIsDefault);
+
+  function toggleProviderEnabled() {
+    const nextEnabledProviderIds = nextEnabledProviderIdsForToggle(settings, providers, configuredProvider.providerId);
+    const patch: Partial<AppSettings> = { enabledProviderIds: nextEnabledProviderIds as AppSettings["enabledProviderIds"] };
+    if (settings.defaultProviderId === configuredProvider.providerId && providerEnabled) {
+      patch.defaultProviderId = undefined;
+    }
+    onUpdateSettings(patch);
+  }
+
+  function setDefaultProvider() {
+    const nextEnabledProviderIds = providerEnabled
+      ? settings.enabledProviderIds
+      : nextEnabledProviderIdsForToggle(settings, providers, configuredProvider.providerId);
+    onUpdateSettings({
+      defaultProviderId: configuredProvider.providerId,
+      enabledProviderIds: nextEnabledProviderIds as AppSettings["enabledProviderIds"]
+    });
+  }
+
   return (
     <section ref={panelRef} className="providerConfigPanel" aria-label="Provider configuration" tabIndex={-1}>
       <div className="settingsHeaderRow">
         <div>
-          <h4>{provider.name} configuration</h4>
+          <h4>{configuredProvider.name} configuration</h4>
           <p>
             This provider is registered for runtime use but is only used by projects or agent runs that explicitly choose it.
           </p>
         </div>
-        <span className={`stateBadge ${provider.availability.status === "available" ? "passed" : "failed"}`}>
-          {provider.availability.status}
+        <span className={`stateBadge ${configuredProvider.availability.status === "available" ? "passed" : "failed"}`}>
+          {configuredProvider.availability.status}
         </span>
       </div>
       <dl className="settingsGrid">
         <div>
           <dt>Provider id</dt>
-          <dd>{provider.providerId}</dd>
+          <dd>{configuredProvider.providerId}</dd>
         </div>
         <div>
           <dt>Adapter</dt>
-          <dd>{provider.adapterVersion}</dd>
+          <dd>{configuredProvider.adapterVersion}</dd>
         </div>
         <div>
           <dt>Command</dt>
           <dd>{command ?? "not reported"}</dd>
         </div>
+        <div>
+          <dt>Startup</dt>
+          <dd>{providerEnabled ? "enabled" : "disabled"}</dd>
+        </div>
+        <div>
+          <dt>Default</dt>
+          <dd>{providerIsDefault ? "yes" : "no"}</dd>
+        </div>
       </dl>
+      <p>{nextStep}</p>
       {checkMessage ? <p>{checkMessage}</p> : null}
-      {providerAvailabilityReason(provider.availability) ? <p>{providerAvailabilityReason(provider.availability)}</p> : null}
+      {providerAvailabilityReason(configuredProvider.availability) ? <p>{providerAvailabilityReason(configuredProvider.availability)}</p> : null}
       <ul className="settingsList" aria-label="Provider setup">
         <li>Registered providers are available to projects and agent runs that explicitly choose them.</li>
         <li>Set any provider binary or environment overrides before startup.</li>
         <li>Restart the local runtime after changing provider environment or command configuration.</li>
       </ul>
+      <div className="actionRow">
+        <button type="button" data-method="providers.checkAvailability" onClick={() => onCheckAvailability(configuredProvider.providerId)}>
+          Check availability
+        </button>
+        <button type="button" data-method="settings.update" onClick={toggleProviderEnabled}>
+          {providerEnabled ? "Disable on next startup" : "Enable on next startup"}
+        </button>
+        {providerIsDefault ? (
+          <button type="button" data-method="settings.update" onClick={() => onUpdateSettings({ defaultProviderId: undefined })}>
+            Clear default provider
+          </button>
+        ) : (
+          <button type="button" data-method="settings.update" onClick={setDefaultProvider} disabled={!providerEnabled && providers.length === 0}>
+            Set as default provider
+          </button>
+        )}
+      </div>
     </section>
   );
 }
@@ -1243,6 +1392,44 @@ function providerAvailabilityCommand(availability: ProviderAvailability): string
 
 function providerAvailabilityReason(availability: ProviderAvailability): string | undefined {
   return "reason" in availability ? availability.reason : undefined;
+}
+
+function providerEnabledForNextStartup(
+  settings: AppSettings,
+  providers: ProviderStatusViewModel[],
+  providerIdValue: string
+): boolean {
+  if (settings.enabledProviderIds.length === 0) {
+    return providers.some((provider) => provider.providerId === providerIdValue);
+  }
+  return settings.enabledProviderIds.includes(providerIdValue as AppSettings["enabledProviderIds"][number]);
+}
+
+function nextEnabledProviderIdsForToggle(
+  settings: AppSettings,
+  providers: ProviderStatusViewModel[],
+  providerIdValue: string
+): string[] {
+  const current =
+    settings.enabledProviderIds.length === 0
+      ? providers.map((provider) => provider.providerId)
+      : settings.enabledProviderIds.map((providerIdValueCurrent) => String(providerIdValueCurrent));
+  return current.includes(providerIdValue)
+    ? current.filter((candidate) => candidate !== providerIdValue)
+    : [...current, providerIdValue];
+}
+
+function providerNextStep(provider: ProviderStatusViewModel, enabled: boolean, isDefault: boolean): string {
+  if (!enabled) {
+    return "Next: enable this provider for the next runtime startup, then restart the local runtime.";
+  }
+  if (provider.availability.status !== "available") {
+    return "Next: fix the provider command or environment, restart the local runtime, then run Check availability.";
+  }
+  if (!isDefault) {
+    return "Next: set this provider as a default or assign it to a specific project agent run.";
+  }
+  return "Next: create or open a project work item and start an agent run with this provider.";
 }
 
 function ActivityTimeline({ items }: { items: TimelineItemViewModel[] }) {
@@ -1520,7 +1707,361 @@ function CommandPalette({
   );
 }
 
-function CheckRunPanel({ checkRuns }: { checkRuns: CheckRunViewModel[] }) {
+type ActionFormValues = {
+  projectId: string;
+  rootPath: string;
+  name: string;
+  title: string;
+  goal: string;
+  summary: string;
+  type: string;
+  uriOrPath: string;
+  workModes: string;
+  workItemId: string;
+  agentRunId: string;
+  providerId: string;
+  roleName: string;
+  instruction: string;
+  checkId: string;
+  runId: string;
+  reason: string;
+};
+
+function ActionRequestDialog({
+  action,
+  selectedProjectId,
+  providers,
+  onClose,
+  onRun
+}: {
+  action: PendingActionRequest;
+  selectedProjectId: string;
+  providers: ProviderStatusViewModel[];
+  onClose(): void;
+  onRun(action: PendingActionRequest, values: ActionFormValues): Promise<void>;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const [values, setValues] = useState<ActionFormValues>({
+    projectId: action.projectId ?? selectedProjectId,
+    rootPath: "",
+    name: "",
+    title: defaultActionTitle(action),
+    goal: "",
+    summary: "",
+    type: defaultActionType(action),
+    uriOrPath: "",
+    workModes: "custom",
+    workItemId: action.workItemId ?? "",
+    agentRunId: action.agentRunId ?? "",
+    providerId: action.providerId ?? providers[0]?.providerId ?? "fake",
+    roleName: "Worker",
+    instruction: "",
+    checkId: action.checkId ?? "",
+    runId: action.runId ?? "",
+    reason: ""
+  });
+  const [status, setStatus] = useState<string | undefined>();
+  const [running, setRunning] = useState(false);
+
+  useEffect(() => {
+    dialogRef.current?.querySelector<HTMLInputElement>("input, select, textarea")?.focus();
+  }, []);
+
+  function updateField(field: keyof ActionFormValues, value: string) {
+    setValues((current) => ({ ...current, [field]: value }));
+  }
+
+  async function submit(event: ReactFormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setRunning(true);
+    setStatus(undefined);
+    try {
+      await onRun(action, values);
+      setStatus("Action completed.");
+      onClose();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Action failed.");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="modalBackdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        ref={dialogRef}
+        className="actionDialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="action-dialog-title"
+        onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => handleDialogKeyDown(event, dialogRef.current, onClose)}
+      >
+        <div>
+          <span className="stateBadge active">{action.method}</span>
+          <h2 id="action-dialog-title">{action.label}</h2>
+          <p>{actionGuidance(action.method)}</p>
+        </div>
+        <form className="actionForm" onSubmit={submit}>
+          {actionNeedsProject(action.method) ? (
+            <label>
+              Project id
+              <input value={values.projectId} onChange={(event) => updateField("projectId", event.target.value)} required />
+            </label>
+          ) : null}
+          {action.method === "projects.register" ? (
+            <>
+              <label>
+                Root path
+                <input value={values.rootPath} onChange={(event) => updateField("rootPath", event.target.value)} required />
+              </label>
+              <label>
+                Project name
+                <input value={values.name} onChange={(event) => updateField("name", event.target.value)} />
+              </label>
+            </>
+          ) : null}
+          {action.method === "projects.addSource" ? (
+            <>
+              <label>
+                Source title
+                <input value={values.title} onChange={(event) => updateField("title", event.target.value)} required />
+              </label>
+              <label>
+                Source type
+                <input value={values.type} onChange={(event) => updateField("type", event.target.value)} required />
+              </label>
+              <label>
+                URI or path
+                <input value={values.uriOrPath} onChange={(event) => updateField("uriOrPath", event.target.value)} />
+              </label>
+            </>
+          ) : null}
+          {action.method === "workItems.create" ? (
+            <>
+              <label>
+                Work item title
+                <input value={values.title} onChange={(event) => updateField("title", event.target.value)} required />
+              </label>
+              <label>
+                Goal
+                <textarea value={values.goal} onChange={(event) => updateField("goal", event.target.value)} required />
+              </label>
+              <label>
+                Work modes
+                <input value={values.workModes} onChange={(event) => updateField("workModes", event.target.value)} />
+              </label>
+            </>
+          ) : null}
+          {action.method === "agentRuns.create" ? (
+            <>
+              <label>
+                Work item id
+                <input value={values.workItemId} onChange={(event) => updateField("workItemId", event.target.value)} required />
+              </label>
+              <label>
+                Provider
+                <select value={values.providerId} onChange={(event) => updateField("providerId", event.target.value)}>
+                  {providers.map((provider) => (
+                    <option key={provider.providerId} value={provider.providerId}>
+                      {provider.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Role name
+                <input value={values.roleName} onChange={(event) => updateField("roleName", event.target.value)} required />
+              </label>
+              <label>
+                Goal
+                <textarea value={values.goal} onChange={(event) => updateField("goal", event.target.value)} required />
+              </label>
+            </>
+          ) : null}
+          {action.method === "agentRuns.start" || action.method === "agentRuns.sendInstruction" ? (
+            <>
+              <label>
+                Agent run id
+                <input value={values.agentRunId} onChange={(event) => updateField("agentRunId", event.target.value)} required />
+              </label>
+              <label>
+                Instruction
+                <textarea value={values.instruction} onChange={(event) => updateField("instruction", event.target.value)} required />
+              </label>
+            </>
+          ) : null}
+          {action.method === "artifacts.create" ? (
+            <>
+              <label>
+                Artifact title
+                <input value={values.title} onChange={(event) => updateField("title", event.target.value)} required />
+              </label>
+              <label>
+                Artifact type
+                <input value={values.type} onChange={(event) => updateField("type", event.target.value)} required />
+              </label>
+              <label>
+                Summary
+                <textarea value={values.summary} onChange={(event) => updateField("summary", event.target.value)} />
+              </label>
+            </>
+          ) : null}
+          {action.method === "checks.run" || action.method === "checks.waive" ? (
+            <label>
+              Check id
+              <input value={values.checkId} onChange={(event) => updateField("checkId", event.target.value)} required />
+            </label>
+          ) : null}
+          {action.method === "checks.cancel" ? (
+            <label>
+              Run id
+              <input value={values.runId} onChange={(event) => updateField("runId", event.target.value)} required />
+            </label>
+          ) : null}
+          {action.method === "checks.waive" ? (
+            <label>
+              Reason
+              <textarea value={values.reason} onChange={(event) => updateField("reason", event.target.value)} />
+            </label>
+          ) : null}
+          {status ? <p>{status}</p> : null}
+          <div className="actionRow">
+            <button type="button" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" data-method={action.method} disabled={running}>
+              {running ? "Running" : "Run action"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function actionParams(action: PendingActionRequest, values: ActionFormValues): unknown {
+  switch (action.method) {
+    case "projects.register":
+      return { rootPath: requireValue(values.rootPath, "Root path"), name: values.name || undefined };
+    case "projects.addSource":
+      return {
+        projectId: requireValue(values.projectId, "Project id"),
+        type: requireValue(values.type, "Source type"),
+        title: requireValue(values.title, "Source title"),
+        uriOrPath: values.uriOrPath || undefined,
+        addedBy: "user",
+        metadata: {}
+      };
+    case "workItems.create":
+      return {
+        projectId: requireValue(values.projectId, "Project id"),
+        title: requireValue(values.title, "Work item title"),
+        goal: requireValue(values.goal, "Goal"),
+        workModes: values.workModes.split(",").map((item) => item.trim()).filter(Boolean),
+        priority: 0,
+        sourceIds: [],
+        artifactIds: [],
+        metadata: {}
+      };
+    case "agentRuns.create":
+      return {
+        projectId: requireValue(values.projectId, "Project id"),
+        workItemId: requireValue(values.workItemId, "Work item id"),
+        providerId: requireValue(values.providerId, "Provider id"),
+        roleName: requireValue(values.roleName, "Role name"),
+        rolePreset: "custom",
+        goal: requireValue(values.goal, "Goal"),
+        metadata: {}
+      };
+    case "agentRuns.start":
+      return {
+        projectId: requireValue(values.projectId, "Project id"),
+        agentRunId: requireValue(values.agentRunId, "Agent run id"),
+        instruction: values.instruction || undefined
+      };
+    case "agentRuns.sendInstruction":
+      return {
+        projectId: requireValue(values.projectId, "Project id"),
+        agentRunId: requireValue(values.agentRunId, "Agent run id"),
+        instruction: requireValue(values.instruction, "Instruction")
+      };
+    case "agentRuns.cancel":
+      return { projectId: requireValue(values.projectId, "Project id"), agentRunId: requireValue(values.agentRunId, "Agent run id") };
+    case "artifacts.create":
+      return {
+        projectId: requireValue(values.projectId, "Project id"),
+        type: requireValue(values.type, "Artifact type"),
+        title: requireValue(values.title, "Artifact title"),
+        summary: values.summary,
+        status: "draft",
+        sourceIds: [],
+        evidence: [],
+        metadata: {}
+      };
+    case "checks.list":
+      return { projectId: requireValue(values.projectId, "Project id") };
+    case "checks.run":
+      return { projectId: requireValue(values.projectId, "Project id"), checkId: requireValue(values.checkId, "Check id") };
+    case "checks.cancel":
+      return { runId: requireValue(values.runId, "Run id") };
+    case "checks.waive":
+      return { projectId: requireValue(values.projectId, "Project id"), checkId: requireValue(values.checkId, "Check id"), reason: values.reason || undefined };
+    case "providers.getStatus":
+    case "providers.list":
+      return values.providerId ? { providerId: values.providerId } : undefined;
+    default:
+      return {};
+  }
+}
+
+function actionNeedsProject(method: string): boolean {
+  return [
+    "projects.addSource",
+    "workItems.create",
+    "agentRuns.create",
+    "agentRuns.start",
+    "agentRuns.sendInstruction",
+    "agentRuns.cancel",
+    "artifacts.create",
+    "checks.list",
+    "checks.run",
+    "checks.waive"
+  ].includes(method);
+}
+
+function defaultActionTitle(action: PendingActionRequest): string {
+  if (action.method === "projects.addSource") return "New source";
+  if (action.method === "workItems.create") return "New work item";
+  if (action.method === "artifacts.create") return "New artifact";
+  return "";
+}
+
+function defaultActionType(action: PendingActionRequest): string {
+  if (action.method === "projects.addSource") return "note";
+  if (action.method === "artifacts.create") return "generic_file";
+  return "";
+}
+
+function actionGuidance(method: string): string {
+  if (method === "projects.register") return "Register a durable project workspace from a local root path.";
+  if (method === "projects.addSource") return "Attach a source to the selected project so work items can reference it.";
+  if (method === "workItems.create") return "Create a visible unit of project work before assigning an agent run.";
+  if (method === "agentRuns.create") return "Create an agent run linked to a work item and provider.";
+  if (method === "agentRuns.start") return "Start the selected agent run and optionally include the first instruction.";
+  if (method === "agentRuns.sendInstruction") return "Send a follow-up instruction to a running or waiting agent run.";
+  if (method === "artifacts.create") return "Create a project artifact linked to the workspace.";
+  if (method.startsWith("checks.")) return "Run, cancel, list, or waive project checks with explicit project/check context.";
+  return "Review the required context, then run the action against the local runtime.";
+}
+
+function requireValue(value: string, label: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error(`${label} is required.`);
+  return trimmed;
+}
+
+function CheckRunPanel({ checkRuns, onAction }: { checkRuns: CheckRunViewModel[]; onAction?: (action: PendingActionRequest) => void }) {
   const activeRuns = checkRuns.filter((run) => run.status === "queued" || run.status === "running");
   const recentRuns = checkRuns.filter((run) => run.status !== "queued" && run.status !== "running");
 
@@ -1530,7 +2071,11 @@ function CheckRunPanel({ checkRuns }: { checkRuns: CheckRunViewModel[] }) {
         <ListChecks size={26} aria-hidden="true" />
         <h2>No checks have run</h2>
         <p>Add a check or use detected project scripts to validate changes before review.</p>
-        <button type="button" data-method="checks.list">
+        <button
+          type="button"
+          data-method="checks.list"
+          onClick={() => onAction?.({ method: "checks.list", label: "Add check", projectId: checkRuns[0]?.projectId })}
+        >
           Add check
         </button>
       </section>
@@ -1547,17 +2092,38 @@ function CheckRunPanel({ checkRuns }: { checkRuns: CheckRunViewModel[] }) {
         </div>
       </div>
       <div className="checkRunGroups">
-        <CheckRunGroup title="Active" runs={activeRuns} emptyText="No active check runs." />
-        <CheckRunGroup title="Recent" runs={recentRuns} emptyText="No recent check runs." />
+        <CheckRunGroup title="Active" runs={activeRuns} emptyText="No active check runs." onAction={onAction} />
+        <CheckRunGroup title="Recent" runs={recentRuns} emptyText="No recent check runs." onAction={onAction} />
       </div>
-      <button type="button" data-method="checks.run">
+      <button
+        type="button"
+        data-method="checks.run"
+        onClick={() =>
+          onAction?.({
+            method: "checks.run",
+            label: "Run checks",
+            projectId: checkRuns[0]?.projectId,
+            checkId: checkRuns[0]?.checkId
+          })
+        }
+      >
         Run checks
       </button>
     </section>
   );
 }
 
-function CheckRunGroup({ title, runs, emptyText }: { title: string; runs: CheckRunViewModel[]; emptyText: string }) {
+function CheckRunGroup({
+  title,
+  runs,
+  emptyText,
+  onAction
+}: {
+  title: string;
+  runs: CheckRunViewModel[];
+  emptyText: string;
+  onAction?: (action: PendingActionRequest) => void;
+}) {
   return (
     <section className="checkRunGroup" aria-label={`${title} check runs`}>
       <h3>{title}</h3>
@@ -1573,11 +2139,35 @@ function CheckRunGroup({ title, runs, emptyText }: { title: string; runs: CheckR
               <p>{run.projectTitle}</p>
             </div>
             <div className="checkActions">
-              <button type="button" data-method={run.status === "running" ? "checks.cancel" : "checks.run"}>
+              <button
+                type="button"
+                data-method={run.status === "running" ? "checks.cancel" : "checks.run"}
+                onClick={() =>
+                  onAction?.({
+                    method: run.status === "running" ? "checks.cancel" : "checks.run",
+                    label: run.status === "running" ? "Cancel" : "Rerun",
+                    projectId: run.projectId,
+                    checkId: run.checkId,
+                    runId: run.runId
+                  })
+                }
+              >
                 {run.status === "running" ? "Cancel" : "Rerun"}
               </button>
               {run.status === "failed" && run.required ? (
-                <button type="button" data-method="checks.waive">
+                <button
+                  type="button"
+                  data-method="checks.waive"
+                  onClick={() =>
+                    onAction?.({
+                      method: "checks.waive",
+                      label: "Waive",
+                      projectId: run.projectId,
+                      checkId: run.checkId,
+                      runId: run.runId
+                    })
+                  }
+                >
                   Waive
                 </button>
               ) : null}
@@ -1641,10 +2231,10 @@ function FailureTriage() {
         </div>
         <p>One required check failed after file changes. Review the output before asking the agent to continue.</p>
         <div className="actionRow">
-          <button type="button" data-method="checks.run">
+          <button type="button" data-method="checks.run" disabled title="Open a project workspace to rerun a specific check.">
             Rerun failed checks
           </button>
-          <button type="button" data-method="agents.sendTurn">
+          <button type="button" data-method="agents.sendTurn" disabled title="Open an agent run to send an instruction.">
             Send instruction
           </button>
           <button type="button" className="secondaryDanger" data-method="git.discardChanges" onClick={() => setConfirmDiscardOpen(true)}>
@@ -1751,6 +2341,11 @@ function SettingsPanel({
   async function confirmRawLogs() {
     setPendingRawLogChange(false);
     await updateSettings({ rawProviderLogsEnabled: true }, true);
+  }
+
+  function configureProvider(providerIdValue: string) {
+    setSelectedProviderId(providerIdValue);
+    setProviderCheckMessage(undefined);
   }
 
   async function checkProviderAvailability(providerIdValue: string) {
@@ -1860,10 +2455,18 @@ function SettingsPanel({
         <h3>Advanced provider status</h3>
         <ProviderGrid
           providers={providers}
-          onConfigureProvider={setSelectedProviderId}
+          onConfigureProvider={configureProvider}
           onCheckAvailability={(providerIdValue) => void checkProviderAvailability(providerIdValue)}
         />
-        <ProviderConfigurationPanel provider={selectedProvider} selectedProviderId={selectedProviderId} checkMessage={providerCheckMessage} />
+        <ProviderConfigurationPanel
+          provider={selectedProvider}
+          selectedProviderId={selectedProviderId}
+          checkMessage={providerCheckMessage}
+          settings={settings}
+          providers={providers}
+          onCheckAvailability={(providerIdValue) => void checkProviderAvailability(providerIdValue)}
+          onUpdateSettings={(patch) => void updateSettings(patch)}
+        />
       </section>
       <section className="settingsGroup" aria-label="Plugin settings">
         <h3>Plugin settings</h3>

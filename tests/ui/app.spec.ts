@@ -348,6 +348,22 @@ test("provider status cards show capability and compatibility details", async ({
   await expect(providerConfiguration).toBeFocused();
   await expect(providerConfiguration).toContainText("Fake provider configuration");
   await expect(providerConfiguration).toContainText("Provider id");
+  await expect(providerConfiguration).toContainText("Next:");
+  await expect(providerConfiguration.getByRole("button", { name: "Check availability" })).toHaveAttribute(
+    "data-method",
+    "providers.checkAvailability"
+  );
+  await expect(providerConfiguration.getByRole("button", { name: "Disable on next startup" })).toHaveAttribute(
+    "data-method",
+    "settings.update"
+  );
+  await expect(providerConfiguration.getByRole("button", { name: "Set as default provider" })).toHaveAttribute(
+    "data-method",
+    "settings.update"
+  );
+  await providerConfiguration.getByRole("button", { name: "Set as default provider" }).click();
+  await expect(providerConfiguration).toContainText("Default");
+  await expect(providerConfiguration).toContainText("yes");
 
   const unavailableProvider = page.getByRole("article").filter({ hasText: "Unavailable provider" });
   await expect(unavailableProvider).toContainText("unavailable");
