@@ -2421,6 +2421,7 @@ function ActionRequestDialog({
         })),
     [dashboard.checkRuns, values.projectId]
   );
+  const blockedReason = actionBlockedReason(action.method, values, providerOptions);
 
   useEffect(() => {
     dialogRef.current?.querySelector<HTMLInputElement>("input, select, textarea")?.focus();
@@ -2875,6 +2876,7 @@ function ActionRequestDialog({
               })
             : null}
           {status ? <p>{status}</p> : null}
+          {blockedReason ? <p className="fieldHint">{blockedReason}</p> : null}
           {resultPreview ? (
             <pre className="actionResult" role="region" aria-label="Action result" tabIndex={0}>
               {resultPreview}
@@ -2884,7 +2886,7 @@ function ActionRequestDialog({
             <button type="button" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" data-method={action.method} disabled={running}>
+            <button type="submit" data-method={action.method} disabled={running || Boolean(blockedReason)}>
               {running ? "Running" : "Run action"}
             </button>
           </div>
@@ -2901,6 +2903,18 @@ function uniqueOptions(options: FormOption[]): FormOption[] {
     seen.add(option.value);
     return true;
   });
+}
+
+function actionBlockedReason(method: string, values: ActionFormValues, providerOptions: FormOption[]): string | undefined {
+  if (!actionStartsProvider(method)) return undefined;
+  const selectedProvider = providerOptions.find((provider) => provider.value === values.providerId);
+  if (selectedProvider?.disabled) {
+    return "Selected provider is not available for starting sessions.";
+  }
+  if (providerOptions.length > 0 && providerOptions.every((provider) => provider.disabled)) {
+    return "No available provider can start sessions. Configure a provider or use the fake provider.";
+  }
+  return undefined;
 }
 
 function actionParams(action: PendingActionRequest, values: ActionFormValues): unknown {

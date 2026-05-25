@@ -630,6 +630,28 @@ test("start dialogs keep unavailable providers visible but unselectable", async 
   await expect(providerSelect.locator('option[value="provider-available"]')).not.toHaveAttribute("disabled", "");
 });
 
+test("start dialogs block submission when no provider is available", async ({ page }) => {
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result: request.method === "dashboard.getSnapshot" ? unavailableOnlyStartProviderDashboard() : {}
+      })
+    });
+  });
+
+  await page.goto("/");
+  const project = page.getByRole("article").filter({ hasText: "Unavailable-only provider project" });
+  await project.getByRole("button", { name: "Start task" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Start task" });
+  await expect(dialog).toContainText("Selected provider is not available for starting sessions.");
+  await expect(dialog.getByRole("button", { name: "Run action" })).toBeDisabled();
+});
+
 test("provider status cards show capability and compatibility details", async ({ page }) => {
   await page.goto("/");
 
@@ -1100,6 +1122,24 @@ function unavailableStartProviderDashboard(): DashboardProjection {
       providerStatusWithId("provider-available", "Available runner", "available", { canStartSession: true })
     ]
   });
+}
+
+function unavailableOnlyStartProviderDashboard(): DashboardProjection {
+  const dashboard = unavailableStartProviderDashboard();
+  const project = dashboard.projectCards[0]!;
+  const unavailableOnlyProject = {
+    ...project,
+    title: "Unavailable-only provider project",
+    stateReason: "Provider setup is required before this project can start work."
+  };
+  return {
+    ...dashboard,
+    projectCards: [unavailableOnlyProject],
+    home: { ...dashboard.home, activeProjects: [unavailableOnlyProject] },
+    providerStatus: [
+      providerStatusWithId("provider-unavailable", "Unavailable runner", "unavailable", { canStartSession: true })
+    ]
+  };
 }
 
 function noCheckWorkspaceDashboard(): DashboardProjection {
