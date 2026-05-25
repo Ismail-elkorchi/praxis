@@ -116,10 +116,14 @@ describe("project workspace model", () => {
     expect(projectSnapshot.artifacts[0]).toMatchObject({ title: "Evidence summary", status: "accepted", type: "research_summary" });
     expect(snapshot.dashboard.home.workInbox.some((item) => item.title === "Summarize evidence")).toBe(true);
     expect(app.workspace.getWorkspace(project.id)).toMatchObject({
-      header: expect.objectContaining({ name: "Research brief" }),
+      header: expect.objectContaining({
+        name: "Research brief",
+        primaryAction: expect.objectContaining({ method: "workItems.create" })
+      }),
       workItems: expect.objectContaining({ queued: [expect.objectContaining({ id: workItem.id })] }),
       artifacts: [expect.objectContaining({ id: artifact.id })]
     });
+    expect(app.workspace.getWorkspace(project.id).header.primaryAction.method).not.toBe("projects.getWorkspace");
     await expect(app.replay()).resolves.toEqual(app.snapshot());
 
     expect(store.countRows("project_profiles")).toBe(1);
@@ -245,7 +249,12 @@ describe("project workspace model", () => {
       result: [expect.objectContaining({ id: run.id, roleName: "Operator" })]
     });
     await expect(api.handle({ id: "workspace", method: "projects.getWorkspace", params: { projectId: project.id } })).resolves.toMatchObject({
-      result: expect.objectContaining({ header: expect.objectContaining({ name: "API workspace" }) })
+      result: expect.objectContaining({
+        header: expect.objectContaining({
+          name: "API workspace",
+          primaryAction: expect.objectContaining({ method: "agentRuns.start" })
+        })
+      })
     });
     await expect(api.handle({ id: "home", method: "projects.getHome" })).resolves.toMatchObject({
       result: expect.objectContaining({ quickCreate: expect.any(Array) })

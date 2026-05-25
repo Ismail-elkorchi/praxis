@@ -939,7 +939,7 @@ function projectWorkspace(
       runningAgentCount: project.agentRuns.filter((run) => run.status === "running" || run.status === "starting").length,
       pendingDecisionCount: project.approvals.filter((approval) => approval.status === "pending").length,
       latestArtifact,
-      primaryAction: card.primaryAction
+      primaryAction: workspacePrimaryAction(project, card)
     },
     workItems: {
       current: project.workItems.filter((item) => item.status === "running" || item.status === "waiting_for_approval" || item.status === "waiting_for_input" || item.status === "reviewing"),
@@ -995,6 +995,32 @@ function agentRunCards(project: ProjectSnapshot, snapshot: AppSnapshot): AgentRu
       }
     };
   });
+}
+
+function workspacePrimaryAction(project: ProjectSnapshot, card: ProjectCardViewModel): DashboardAction {
+  if (project.approvals.some((approval) => approval.status === "pending")) {
+    return { id: "open-decisions", label: "Open decisions", method: "agents.respondToApproval" };
+  }
+  const queuedRun = project.agentRuns.find((run) => run.status === "queued");
+  if (queuedRun) {
+    return { id: "start-agent-run", label: "Start agent run", method: "agentRuns.start" };
+  }
+  const activeRun = project.agentRuns.find((run) =>
+    run.status === "running" || run.status === "waiting_for_approval" || run.status === "waiting_for_input"
+  );
+  if (activeRun) {
+    return { id: "send-instruction", label: "Send instruction", method: "agentRuns.sendInstruction" };
+  }
+  if (
+    card.diffFiles.length > 0 &&
+    (project.runtimeState === "ready_for_review" || project.runtimeState === "ready_to_merge" || project.runtimeState === "dirty_worktree")
+  ) {
+    return { id: "open-diff", label: "Review diff", method: "git.openDiff" };
+  }
+  if (project.workItems.length > 0 && Object.values(project.turns).some((turn) => turn.status === "in_progress")) {
+    return { id: "create-artifact", label: "Create artifact", method: "artifacts.create" };
+  }
+  return { id: "create-work-item", label: "Create work item", method: "workItems.create" };
 }
 
 function agentRunPrimaryAction(run: AgentRun): DashboardAction {

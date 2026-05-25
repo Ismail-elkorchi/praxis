@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
-import type { DashboardProjection, ProjectCardViewModel, ProviderStatusViewModel, TimelineItemViewModel } from "../../src/dashboard/types";
+import type {
+  AgentRunCardViewModel,
+  DashboardProjection,
+  ProjectCardViewModel,
+  ProviderStatusViewModel,
+  TimelineItemViewModel
+} from "../../src/dashboard/types";
 
 test("dashboard shell uses provider-neutral language and keyboard focus", async ({ page }) => {
   await page.goto("/");
@@ -347,6 +353,64 @@ test("check run panel shows active and recent runs with triage links", async ({ 
   await expect(page.getByRole("button", { name: "Run checks" })).toHaveAttribute("data-method", "checks.run");
 });
 
+test("empty project check panel preserves workspace context", async ({ page }) => {
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    if (request.method === "dashboard.getSnapshot") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: request.id, result: noCheckWorkspaceDashboard() })
+      });
+      return;
+    }
+    if (request.method === "checks.list") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: request.id,
+          result: [
+            {
+              id: "check-no-checks",
+              projectId: "project-no-checks",
+              name: "research review",
+              command: ["npm", "run", "review"],
+              cwd: "/workspace/no-checks",
+              timeoutMs: 60000,
+              required: true,
+              source: "detected"
+            }
+          ]
+        })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ id: request.id, error: { message: "No mocked response." } })
+    });
+  });
+  await page.goto("/");
+
+  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: /^Projects/ }).click();
+  const checks = page.getByRole("region", { name: "Checks inside project workspace" });
+  await expect(checks.getByRole("heading", { name: "No checks have run" })).toBeVisible();
+  const addCheck = checks.getByRole("button", { name: "Add check" });
+  await expect(addCheck).toHaveAttribute("data-method", "checks.list");
+  await addCheck.click();
+
+  const addCheckDialog = page.getByRole("dialog", { name: "Add check" });
+  await expect(addCheckDialog).toBeVisible();
+  await expect(addCheckDialog.getByRole("combobox", { name: "Project", exact: true })).toContainText("No-check Workspace");
+  const runAction = addCheckDialog.getByRole("button", { name: "Run action" });
+  await expect(runAction).toHaveAttribute("data-method", "checks.list");
+  await runAction.click();
+  await expect(addCheckDialog.getByRole("region", { name: "Action result" })).toContainText("Available checks");
+  await expect(addCheckDialog.getByRole("region", { name: "Action result" })).toContainText("research review");
+});
+
 test("project workspace action dialogs use workspace choices", async ({ page }) => {
   await page.goto("/");
 
@@ -368,6 +432,67 @@ test("project workspace action dialogs use workspace choices", async ({ page }) 
   await expect(checksDialog.getByRole("combobox", { name: "Project", exact: true })).toContainText("Control Plane");
   await expect(checksDialog.getByRole("combobox", { name: "Check", exact: true })).toContainText("typecheck");
   await expect(checksDialog).toContainText("Required failed checks block review readiness");
+});
+
+test("agent open details expands advanced details without a dead API dialog", async ({ page }) => {
+  const requestedMethods: string[] = [];
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    requestedMethods.push(request.method);
+    if (request.method === "dashboard.getSnapshot") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: request.id, result: agentDetailsDashboard() })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ id: request.id, error: { message: "No mocked response." } })
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: /^Projects/ }).click();
+  const doneAgents = page.getByRole("region", { name: "done agents" });
+  const openDetails = doneAgents.getByRole("button", { name: "Open details" });
+  await expect(openDetails).toHaveAttribute("data-method", "agentRuns.listByProject");
+  await expect(doneAgents.getByText("session-finished")).toBeHidden();
+
+  await openDetails.click();
+
+  await expect(openDetails).toHaveAttribute("aria-expanded", "true");
+  await expect(doneAgents.getByText("session-finished")).toBeVisible();
+  expect(requestedMethods).not.toContain("agentRuns.listByProject");
+});
+
+test("project session actions open executable context dialogs", async ({ page }) => {
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result: request.method === "dashboard.getSnapshot" ? sessionActionDashboard() : {}
+      })
+    });
+  });
+
+  await page.goto("/");
+  const project = page.getByRole("article").filter({ hasText: "Session action project" });
+  const startTask = project.getByRole("button", { name: "Start task" });
+  await expect(startTask).toHaveAttribute("data-method", "agents.startSession");
+  await startTask.click();
+
+  const dialog = page.getByRole("dialog", { name: "Start task" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("combobox", { name: "Project", exact: true })).toContainText("Session action project");
+  await expect(dialog.getByRole("combobox", { name: "Provider", exact: true })).toContainText("Runnable provider");
+  await expect(dialog.getByLabel("Working folder")).toHaveValue("/workspace/session-action");
+  await expect(dialog.getByRole("button", { name: "Run action" })).toHaveAttribute("data-method", "agents.startSession");
 });
 
 test("provider status cards show capability and compatibility details", async ({ page }) => {
@@ -570,6 +695,16 @@ test("command palette opens executable project action flows", async ({ page }) =
   const runChecksDialog = page.getByRole("dialog", { name: "Run checks" });
   await expect(runChecksDialog.getByRole("combobox", { name: "Project", exact: true })).toContainText("Control Plane");
   await expect(runChecksDialog.getByRole("combobox", { name: "Check", exact: true })).toContainText("typecheck");
+  await runChecksDialog.getByRole("button", { name: "Cancel" }).click();
+
+  await page.getByRole("button", { name: "Open command palette" }).click();
+  await page.getByLabel("Search commands").fill("open diff");
+  const openDiff = page.getByRole("option", { name: /Open diff review/ });
+  await expect(openDiff).toHaveAttribute("data-method", "git.openDiff");
+  await openDiff.click();
+
+  await expect(page.getByRole("button", { name: "Projects" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("region", { name: "Diff review details" })).toBeFocused();
 });
 
 test("empty states expose provider-neutral next actions", async ({ page }) => {
@@ -623,7 +758,13 @@ test("empty states expose provider-neutral next actions", async ({ page }) => {
   const configureProvider = providers.getByRole("button", { name: "Configure provider" });
   await expect(configureProvider).toHaveAttribute("data-method", "providers.list");
   await configureProvider.click();
-  await expect(page.getByRole("region", { name: "Provider configuration" })).toContainText("No provider is selected");
+  const providerConfiguration = page.getByRole("region", { name: "Provider configuration" });
+  await expect(providerConfiguration).toContainText("No optional provider is registered");
+  await expect(providerConfiguration.getByRole("list", { name: "Provider discovery checklist" })).toContainText("Restart the local runtime");
+  await expect(providerConfiguration.getByRole("button", { name: "Reload provider status" })).toHaveAttribute(
+    "data-method",
+    "providers.checkAvailability"
+  );
 });
 
 function parseCssDurations(value: string): number[] {
@@ -635,8 +776,15 @@ function parseCssDurations(value: string): number[] {
   });
 }
 
-function emptyDashboard(overrides: Partial<DashboardProjection> = {}): DashboardProjection {
-  const mode = overrides.mode ?? "portfolio";
+type DashboardOverrides = Omit<Partial<DashboardProjection>, "home" | "globalStatus" | "explanation"> & {
+  home?: Partial<DashboardProjection["home"]>;
+  globalStatus?: Partial<DashboardProjection["globalStatus"]>;
+  explanation?: Partial<DashboardProjection["explanation"]>;
+};
+
+function emptyDashboard(overrides: DashboardOverrides = {}): DashboardProjection {
+  const { home, globalStatus, explanation, ...rest } = overrides;
+  const mode = rest.mode ?? "portfolio";
   return {
     mode,
     home: {
@@ -656,9 +804,9 @@ function emptyDashboard(overrides: Partial<DashboardProjection> = {}): Dashboard
         "Which project should I open next?",
         "What can I start now?"
       ],
-      ...overrides.home
+      ...home
     },
-    selectedWorkspace: overrides.selectedWorkspace,
+    selectedWorkspace: rest.selectedWorkspace,
     globalStatus: {
       activeProjectCount: 0,
       activeTurnCount: 0,
@@ -667,7 +815,7 @@ function emptyDashboard(overrides: Partial<DashboardProjection> = {}): Dashboard
       staleSessionCount: 0,
       unsafeStateCount: 0,
       providerIssues: [],
-      ...overrides.globalStatus
+      ...globalStatus
     },
     projectCards: [],
     approvals: [],
@@ -678,9 +826,9 @@ function emptyDashboard(overrides: Partial<DashboardProjection> = {}): Dashboard
       mode,
       propositions: [],
       evidence: [],
-      ...overrides.explanation
+      ...explanation
     },
-    ...overrides
+    ...rest
   };
 }
 
@@ -728,6 +876,155 @@ function setupProviderDetails(command: string): Record<string, unknown> {
       jsonSchemaCommand: [command, "generate-json-schema"]
     }
   };
+}
+
+function noCheckWorkspaceDashboard(): DashboardProjection {
+  const now = new Date(0).toISOString();
+  const projectId = "project-no-checks" as ProjectCardViewModel["projectId"];
+  const projectCard: ProjectCardViewModel = {
+    projectId,
+    title: "No-check Workspace",
+    subtitle: "/workspace/no-checks",
+    profileFacets: ["Project workspace", "research", "note"],
+    runtimeState: "idle",
+    urgency: 0,
+    stateLabel: "Idle",
+    stateReason: "No checks have been run yet.",
+    providerLabel: "Fake provider",
+    branchLabel: "main",
+    changedFileCount: 0,
+    pendingApprovalCount: 0,
+    failedCheckCount: 0,
+    activeTurnCount: 0,
+    activeAgentCount: 0,
+    waitingAgentCount: 0,
+    blockedAgentCount: 0,
+    badges: [{ label: "Idle", tone: "idle" }],
+    primaryAction: { id: "open-workspace", label: "Open workspace", method: "projects.getWorkspace" },
+    secondaryActions: [],
+    diffFiles: [],
+    evidence: []
+  };
+  return emptyDashboard({
+    focusedProjectId: projectId,
+    projectCards: [projectCard],
+    home: {
+      activeProjects: [projectCard]
+    },
+    selectedWorkspace: {
+      projectId,
+      header: {
+        name: "No-check Workspace",
+        profileFacets: projectCard.profileFacets,
+        state: "idle",
+        activeWorkCount: 0,
+        runningAgentCount: 0,
+        pendingDecisionCount: 0,
+        primaryAction: { id: "create-work-item", label: "Create work item", method: "workItems.create" }
+      },
+      workItems: {
+        current: [],
+        queued: [],
+        blocked: [],
+        completed: []
+      },
+      agentBoard: {
+        queued: [],
+        running: [],
+        waiting: [],
+        blocked: [],
+        review: [],
+        done: []
+      },
+      sources: [],
+      artifacts: [],
+      decisions: [],
+      timeline: [
+        {
+          id: "no-check-event",
+          kind: "system",
+          eventType: "project.registered",
+          projectId,
+          title: "project.registered",
+          summary: "Workspace created.",
+          timestamp: now,
+          status: "reported",
+          evidence: [],
+          expandable: false
+        }
+      ]
+    } as NonNullable<DashboardProjection["selectedWorkspace"]>
+  });
+}
+
+function agentDetailsDashboard(): DashboardProjection {
+  const dashboard = noCheckWorkspaceDashboard();
+  const workspace = dashboard.selectedWorkspace!;
+  const run: AgentRunCardViewModel = {
+    runId: "run-finished" as AgentRunCardViewModel["runId"],
+    projectId: workspace.projectId,
+    workItemId: "work-finished" as AgentRunCardViewModel["workItemId"],
+    roleName: "Reviewer",
+    rolePreset: "reviewer",
+    providerLabel: "Fake provider",
+    providerId: "fake" as AgentRunCardViewModel["providerId"],
+    linkedWorkItemTitle: "Review notes",
+    status: "completed",
+    lastEvent: "agent.run.completed",
+    pendingDecisionCount: 0,
+    pendingInput: false,
+    producedArtifactCount: 1,
+    primaryAction: { id: "open-agent-run", label: "Open details", method: "agentRuns.listByProject" },
+    evidence: [],
+    advanced: {
+      sessionId: "session-finished" as AgentRunCardViewModel["advanced"]["sessionId"],
+      providerSessionExternalKind: "runtime session"
+    }
+  };
+  return {
+    ...dashboard,
+    selectedWorkspace: {
+      ...workspace,
+      agentBoard: {
+        ...workspace.agentBoard,
+        done: [run]
+      }
+    }
+  };
+}
+
+function sessionActionDashboard(): DashboardProjection {
+  const projectId = "project-session-action" as ProjectCardViewModel["projectId"];
+  const projectCard: ProjectCardViewModel = {
+    projectId,
+    title: "Session action project",
+    subtitle: "/workspace/session-action",
+    profileFacets: ["Project workspace", "operate", "local folder"],
+    runtimeState: "idle",
+    urgency: 0,
+    stateLabel: "Idle",
+    stateReason: "Ready to start project work.",
+    providerLabel: "Runnable provider",
+    branchLabel: "main",
+    changedFileCount: 0,
+    pendingApprovalCount: 0,
+    failedCheckCount: 0,
+    activeTurnCount: 0,
+    activeAgentCount: 0,
+    waitingAgentCount: 0,
+    blockedAgentCount: 0,
+    badges: [{ label: "Idle", tone: "idle" }],
+    primaryAction: { id: "start-task", label: "Start task", method: "agents.startSession" },
+    secondaryActions: [],
+    diffFiles: [],
+    evidence: []
+  };
+  return emptyDashboard({
+    focusedProjectId: projectId,
+    projectCards: [projectCard],
+    home: { activeProjects: [projectCard] },
+    providerStatus: [setupProviderStatus("Runnable provider", "available")]
+  });
 }
 
 function disabledActionProjectCard(): ProjectCardViewModel {

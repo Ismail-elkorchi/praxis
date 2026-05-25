@@ -20,7 +20,7 @@ import {
   type SourceType,
   type WorkMode
 } from "../core";
-import type { AppSnapshot, HomeViewModel, ProjectWorkspaceViewModel } from "../dashboard/types";
+import type { AppSnapshot, DashboardAction, HomeViewModel, ProjectCardViewModel, ProjectSnapshot, ProjectWorkspaceViewModel } from "../dashboard/types";
 import type { AppEventLog } from "../events/AppEventLog";
 import { createDomainEvent } from "../events/eventFactory";
 import type { ProviderService } from "./ProviderService";
@@ -552,7 +552,7 @@ function buildWorkspaceFromSnapshot(snapshot: AppSnapshot, projectId: ProjectId)
       runningAgentCount: project.agentRuns.filter((run) => run.status === "running" || run.status === "starting").length,
       pendingDecisionCount: project.approvals.filter((approval) => approval.status === "pending").length,
       latestArtifact: [...project.artifacts].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0],
-      primaryAction: card?.primaryAction ?? { id: `open-workspace-${projectId}`, label: "Open workspace", method: "projects.getWorkspace" }
+      primaryAction: workspacePrimaryAction(project, card)
     },
     workItems: {
       current: project.workItems.filter((item) => ["running", "waiting_for_approval", "waiting_for_input", "reviewing"].includes(item.status)),
@@ -576,6 +576,32 @@ function buildWorkspaceFromSnapshot(snapshot: AppSnapshot, projectId: ProjectId)
     decisions: snapshot.dashboard.approvals.filter((approval) => project.approvals.some((item) => item.id === approval.approvalId)),
     timeline: snapshot.dashboard.timeline.filter((item) => item.projectId === projectId)
   };
+}
+
+function workspacePrimaryAction(project: ProjectSnapshot, card: ProjectCardViewModel | undefined): DashboardAction {
+  if (project.approvals.some((approval) => approval.status === "pending")) {
+    return { id: "open-decisions", label: "Open decisions", method: "agents.respondToApproval" };
+  }
+  if (project.agentRuns.some((run) => run.status === "queued")) {
+    return { id: "start-agent-run", label: "Start agent run", method: "agentRuns.start" };
+  }
+  if (
+    project.agentRuns.some(
+      (run) => run.status === "running" || run.status === "waiting_for_approval" || run.status === "waiting_for_input"
+    )
+  ) {
+    return { id: "send-instruction", label: "Send instruction", method: "agentRuns.sendInstruction" };
+  }
+  if (
+    card?.diffFiles.length &&
+    (project.runtimeState === "ready_for_review" || project.runtimeState === "ready_to_merge" || project.runtimeState === "dirty_worktree")
+  ) {
+    return { id: "open-diff", label: "Review diff", method: "git.openDiff" };
+  }
+  if (project.workItems.length > 0 && Object.values(project.turns).some((turn) => turn.status === "in_progress")) {
+    return { id: "create-artifact", label: "Create artifact", method: "artifacts.create" };
+  }
+  return { id: "create-work-item", label: "Create work item", method: "workItems.create" };
 }
 
 function unique<T extends string>(values: readonly T[]): T[] {
