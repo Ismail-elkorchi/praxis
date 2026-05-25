@@ -2,6 +2,7 @@ import type {
   AgentProvider,
   AgentSession,
   AgentSessionId,
+  AgentTurnId,
   AgentTurn,
   ApprovalDecision,
   ApprovalKind,
@@ -9,6 +10,7 @@ import type {
   ApprovalRequestId,
   CheckDefinition,
   CheckRun,
+  CommandRun,
   DashboardMode,
   DomainEvent,
   EvidenceRef,
@@ -21,7 +23,8 @@ import type {
   ProviderAvailability,
   ProviderCapabilities,
   ProviderId,
-  RiskLevel
+  RiskLevel,
+  RiskSignal
 } from "../core";
 
 export type ProviderSnapshot = {
@@ -34,9 +37,16 @@ export type ProjectSnapshot = {
   project: Project;
   runtimeState: ProjectRuntimeState;
   git: GitSnapshot;
+  reviewState: {
+    readyToMergeMarkedAt?: string;
+    acceptedOutOfDateBranch: boolean;
+    statusHash?: string;
+    evidence: EvidenceRef[];
+  };
   sessions: Record<AgentSessionId, AgentSession>;
   turns: Record<string, AgentTurn>;
   approvals: ApprovalRequest[];
+  commandRuns: CommandRun[];
   fileChanges: FileChange[];
   checkDefinitions: CheckDefinition[];
   checkRuns: CheckRun[];
@@ -62,6 +72,18 @@ export type DashboardBadge = {
   tone: "idle" | "active" | "waiting" | "review" | "passed" | "failed" | "blocked" | "stale" | "unsafe" | "unknown";
 };
 
+export type ProjectDiffFileViewModel = {
+  path: string;
+  oldPath?: string;
+  changeKind: FileChange["changeKind"] | "binary";
+  source: "provider" | "git";
+  sourceSessionId?: AgentSessionId;
+  sourceTurnId?: AgentTurnId;
+  binary: boolean;
+  summary: string;
+  evidence: EvidenceRef[];
+};
+
 export type ProjectCardViewModel = {
   projectId: ProjectId;
   title: string;
@@ -80,15 +102,18 @@ export type ProjectCardViewModel = {
   badges: DashboardBadge[];
   primaryAction: DashboardAction;
   secondaryActions: DashboardAction[];
+  diffFiles: ProjectDiffFileViewModel[];
   evidence: EvidenceRef[];
 };
 
 export type ApprovalCardViewModel = {
   approvalId: ApprovalRequestId;
+  sessionId: AgentSessionId;
   projectTitle: string;
   providerLabel: string;
   kind: ApprovalKind;
   risk: RiskLevel;
+  riskSignals: RiskSignal[];
   title: string;
   summary: string;
   requestedAt: string;
@@ -96,9 +121,32 @@ export type ApprovalCardViewModel = {
   evidence: EvidenceRef[];
 };
 
+export type CheckRunViewModel = {
+  runId: CheckRun["id"];
+  checkId: CheckRun["checkId"];
+  projectId: ProjectId;
+  projectTitle: string;
+  name: string;
+  command: string[];
+  status: CheckRun["status"];
+  required: boolean;
+  startedAt: string;
+  completedAt?: string;
+  durationMs?: number;
+  exitCode?: number;
+  output: string;
+  relatedFiles: string[];
+  evidence: EvidenceRef[];
+};
+
 export type TimelineItemViewModel = {
   id: string;
   kind: "turn" | "message" | "command" | "file_change" | "approval" | "check" | "provider_error" | "system";
+  eventType: string;
+  projectId?: ProjectId;
+  providerId?: ProviderId;
+  sessionId?: AgentSessionId;
+  turnId?: AgentTurnId;
   title: string;
   summary?: string;
   timestamp: string;
@@ -127,9 +175,11 @@ export type GlobalStatusViewModel = {
 
 export type DashboardProjection = {
   mode: DashboardMode;
+  focusedProjectId?: ProjectId;
   globalStatus: GlobalStatusViewModel;
   projectCards: ProjectCardViewModel[];
   approvals: ApprovalCardViewModel[];
+  checkRuns: CheckRunViewModel[];
   providerStatus: ProviderStatusViewModel[];
   timeline: TimelineItemViewModel[];
   explanation: {
@@ -142,6 +192,7 @@ export type DashboardProjection = {
 export type AppSnapshot = {
   projects: Record<ProjectId, ProjectSnapshot>;
   providers: Record<ProviderId, ProviderSnapshot>;
+  focusedProjectId?: ProjectId;
   approvals: ApprovalQueueSnapshot;
   activeTurns: AgentTurn[];
   events: DomainEvent[];

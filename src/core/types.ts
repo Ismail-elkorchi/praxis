@@ -38,6 +38,46 @@ export type GitRepositoryRef = {
   remoteUrl?: string;
 };
 
+export type PackageManager = "npm" | "pnpm" | "yarn" | "bun" | "unknown";
+
+export type ProjectScript = {
+  name: string;
+  command: string[];
+  source: "package_json" | "user" | "system";
+  confidence: "high" | "medium" | "low";
+};
+
+export type ProjectMetadataFile = {
+  path: string;
+  kind: "package" | "workspace" | "project_config" | "other";
+};
+
+export type ProjectWorktree = {
+  path: string;
+  branch?: string;
+  headSha?: string;
+};
+
+export type ProjectSettings = {
+  defaultProviderId?: ProviderId;
+  defaultPermissionProfileId?: PermissionProfileId;
+  defaultCheckIds: string[];
+  preferredWorktreeMode: "none" | "manual" | "task_isolated";
+  autoRefreshGit: boolean;
+  showInDashboard: boolean;
+};
+
+export const guardedPermissionProfileId = "permission_default" as PermissionProfileId;
+export const fullAccessPermissionProfileId = "permission_full_access" as PermissionProfileId;
+
+export const defaultProjectSettings: ProjectSettings = {
+  defaultPermissionProfileId: guardedPermissionProfileId,
+  defaultCheckIds: [],
+  preferredWorktreeMode: "manual",
+  autoRefreshGit: true,
+  showInDashboard: true
+};
+
 export type Project = {
   id: ProjectId;
   name: string;
@@ -45,7 +85,12 @@ export type Project = {
   canonicalPath: string;
   repo?: GitRepositoryRef;
   defaultBranch?: string;
+  packageManager?: PackageManager;
+  scripts: ProjectScript[];
+  metadataFiles: ProjectMetadataFile[];
+  worktrees: ProjectWorktree[];
   tags: string[];
+  settings: ProjectSettings;
   archived: boolean;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
@@ -250,7 +295,7 @@ export type CheckDefinition = {
   source: "detected" | "user" | "system";
 };
 
-export type CheckRunStatus = "queued" | "running" | "passed" | "failed" | "cancelled";
+export type CheckRunStatus = "queued" | "running" | "passed" | "failed" | "cancelled" | "waived";
 
 export type CheckRun = {
   id: CheckRunId;
@@ -263,6 +308,7 @@ export type CheckRun = {
   stdoutRef?: string;
   stderrRef?: string;
   outputSummary?: string;
+  waivedReason?: string;
   relatedFiles: string[];
 };
 

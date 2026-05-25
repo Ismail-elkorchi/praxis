@@ -1,4 +1,19 @@
-import type { AgentSessionId, ApprovalDecision, ApprovalRequestId, ProjectId, ProviderId } from "../core";
+import { performance } from "node:perf_hooks";
+import type {
+  AgentSessionId,
+  AgentTurnId,
+  CheckDefinitionId,
+  ApprovalDecision,
+  ApprovalRequestId,
+  CheckRunId,
+  ProjectId,
+  ProjectSettings,
+  ProviderId
+} from "../core";
+import { createDomainEvent } from "../events/eventFactory";
+import type { EventQuery } from "../events/EventStore";
+import { gitStatusHash } from "../git/statusHash";
+import type { AppSettings } from "../settings/SettingsService";
 import type { PraxisRuntime } from "./PraxisApp";
 import { PraxisError } from "./errors";
 
@@ -12,6 +27,7 @@ export type ApiError = {
   code: string;
   message: string;
   details?: Record<string, unknown>;
+  evidence?: unknown[];
 };
 
 export type ServerResponse = { id: string; result: unknown } | { id: string; error: ApiError };
@@ -19,22 +35,41 @@ export type ServerResponse = { id: string; result: unknown } | { id: string; err
 export const apiMethods = [
   "projects.list",
   "projects.register",
+  "projects.update",
+  "projects.archive",
   "projects.refresh",
+  "projects.markReadyToMerge",
   "providers.list",
   "providers.getStatus",
   "providers.getCapabilities",
   "providers.checkAvailability",
   "agents.startSession",
+  "agents.resumeSession",
   "agents.stopSession",
   "agents.sendTurn",
+  "agents.steerTurn",
   "agents.interruptTurn",
   "agents.respondToApproval",
+  "agents.respondToUserInput",
+  "agents.readSession",
+  "agents.listSessions",
+  "agents.importSessions",
   "dashboard.getSnapshot",
+  "dashboard.subscribe",
   "dashboard.explainMode",
+  "dashboard.focusProject",
+  "dashboard.clearFocus",
+  "diagnostics.get",
+  "settings.get",
+  "settings.update",
   "checks.list",
   "checks.run",
+  "checks.cancel",
+  "checks.waive",
   "git.getStatus",
   "git.openDiff",
+  "git.createWorktree",
+  "git.discardChanges",
   "events.replay",
   "events.query"
 ] as const;
@@ -45,10 +80,22 @@ export class PraxisApi {
   constructor(private readonly app: PraxisRuntime) {}
 
   async handle(request: ClientRequest): Promise<ServerResponse> {
+    const snapshotStarted = isDashboardSnapshotRequest(request.method) ? performance.now() : undefined;
+    let ok = false;
     try {
-      return { id: request.id, result: await this.dispatch(request.method as ApiMethod, request.params) };
+      const result = await this.dispatch(request.method as ApiMethod, request.params);
+      ok = true;
+      return { id: request.id, result };
     } catch (error) {
       return { id: request.id, error: toApiError(error) };
+    } finally {
+      if (snapshotStarted !== undefined) {
+        this.app.observability.recordDashboardSnapshotGeneration({
+          method: request.method,
+          durationMs: performance.now() - snapshotStarted,
+          ok
+        });
+      }
     }
   }
 
@@ -60,18 +107,53 @@ export class PraxisApi {
         const input = params as { rootPath: string; name?: string; defaultProviderId?: ProviderId };
         return this.app.projects.registerProject(input);
       }
-      case "projects.refresh":
+      case "projects.update": {
+        const input = params as {
+          projectId: ProjectId;
+          patch: { name?: string; tags?: string[]; archived?: boolean; settings?: Partial<ProjectSettings> };
+          confirmBroadPermissionProfile?: boolean;
+        };
+        return this.app.projects.updateProject(input.projectId, input.patch, {
+          confirmBroadPermissionProfile: input.confirmBroadPermissionProfile
+        });
+      }
+      case "projects.archive": {
+        const input = params as { projectId: ProjectId };
+        return this.app.projects.archiveProject(input.projectId);
+      }
+      case "projects.refresh": {
+        const input = params as { projectId?: ProjectId };
+        if (input?.projectId) {
+          await this.app.projects.refreshProject(input.projectId);
+        }
         return this.app.snapshot().dashboard.projectCards;
+      }
+      case "projects.markReadyToMerge": {
+        const input = params as { projectId: ProjectId; confirmOutOfDateBranch?: boolean };
+        return this.app.projects.markReadyToMerge(input.projectId, {
+          confirmOutOfDateBranch: input.confirmOutOfDateBranch
+        });
+      }
       case "providers.list":
-        return this.app.providerRegistry.listProviders();
-      case "providers.getStatus":
-      case "providers.getCapabilities":
+        return this.app.providers.listProviders();
+      case "providers.getStatus": {
+        const input = params as { providerId?: ProviderId };
+        return this.app.providers.getStatus(input ?? {});
+      }
+      case "providers.getCapabilities": {
+        const input = params as { providerId?: ProviderId };
+        return this.app.providers.getCapabilities(input ?? {});
+      }
       case "providers.checkAvailability":
-        return this.app.providerRegistry.listProviders();
+        return this.app.providers.checkAvailability((params as { providerId?: ProviderId }) ?? {});
       case "agents.startSession": {
         const input = params as { providerId: ProviderId; projectId: ProjectId; cwd: string; goal?: string };
         return this.app.providers.startSession(input);
       }
+      case "agents.resumeSession":
+        return this.app.providers.resumeSession(params as { providerId: ProviderId; sessionId: AgentSessionId });
+      case "agents.stopSession":
+        return this.app.providers.stopSession(params as { providerId: ProviderId; sessionId: AgentSessionId; reason?: string });
       case "agents.sendTurn": {
         const input = params as {
           providerId: ProviderId;
@@ -81,15 +163,90 @@ export class PraxisApi {
         };
         return this.app.providers.sendTurn(input);
       }
+      case "agents.steerTurn":
+        return this.app.providers.steerTurn(
+          params as { providerId: ProviderId; sessionId: AgentSessionId; turnId: AgentTurnId; input: string }
+        );
       case "agents.interruptTurn":
         return this.app.providers.interruptTurn(params as Parameters<typeof this.app.providers.interruptTurn>[0]);
       case "agents.respondToApproval": {
         const input = params as { providerId: ProviderId; approvalId: ApprovalRequestId; decision: ApprovalDecision };
         return this.app.providers.decideApproval(input);
       }
+      case "agents.respondToUserInput":
+        return this.app.providers.respondToUserInput(
+          params as { providerId: ProviderId; sessionId: AgentSessionId; turnId?: AgentTurnId; input: string }
+        );
+      case "agents.readSession":
+        return this.app.providers.readSession(params as { providerId: ProviderId; sessionId: AgentSessionId });
+      case "agents.listSessions":
+        return this.app.providers.listSessions(
+          params as { providerId?: ProviderId; projectId?: ProjectId; cursor?: string; limit?: number }
+        );
+      case "agents.importSessions":
+        return this.app.providers.importSessions(params as { providerId: ProviderId; projectId?: ProjectId });
       case "dashboard.getSnapshot":
+      case "dashboard.subscribe":
       case "dashboard.explainMode":
         return this.app.snapshot().dashboard;
+      case "dashboard.focusProject": {
+        const input = params as { projectId: ProjectId };
+        const project = this.app.projects.getProject(input.projectId);
+        if (!project || project.archived) {
+          throw new PraxisError("not_found", "Project was not found.", { projectId: input.projectId });
+        }
+        await this.app.events.append(
+          createDomainEvent({
+            type: "dashboard.projectFocused",
+            projectId: input.projectId,
+            source: "user",
+            payload: { projectId: input.projectId },
+            evidence: [{ type: "user", commandId: "dashboard.focusProject" }]
+          })
+        );
+        return this.app.snapshot().dashboard;
+      }
+      case "dashboard.clearFocus": {
+        await this.app.events.append(
+          createDomainEvent({
+            type: "dashboard.focusCleared",
+            source: "user",
+            payload: {},
+            evidence: [{ type: "user", commandId: "dashboard.clearFocus" }]
+          })
+        );
+        return this.app.snapshot().dashboard;
+      }
+      case "diagnostics.get":
+        return this.app.observability.diagnostics();
+      case "settings.get":
+        return this.app.settings.get();
+      case "settings.update": {
+        const input = params as {
+          patch: Partial<AppSettings>;
+          confirmRawProviderLogs?: boolean;
+        };
+        if (input.patch.rawProviderLogsEnabled && !this.app.settings.get().rawProviderLogsEnabled && !input.confirmRawProviderLogs) {
+          throw new PraxisError("confirmation_required", "Raw provider logs require explicit confirmation.", {
+            setting: "rawProviderLogsEnabled"
+          });
+        }
+        const settings = this.app.settings.update(input.patch, {
+          confirmRawProviderLogs: input.confirmRawProviderLogs
+        });
+        await this.app.events.append(
+          createDomainEvent({
+            type: "settings.updated",
+            source: "user",
+            payload: {
+              updatedKeys: Object.keys(input.patch),
+              settings
+            },
+            evidence: [{ type: "user", commandId: "settings.update" }]
+          })
+        );
+        return settings;
+      }
       case "checks.list": {
         const input = params as { projectId: ProjectId };
         return this.app.checks.listDefinitions(input.projectId);
@@ -100,6 +257,18 @@ export class PraxisApi {
         if (!definition) throw new PraxisError("not_found", "Check definition was not found.");
         return this.app.checks.runCheck(definition);
       }
+      case "checks.cancel": {
+        const input = params as { runId: CheckRunId };
+        return this.app.checks.cancelRun(input.runId);
+      }
+      case "checks.waive": {
+        const input = params as { projectId: ProjectId; checkId: CheckDefinitionId; reason?: string };
+        return this.app.checks.waiveCheck({
+          projectId: input.projectId,
+          checkId: input.checkId,
+          reason: input.reason
+        });
+      }
       case "git.getStatus": {
         const input = params as { rootPath: string };
         return this.app.git.getStatus(input.rootPath);
@@ -108,19 +277,72 @@ export class PraxisApi {
         const input = params as { rootPath: string };
         return this.app.git.getDiff(input.rootPath);
       }
+      case "git.createWorktree": {
+        const input = params as { projectId?: ProjectId; rootPath: string; worktreePath: string; branch?: string };
+        const created = await this.app.git.createWorktree(input);
+        const projectId = input.projectId ?? projectIdForRoot(this.app, input.rootPath);
+        await this.app.events.append(
+          createDomainEvent({
+            type: "git.worktree.created",
+            projectId,
+            source: "git",
+            payload: { path: created.path, branch: created.branch, rootPath: input.rootPath },
+            evidence: [{ type: "git", repoPath: input.rootPath }]
+          })
+        );
+        return created;
+      }
+      case "git.discardChanges": {
+        const input = params as { projectId?: ProjectId; rootPath: string; paths: string[]; confirmDiscard?: boolean };
+        if (!input.confirmDiscard) {
+          throw new PraxisError("confirmation_required", "Discarding changes requires explicit confirmation.", {
+            method: "git.discardChanges"
+          });
+        }
+        const result = await this.app.git.discardChanges({ rootPath: input.rootPath, paths: input.paths });
+        const projectId = input.projectId ?? projectIdForRoot(this.app, input.rootPath);
+        await this.app.events.appendMany([
+          createDomainEvent({
+            type: "git.changesDiscarded",
+            projectId,
+            source: "user",
+            payload: { rootPath: input.rootPath, paths: result.discardedPaths },
+            evidence: [
+              { type: "git", repoPath: input.rootPath, sha: result.git.headSha, statusHash: gitStatusHash(result.git) },
+              { type: "user", commandId: "git.discardChanges" }
+            ]
+          }),
+          createDomainEvent({
+            type: "git.statusChanged",
+            projectId,
+            source: "git",
+            payload: result.git,
+            evidence: [{ type: "git", repoPath: input.rootPath, sha: result.git.headSha }]
+          })
+        ]);
+        return result;
+      }
       case "events.replay":
         return this.app.replay();
       case "events.query":
-        return this.app.events.queryEvents();
+        return this.app.events.queryEvents((params as EventQuery | undefined) ?? {});
       default:
         throw new PraxisError("method_not_found", "API method was not found.", { method });
     }
   }
 }
 
+function isDashboardSnapshotRequest(method: string): boolean {
+  return method === "dashboard.getSnapshot" || method === "dashboard.subscribe" || method === "dashboard.explainMode";
+}
+
+function projectIdForRoot(app: PraxisRuntime, rootPath: string): ProjectId | undefined {
+  return app.projects.listProjects().find((project) => project.rootPath === rootPath || project.canonicalPath === rootPath)?.id;
+}
+
 function toApiError(error: unknown): ApiError {
   if (error instanceof PraxisError) {
-    return { code: error.code, message: error.message, details: error.details };
+    return { code: error.code, message: error.message, details: error.details, evidence: error.evidence };
   }
   return {
     code: "internal_error",

@@ -1,14 +1,32 @@
 import path from "node:path";
-import type { ApprovalRequest, PermissionProfile, RiskLevel, RiskSignal } from "../core";
+import {
+  fullAccessPermissionProfileId,
+  guardedPermissionProfileId,
+  type ApprovalRequest,
+  type PermissionProfile,
+  type PermissionProfileId,
+  type RiskLevel,
+  type RiskSignal
+} from "../core";
 
 export const defaultPermissionProfile: PermissionProfile = {
-  id: "permission_default" as PermissionProfile["id"],
+  id: guardedPermissionProfileId,
   name: "Workspace guarded",
   commandPolicy: "ask",
   fileWritePolicy: "workspace_only",
   networkPolicy: "ask",
   externalToolPolicy: "ask",
   maxRiskWithoutApproval: "low"
+};
+
+export const fullAccessPermissionProfile: PermissionProfile = {
+  id: fullAccessPermissionProfileId,
+  name: "Full local access",
+  commandPolicy: "allow",
+  fileWritePolicy: "allow",
+  networkPolicy: "allow",
+  externalToolPolicy: "allow_list",
+  maxRiskWithoutApproval: "critical"
 };
 
 export class PolicyService {
@@ -40,6 +58,18 @@ export class PolicyService {
   approvalIsSafeToAutoAccept(_approval: ApprovalRequest): false {
     return false;
   }
+}
+
+export function permissionProfileForId(profileId: PermissionProfileId | undefined): PermissionProfile {
+  if (profileId === fullAccessPermissionProfileId) {
+    return fullAccessPermissionProfile;
+  }
+  return defaultPermissionProfile;
+}
+
+export function isBroadPermissionProfileId(profileId: PermissionProfileId | undefined): boolean {
+  const profile = permissionProfileForId(profileId);
+  return profile.commandPolicy === "allow" || profile.fileWritePolicy === "allow" || profile.networkPolicy === "allow";
 }
 
 function riskRank(risk: RiskLevel): number {

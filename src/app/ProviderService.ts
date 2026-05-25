@@ -1,3 +1,4 @@
+import path from "node:path";
 import {
   agentSessionId,
   agentTurnId,
@@ -11,7 +12,11 @@ import {
   type ApprovalRequestId,
   type DomainEvent,
   type ProjectId,
-  type ProviderId
+  type ProviderId,
+  type AgentSession,
+  type AgentProvider,
+  type ProviderAvailability,
+  type ProviderCapabilities
 } from "../core";
 import type { AppSnapshot } from "../dashboard/types";
 import { createDomainEvent } from "../events/eventFactory";
@@ -26,7 +31,10 @@ export class ProviderService {
   constructor(
     private readonly registry: ProviderRegistry,
     private readonly events: AppEventLog,
-    private readonly getSnapshot: () => AppSnapshot
+    private readonly getSnapshot: () => AppSnapshot,
+    private readonly worktrees?: {
+      createWorktree(input: { rootPath: string; worktreePath: string; branch?: string }): Promise<{ path: string; branch?: string }>;
+    }
   ) {}
 
   async registerAvailableProviders(): Promise<void> {
@@ -42,6 +50,65 @@ export class ProviderService {
         })
       )
     );
+  }
+
+  async listProviders(): Promise<AgentProvider[]> {
+    return this.registry.listProviders();
+  }
+
+  async getStatus(input: { providerId?: ProviderId } = {}): Promise<ProviderAvailability | { providerId: ProviderId; availability: ProviderAvailability }[]> {
+    const providers = await this.registry.listProviders();
+    if (input.providerId) {
+      const provider = providers.find((candidate) => candidate.id === input.providerId);
+      if (!provider) {
+        throw notFoundError("Provider is not registered.", { providerId: input.providerId });
+      }
+      return provider.availability;
+    }
+    return providers.map((provider) => ({ providerId: provider.id, availability: provider.availability }));
+  }
+
+  async getCapabilities(
+    input: { providerId?: ProviderId } = {}
+  ): Promise<ProviderCapabilities | { providerId: ProviderId; capabilities: ProviderCapabilities }[]> {
+    const providers = await this.registry.listProviders();
+    if (input.providerId) {
+      const provider = providers.find((candidate) => candidate.id === input.providerId);
+      if (!provider) {
+        throw notFoundError("Provider is not registered.", { providerId: input.providerId });
+      }
+      return provider.capabilities;
+    }
+    return providers.map((provider) => ({ providerId: provider.id, capabilities: provider.capabilities }));
+  }
+
+  async checkAvailability(
+    input: { providerId?: ProviderId } = {}
+  ): Promise<ProviderAvailability | { providerId: ProviderId; availability: ProviderAvailability }[]> {
+    const adapters = input.providerId ? [this.requireAdapter(input.providerId)] : this.registry.listAdapters();
+    const results: { providerId: ProviderId; availability: ProviderAvailability }[] = [];
+    const events: DomainEvent[] = [];
+
+    for (const adapter of adapters) {
+      const availability = await adapter
+        .checkAvailability()
+        .catch((error) => ({ status: "unavailable" as const, reason: error instanceof Error ? error.message : "Unavailable" }));
+      results.push({ providerId: adapter.id, availability });
+      events.push(
+        createDomainEvent({
+          type: providerAvailabilityEventType(availability),
+          providerId: adapter.id,
+          source: "system",
+          payload: { availability },
+          evidence: [{ type: "provider", providerId: adapter.id }]
+        })
+      );
+    }
+
+    if (events.length > 0) {
+      await this.events.appendMany(events);
+    }
+    return input.providerId ? results[0]!.availability : results;
   }
 
   async startSession(input: {
@@ -83,8 +150,9 @@ export class ProviderService {
     }
 
     const sessionId = agentSessionId();
+    const cwd = await this.prepareSessionCwd(input.projectId, input.cwd, sessionId);
     try {
-      const result = await adapter.startSession({ ...input, sessionId });
+      const result = await adapter.startSession({ ...input, cwd, sessionId });
       const normalized = ensureSessionStartedEvent(result.events, input.projectId, input.providerId, result.sessionId ?? sessionId);
       await this.recordProviderEvents(normalized);
       return result.sessionId ?? sessionId;
@@ -121,14 +189,61 @@ export class ProviderService {
   }): Promise<AgentTurnId> {
     const adapter = this.requireAdapter(input.providerId);
     const turnId = agentTurnId();
-    const result = await adapter.sendTurn({
-      sessionId: input.sessionId,
-      projectId: input.projectId,
-      turnId,
-      input: input.instruction
-    });
+    try {
+      const result = await adapter.sendTurn({
+        sessionId: input.sessionId,
+        projectId: input.projectId,
+        turnId,
+        input: input.instruction
+      });
+      await this.recordProviderEvents(result.events);
+      return result.turnId ?? turnId;
+    } catch (error) {
+      await this.events.appendMany(providerTurnCrashEvents({ ...input, turnId, error }));
+      return turnId;
+    }
+  }
+
+  async resumeSession(input: { providerId: ProviderId; sessionId: AgentSessionId }): Promise<void> {
+    const adapter = this.requireAdapter(input.providerId);
+    const capabilities = await adapter.getCapabilities();
+    if (!capabilities.canResumeSession || !adapter.resumeSession) {
+      throw capabilityError("Provider does not support resuming sessions.", { providerId: input.providerId });
+    }
+    const result = await adapter.resumeSession({ sessionId: input.sessionId });
     await this.recordProviderEvents(result.events);
-    return result.turnId ?? turnId;
+  }
+
+  async stopSession(input: { providerId: ProviderId; sessionId: AgentSessionId; reason?: string }): Promise<void> {
+    const adapter = this.requireAdapter(input.providerId);
+    const session = findSession(this.getSnapshot(), input.sessionId);
+    await adapter.stopSession({ sessionId: input.sessionId, reason: input.reason });
+    await this.ingestProviderEvents(adapter, input.sessionId);
+    if (!session) return;
+    const after = findSession(this.getSnapshot(), input.sessionId);
+    if (after?.state !== "stopped") {
+      await this.events.append(
+        createDomainEvent({
+          type: "agent.session.stopped",
+          projectId: session.projectId,
+          sessionId: input.sessionId,
+          providerId: input.providerId,
+          source: "system",
+          payload: { reason: input.reason ?? "Stopped by user." },
+          evidence: []
+        })
+      );
+    }
+  }
+
+  async steerTurn(input: { providerId: ProviderId; sessionId: AgentSessionId; turnId: AgentTurnId; input: string }): Promise<void> {
+    const adapter = this.requireAdapter(input.providerId);
+    const capabilities = await adapter.getCapabilities();
+    if (!capabilities.canSteerTurn || !adapter.steerTurn) {
+      throw capabilityError("Provider does not support steering turns.", { providerId: input.providerId });
+    }
+    await adapter.steerTurn(input);
+    await this.ingestProviderEvents(adapter, input.sessionId);
   }
 
   async interruptTurn(input: {
@@ -160,6 +275,13 @@ export class ProviderService {
     if (approval.status !== "pending") {
       throw new PraxisError("approval_already_resolved", "Approval request is already resolved.", {
         approvalId: input.approvalId
+      });
+    }
+    if (approval.providerId !== input.providerId) {
+      throw new PraxisError("approval_provider_mismatch", "Approval decision provider does not match the approval request.", {
+        approvalId: input.approvalId,
+        requestedProviderId: approval.providerId,
+        decisionProviderId: input.providerId
       });
     }
 
@@ -205,6 +327,125 @@ export class ProviderService {
       );
       throw error;
     }
+  }
+
+  async respondToUserInput(input: {
+    providerId: ProviderId;
+    sessionId: AgentSessionId;
+    turnId?: AgentTurnId;
+    input: string;
+  }): Promise<void> {
+    const adapter = this.requireAdapter(input.providerId);
+    if (!adapter.respondToUserInput) {
+      throw capabilityError("Provider does not support user input responses.", { providerId: input.providerId });
+    }
+    const session = findSession(this.getSnapshot(), input.sessionId);
+    if (!session) {
+      throw notFoundError("Session was not found.", { sessionId: input.sessionId });
+    }
+    if (session.state !== "waiting_for_user_input") {
+      throw new PraxisError("user_input_not_pending", "Session is not waiting for user input.", { sessionId: input.sessionId });
+    }
+
+    const turnId = input.turnId ?? session.activeTurnId;
+    const responseEvent = await this.events.append(
+      createDomainEvent({
+        type: "agent.userInput.responded",
+        projectId: session.projectId,
+        sessionId: input.sessionId,
+        turnId,
+        providerId: input.providerId,
+        source: "user",
+        payload: {
+          inputSummary: summarizeUserInput(input.input),
+          respondedAt: new Date().toISOString()
+        },
+        evidence: [{ type: "user", commandId: `user-input:${input.sessionId}` }]
+      })
+    );
+
+    try {
+      await adapter.respondToUserInput({ ...input, turnId });
+      await this.ingestProviderEvents(adapter, input.sessionId);
+    } catch (error) {
+      await this.events.append(
+        createDomainEvent({
+          type: "provider.error",
+          projectId: session.projectId,
+          sessionId: input.sessionId,
+          turnId,
+          providerId: input.providerId,
+          source: "provider",
+          causationId: responseEvent.id,
+          payload: { message: error instanceof Error ? error.message : "Provider failed to receive user input." },
+          evidence: [{ type: "event", eventId: responseEvent.id }]
+        })
+      );
+      throw error;
+    }
+  }
+
+  async readSession(input: { providerId: ProviderId; sessionId: AgentSessionId }): Promise<unknown> {
+    const adapter = this.requireAdapter(input.providerId);
+    if (adapter.readSession) {
+      return adapter.readSession({ sessionId: input.sessionId });
+    }
+    const session = findSession(this.getSnapshot(), input.sessionId);
+    if (!session) {
+      throw notFoundError("Session was not found.", { sessionId: input.sessionId });
+    }
+    return { session, events: this.getSnapshot().events.filter((event) => event.sessionId === input.sessionId) };
+  }
+
+  async listSessions(input: { providerId?: ProviderId; projectId?: ProjectId; cursor?: string; limit?: number }): Promise<unknown> {
+    if (input.providerId) {
+      const adapter = this.requireAdapter(input.providerId);
+      if (adapter.listSessions) {
+        return adapter.listSessions({ projectId: input.projectId, cursor: input.cursor, limit: input.limit });
+      }
+    }
+    const sessions = Object.values(this.getSnapshot().projects)
+      .flatMap((project) => Object.values(project.sessions))
+      .filter((session) => !input.projectId || session.projectId === input.projectId)
+      .filter((session) => !input.providerId || session.providerId === input.providerId)
+      .slice(0, input.limit ?? 100);
+    return { sessions };
+  }
+
+  async importSessions(input: { providerId: ProviderId; projectId?: ProjectId }): Promise<{ importedSessionIds: AgentSessionId[] }> {
+    const adapter = this.requireAdapter(input.providerId);
+    const capabilities = await adapter.getCapabilities();
+    if (!capabilities.canImportExistingSessions || !adapter.importSessions) {
+      throw capabilityError("Provider does not support session import.", { providerId: input.providerId });
+    }
+
+    const events: DomainEvent[] = [];
+    const importedSessionIds: AgentSessionId[] = [];
+    for await (const imported of adapter.importSessions({ projectId: input.projectId })) {
+      const projectId = imported.snapshot?.session.projectId ?? input.projectId;
+      if (!projectId) continue;
+      const sessionId = agentSessionId();
+      importedSessionIds.push(sessionId);
+      events.push(
+        createDomainEvent({
+          type: "agent.session.started",
+          projectId,
+          sessionId,
+          providerId: input.providerId,
+          source: "system",
+          payload: {
+            cwd: imported.snapshot?.session.cwd,
+            goal: imported.snapshot?.session.goal,
+            providerSessionRef: imported.providerSessionRef,
+            imported: true
+          },
+          evidence: [{ type: "provider", providerId: input.providerId, externalId: imported.providerSessionRef.externalId }]
+        })
+      );
+    }
+
+    await this.events.appendMany(events);
+    return { importedSessionIds };
   }
 
   createApprovalRequest(input: {
@@ -273,6 +514,44 @@ export class ProviderService {
       await this.events.appendMany(unseen);
     }
   }
+
+  private async prepareSessionCwd(projectId: ProjectId, requestedCwd: string, sessionId: AgentSessionId): Promise<string> {
+    const project = this.getSnapshot().projects[projectId];
+    if (
+      !project ||
+      !this.worktrees ||
+      project.project.settings.preferredWorktreeMode !== "task_isolated" ||
+      !project.git.isRepo
+    ) {
+      return requestedCwd;
+    }
+
+    const baseName = path.basename(project.project.canonicalPath);
+    const worktreePath = path.join(path.dirname(project.project.canonicalPath), `${baseName}.task-${sessionId}`);
+    const branch = `praxis/${sessionId}`;
+    const created = await this.worktrees.createWorktree({
+      rootPath: project.project.canonicalPath,
+      worktreePath,
+      branch
+    });
+    await this.events.append(
+      createDomainEvent({
+        type: "git.worktree.created",
+        projectId,
+        source: "git",
+        payload: {
+          id: `worktree:${sessionId}`,
+          path: created.path,
+          branch: created.branch,
+          rootPath: project.project.canonicalPath,
+          reason: "task_isolated_session",
+          sessionId
+        },
+        evidence: [{ type: "git", repoPath: project.project.canonicalPath, sha: project.git.headSha }]
+      })
+    );
+    return created.path;
+  }
 }
 
 function findApproval(snapshot: AppSnapshot, approvalId: ApprovalRequestId): ApprovalRequest | undefined {
@@ -281,10 +560,28 @@ function findApproval(snapshot: AppSnapshot, approvalId: ApprovalRequestId): App
     .find((approval) => approval.id === approvalId);
 }
 
+function findSession(snapshot: AppSnapshot, sessionId: AgentSessionId): AgentSession | undefined {
+  return Object.values(snapshot.projects)
+    .flatMap((project) => Object.values(project.sessions))
+    .find((session) => session.id === sessionId);
+}
+
+function summarizeUserInput(input: string): string {
+  return input.length > 160 ? `${input.slice(0, 157)}...` : input;
+}
+
 function approvalEventType(decision: ApprovalDecision): "approval.accepted" | "approval.declined" | "approval.cancelled" {
   if (decision === "decline") return "approval.declined";
   if (decision === "cancel") return "approval.cancelled";
   return "approval.accepted";
+}
+
+function providerAvailabilityEventType(
+  availability: ProviderAvailability
+): "provider.available" | "provider.unavailable" | "provider.incompatible" {
+  if (availability.status === "available") return "provider.available";
+  if (availability.status === "incompatible") return "provider.incompatible";
+  return "provider.unavailable";
 }
 
 function ensureSessionStartedEvent(
@@ -307,5 +604,59 @@ function ensureSessionStartedEvent(
       evidence: []
     }),
     ...events
+  ];
+}
+
+function providerTurnCrashEvents(input: {
+  providerId: ProviderId;
+  projectId: ProjectId;
+  sessionId: AgentSessionId;
+  turnId: AgentTurnId;
+  instruction: string;
+  error: unknown;
+}): DomainEvent[] {
+  const message = input.error instanceof Error ? input.error.message : "Provider failed while sending a turn.";
+  const payload = { reason: "Provider failed while sending a turn.", message };
+  return [
+    createDomainEvent({
+      type: "agent.turn.started",
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      providerId: input.providerId,
+      source: "system",
+      payload: { inputSummary: input.instruction },
+      evidence: [{ type: "provider", providerId: input.providerId }]
+    }),
+    createDomainEvent({
+      type: "provider.error",
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      providerId: input.providerId,
+      source: "provider",
+      payload,
+      evidence: [{ type: "provider", providerId: input.providerId }]
+    }),
+    createDomainEvent({
+      type: "agent.turn.failed",
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      providerId: input.providerId,
+      source: "system",
+      payload,
+      evidence: [{ type: "provider", providerId: input.providerId }]
+    }),
+    createDomainEvent({
+      type: "agent.session.stale",
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      providerId: input.providerId,
+      source: "system",
+      payload,
+      evidence: [{ type: "provider", providerId: input.providerId }]
+    })
   ];
 }

@@ -2,8 +2,10 @@ import { CheckService } from "../checks/CheckService";
 import { GitService } from "../git/GitService";
 import { AppEventLog } from "../events/AppEventLog";
 import { InMemoryEventStore, type EventStore } from "../events/EventStore";
+import { ObservabilityService } from "../observability/ObservabilityService";
 import { PolicyService } from "../policies/PolicyService";
-import { SettingsService } from "../settings/SettingsService";
+import { PluginRegistry } from "../plugins/PluginRegistry";
+import { SettingsService, type SettingsRepository } from "../settings/SettingsService";
 import { FakeProviderAdapter } from "../providers/fake/FakeProviderAdapter";
 import type { FakeProviderScenarioName } from "../providers/fake/FakeProviderScenarios";
 import type { ProviderAdapter } from "../providers/interface";
@@ -19,20 +21,25 @@ export async function createPraxisApp(
   const eventStore: EventStore = input.eventStore ?? new InMemoryEventStore();
   const events = new AppEventLog(eventStore);
   await events.restore();
+  const settings = new SettingsService(isSettingsRepository(eventStore) ? eventStore : undefined);
 
   const providerRegistry = new ProviderRegistry();
   const fakeProvider = new FakeProviderAdapter({ scenario: input.fakeScenario });
   providerRegistry.register(fakeProvider);
+  const enabledProviderIds = settings.get().enabledProviderIds;
   for (const adapter of input.providerAdapters ?? []) {
-    providerRegistry.register(adapter);
+    if (enabledProviderIds.length === 0 || enabledProviderIds.includes(adapter.id)) {
+      providerRegistry.register(adapter);
+    }
   }
 
   const git = new GitService();
   const projects = new ProjectRegistryService(events, git, () => events.snapshot());
-  const providers = new ProviderService(providerRegistry, events, () => events.snapshot());
+  const providers = new ProviderService(providerRegistry, events, () => events.snapshot(), git);
   const checks = new CheckService(events, () => events.snapshot());
   const policies = new PolicyService();
-  const settings = new SettingsService();
+  const plugins = new PluginRegistry(events);
+  const observability = new ObservabilityService(events, settings, policies, plugins, () => events.snapshot());
 
   await providers.registerAvailableProviders();
 
@@ -46,9 +53,20 @@ export async function createPraxisApp(
     git,
     checks,
     policies,
+    observability,
+    plugins,
     settings,
     snapshot: () => events.snapshot(),
     restore: () => events.restore(),
     replay: () => events.replay()
   };
+}
+
+function isSettingsRepository(value: EventStore): value is EventStore & SettingsRepository {
+  return (
+    "readSetting" in value &&
+    typeof value.readSetting === "function" &&
+    "writeSetting" in value &&
+    typeof value.writeSetting === "function"
+  );
 }

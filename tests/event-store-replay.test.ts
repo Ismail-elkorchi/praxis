@@ -4,6 +4,7 @@ import os from "node:os";
 import { describe, expect, it } from "vitest";
 import { providerId } from "../src/core";
 import { createPraxisApp } from "../src/composition/createPraxisApp";
+import { createDomainEvent } from "../src/events/eventFactory";
 import { SqliteEventStore } from "../src/events/SqliteEventStore";
 import { createTempProject } from "./helpers/tempProject";
 
@@ -35,5 +36,27 @@ describe("event store and replay", () => {
     const second = await createPraxisApp({ eventStore: new SqliteEventStore(databasePath) });
     expect(second.snapshot().approvals.history.find((item) => item.id === approval.id)?.status).toBe("declined");
     second.eventStore.close?.();
+  });
+
+  it("stores unknown event versions for audit without mutating projections", async () => {
+    const store = new SqliteEventStore(path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-db-")), "praxis.sqlite"));
+    const app = await createPraxisApp({ eventStore: store });
+
+    await app.events.append(
+      createDomainEvent({
+        type: "project.registered",
+        version: 99,
+        source: "system",
+        payload: { incompatible: true },
+        evidence: []
+      })
+    );
+
+    expect((await app.events.queryEvents({ type: "project.registered" }))[0]?.version).toBe(99);
+    expect(app.snapshot().projects).toEqual({});
+    expect(store.countRows("events")).toBeGreaterThan(0);
+    expect(store.countRows("projects")).toBe(0);
+    await expect(app.replay()).resolves.toEqual(app.snapshot());
+    store.close();
   });
 });

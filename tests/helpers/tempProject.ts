@@ -23,6 +23,9 @@ export async function createTempProject(input: { git?: boolean; failingTest?: bo
       )
     );
   }
+  if (input.git && input.packageJson === false) {
+    await writeFile(path.join(rootPath, "README.md"), "# Test project\n");
+  }
 
   if (input.git) {
     await execFileAsync("git", ["init"], { cwd: rootPath });

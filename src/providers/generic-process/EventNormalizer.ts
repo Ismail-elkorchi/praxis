@@ -11,7 +11,14 @@ export function normalizeProcessLine(input: {
   try {
     const parsed = JSON.parse(input.line) as Partial<DomainEvent> & { rawType?: string };
     if (!parsed.type || typeof parsed.type !== "string") {
-      return rawEvent(input, parsed);
+      return rawEvent(input, { normalizationFailure: "missing_event_type", payload: parsed });
+    }
+    if (!knownProviderEventTypes.has(parsed.type)) {
+      return rawEvent(input, {
+        normalizationFailure: "unknown_event_type",
+        rawType: parsed.type,
+        payload: parsed.payload ?? parsed
+      });
     }
 
     return createDomainEvent({
@@ -25,7 +32,7 @@ export function normalizeProcessLine(input: {
       evidence: parsed.evidence ?? []
     });
   } catch {
-    return rawEvent(input, { line: input.line });
+    return rawEvent(input, { normalizationFailure: "invalid_json", line: input.line });
   }
 }
 
@@ -50,3 +57,28 @@ function rawEvent(
     evidence: []
   });
 }
+
+const knownProviderEventTypes = new Set([
+  "agent.session.started",
+  "agent.session.resumed",
+  "agent.session.stopped",
+  "agent.session.stale",
+  "agent.session.failed",
+  "agent.turn.started",
+  "agent.turn.delta",
+  "agent.turn.completed",
+  "agent.turn.failed",
+  "agent.turn.interrupted",
+  "agent.command.started",
+  "agent.command.output",
+  "agent.command.completed",
+  "agent.command.failed",
+  "agent.command.cancelled",
+  "agent.fileChange.proposed",
+  "agent.fileChange.applied",
+  "agent.fileChange.rejected",
+  "approval.requested",
+  "agent.userInput.requested",
+  "provider.rawEvent",
+  "provider.error"
+]);

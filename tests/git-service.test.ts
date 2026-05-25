@@ -1,0 +1,130 @@
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+import { describe, expect, it } from "vitest";
+import { GitService } from "../src/git/GitService";
+
+const execFileAsync = promisify(execFile);
+
+describe("GitService", () => {
+  it("classifies tracked, renamed, deleted, untracked, and binary diffs", async () => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), "praxis-git-diff-"));
+    await git(rootPath, ["init"]);
+    await git(rootPath, ["config", "user.email", "praxis@example.test"]);
+    await git(rootPath, ["config", "user.name", "Praxis Test"]);
+    await writeFile(path.join(rootPath, "modified.txt"), "before\n");
+    await writeFile(path.join(rootPath, "deleted.txt"), "delete me\n");
+    await writeFile(path.join(rootPath, "renamed-old.txt"), "rename me\n");
+    await git(rootPath, ["add", "."]);
+    await git(rootPath, ["commit", "-m", "initial"]);
+
+    await writeFile(path.join(rootPath, "modified.txt"), "after\n");
+    await rm(path.join(rootPath, "deleted.txt"));
+    await git(rootPath, ["mv", "renamed-old.txt", "renamed-new.txt"]);
+    await writeFile(path.join(rootPath, "created.txt"), "created\n");
+    await git(rootPath, ["add", "created.txt"]);
+    await writeFile(path.join(rootPath, "untracked.txt"), "untracked\n");
+    await writeFile(path.join(rootPath, "assets.bin"), Buffer.from([0, 1, 2, 3]));
+
+    const diffs = await new GitService().getDiff(rootPath);
+    const byPath = new Map(diffs.map((diff) => [diff.path, diff]));
+
+    expect(byPath.get("modified.txt")).toMatchObject({ changeKind: "modified", source: "git", binary: false });
+    expect(byPath.get("modified.txt")?.diff).toContain("-before");
+    expect(byPath.get("modified.txt")?.diff).toContain("+after");
+    expect(byPath.get("deleted.txt")).toMatchObject({ changeKind: "deleted", source: "git" });
+    expect(byPath.get("renamed-new.txt")).toMatchObject({
+      changeKind: "renamed",
+      oldPath: "renamed-old.txt",
+      source: "git"
+    });
+    expect(byPath.get("created.txt")).toMatchObject({ changeKind: "created", source: "git", binary: false });
+    expect(byPath.get("untracked.txt")).toMatchObject({ changeKind: "created", source: "untracked", binary: false });
+    expect(byPath.get("untracked.txt")?.diff).toContain("new file mode");
+    expect(byPath.get("assets.bin")).toMatchObject({
+      changeKind: "created",
+      source: "untracked",
+      binary: true,
+      diff: "Binary file metadata only.",
+      sizeBytes: 4
+    });
+  });
+
+  it("returns no diff files for non-git projects", async () => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), "praxis-no-git-"));
+    await mkdir(path.join(rootPath, "src"));
+    await writeFile(path.join(rootPath, "src", "example.ts"), "export const value = 1;\n");
+
+    await expect(new GitService().getDiff(rootPath)).resolves.toEqual([]);
+  });
+
+  it("detects default branch and upstream ahead/behind counts", async () => {
+    const remotePath = await mkdtemp(path.join(os.tmpdir(), "praxis-git-remote-"));
+    await git(remotePath, ["init", "--bare"]);
+
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), "praxis-git-divergence-"));
+    await git(rootPath, ["init"]);
+    await configureGitUser(rootPath);
+    await git(rootPath, ["branch", "-M", "main"]);
+    await writeFile(path.join(rootPath, "base.txt"), "base\n");
+    await git(rootPath, ["add", "."]);
+    await git(rootPath, ["commit", "-m", "base"]);
+    await git(rootPath, ["remote", "add", "origin", remotePath]);
+    await git(rootPath, ["push", "-u", "origin", "main"]);
+    await git(remotePath, ["symbolic-ref", "HEAD", "refs/heads/main"]);
+
+    const peerRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-git-peer-")), "peer");
+    await execFileAsync("git", ["clone", remotePath, peerRoot]);
+    await configureGitUser(peerRoot);
+    await writeFile(path.join(peerRoot, "remote.txt"), "remote\n");
+    await git(peerRoot, ["add", "."]);
+    await git(peerRoot, ["commit", "-m", "remote"]);
+    await git(peerRoot, ["push", "origin", "main"]);
+
+    await writeFile(path.join(rootPath, "local.txt"), "local\n");
+    await git(rootPath, ["add", "."]);
+    await git(rootPath, ["commit", "-m", "local"]);
+    await git(rootPath, ["fetch", "origin"]);
+
+    await expect(new GitService().getStatus(rootPath)).resolves.toMatchObject({
+      branch: "main",
+      baseBranch: "main",
+      ahead: 1,
+      behind: 1
+    });
+  });
+
+  it("detects conflicted files in git status", async () => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), "praxis-git-conflict-"));
+    await git(rootPath, ["init"]);
+    await configureGitUser(rootPath);
+    await writeFile(path.join(rootPath, "conflict.txt"), "base\n");
+    await git(rootPath, ["add", "."]);
+    await git(rootPath, ["commit", "-m", "initial"]);
+    const baseBranch = (await git(rootPath, ["branch", "--show-current"])).stdout.trim();
+
+    await git(rootPath, ["checkout", "-b", "feature-conflict"]);
+    await writeFile(path.join(rootPath, "conflict.txt"), "feature\n");
+    await git(rootPath, ["commit", "-am", "feature"]);
+    await git(rootPath, ["checkout", baseBranch]);
+    await writeFile(path.join(rootPath, "conflict.txt"), "base branch\n");
+    await git(rootPath, ["commit", "-am", "base branch"]);
+    await git(rootPath, ["merge", "feature-conflict"]).catch(() => undefined);
+
+    await expect(new GitService().getStatus(rootPath)).resolves.toMatchObject({
+      dirty: true,
+      conflictedFiles: ["conflict.txt"]
+    });
+  });
+});
+
+async function git(cwd: string, args: string[]) {
+  return execFileAsync("git", args, { cwd });
+}
+
+async function configureGitUser(cwd: string) {
+  await git(cwd, ["config", "user.email", "praxis@example.test"]);
+  await git(cwd, ["config", "user.name", "Praxis Test"]);
+}

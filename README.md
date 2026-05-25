@@ -18,6 +18,30 @@ npm run dev
 
 The development server opens the provider-neutral dashboard with fake-provider data available for local workflows and tests.
 
+To run a provider-neutral workflow from the command line with the built-in fake provider:
+
+```sh
+npx tsx examples/fake-provider-workflow.ts
+```
+
+To run the local app server against the production build:
+
+```sh
+npm run build
+npm run server
+```
+
+The local server exposes:
+
+- `GET /health`
+- `POST /api`
+- `WS /ws`
+- static UI assets from `dist/`
+
+The API method names are provider-neutral and cover project registry, provider
+status, agent sessions and turns, approvals, dashboard snapshots, checks, git
+diff/worktree actions, and event replay/query.
+
 ## Core Guarantees
 
 - Core modules use provider-neutral domain types.
@@ -51,4 +75,5 @@ src/checks      local check definitions and runs
 src/app         application services and composition
 src/ui          provider-neutral React UI
 src/server      local API and WebSocket server
+src/plugins     extension registry for inspectable contributions
 ```

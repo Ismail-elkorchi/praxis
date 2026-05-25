@@ -8,3 +8,30 @@ const secretPatterns = [
 export function redactSecrets(input: string): string {
   return secretPatterns.reduce((value, pattern) => value.replace(pattern, "[REDACTED]"), input);
 }
+
+export function redactValue<T>(input: T): T {
+  return redactUnknown(input) as T;
+}
+
+function redactUnknown(input: unknown): unknown {
+  if (typeof input === "string") {
+    return redactSecrets(input);
+  }
+  if (Array.isArray(input)) {
+    return input.map((item) => redactUnknown(item));
+  }
+  if (!input || typeof input !== "object") {
+    return input;
+  }
+
+  return Object.fromEntries(
+    Object.entries(input).map(([key, value]) => [
+      key,
+      isSecretLikeKey(key) ? "[REDACTED]" : redactUnknown(value)
+    ])
+  );
+}
+
+function isSecretLikeKey(key: string): boolean {
+  return /token|api[-_]?key|secret|password/i.test(key);
+}

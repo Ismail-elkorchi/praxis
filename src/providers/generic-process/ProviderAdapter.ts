@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
 import {
   agentSessionId,
@@ -117,6 +118,7 @@ export class GenericProcessProviderAdapter implements ProviderAdapter {
 
   async sendTurn(input: SendTurnInput): Promise<SendTurnResult> {
     const turnId = input.turnId;
+    const processStartedAt = performance.now();
     const started = createDomainEvent({
       type: "agent.turn.started",
       projectId: input.projectId,
@@ -125,6 +127,16 @@ export class GenericProcessProviderAdapter implements ProviderAdapter {
       providerId: this.id,
       source: "provider",
       payload: { inputSummary: input.input },
+      evidence: []
+    });
+    const clientStarted = createDomainEvent({
+      type: "provider.client.started",
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      turnId,
+      providerId: this.id,
+      source: "provider",
+      payload: { message: "Provider client started.", executable: this.config.command[0] ?? "" },
       evidence: []
     });
 
@@ -169,12 +181,41 @@ export class GenericProcessProviderAdapter implements ProviderAdapter {
               evidence: []
             })
           ];
-      const events = [started, ...normalized, ...completed];
+      const clientStopped = createDomainEvent({
+        type: "provider.client.stopped",
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        turnId,
+        providerId: this.id,
+        source: "provider",
+        payload: {
+          message: "Provider client stopped.",
+          exitCode: 0,
+          durationMs: performance.now() - processStartedAt
+        },
+        evidence: [{ type: "event", eventId: clientStarted.id }]
+      });
+      const events = [started, clientStarted, ...normalized, ...completed, clientStopped];
       this.events.push(...events);
       return { turnId, events };
     } catch (error) {
+      const clientStopped = createDomainEvent({
+        type: "provider.client.stopped",
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        turnId,
+        providerId: this.id,
+        source: "provider",
+        payload: {
+          message: "Provider client stopped after failure.",
+          exitCode: typeof (error as { code?: unknown }).code === "number" ? (error as { code: number }).code : undefined,
+          durationMs: performance.now() - processStartedAt
+        },
+        evidence: [{ type: "event", eventId: clientStarted.id }]
+      });
       const failed = [
         started,
+        clientStarted,
         createDomainEvent({
           type: "provider.error",
           projectId: input.projectId,
@@ -194,7 +235,18 @@ export class GenericProcessProviderAdapter implements ProviderAdapter {
           source: "provider",
           payload: { reason: "Provider process failed." },
           evidence: []
-        })
+        }),
+        createDomainEvent({
+          type: "agent.session.stale",
+          projectId: input.projectId,
+          sessionId: input.sessionId,
+          turnId,
+          providerId: this.id,
+          source: "provider",
+          payload: { reason: "Provider process failed." },
+          evidence: []
+        }),
+        clientStopped
       ];
       this.events.push(...failed);
       return { turnId, events: failed };
