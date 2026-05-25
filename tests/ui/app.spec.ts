@@ -896,8 +896,13 @@ test("project-scoped composer actions do not reuse stale selected projects", asy
   await page.getByRole("button", { name: "Add source" }).click();
 
   const dialog = page.getByRole("dialog", { name: "Add source" });
-  await expect(dialog.getByLabel("Project id")).toHaveValue("");
-  await expect(dialog).toContainText("Create or select a project workspace before starting project-scoped work.");
+  await expect(dialog.getByRole("region", { name: "Project required" })).toContainText("Create a project first");
+  await expect(dialog).toContainText("Choose or create a project workspace before running this action.");
+  await expect(dialog.getByRole("button", { name: "Run action" })).toBeDisabled();
+  const createProjectInstead = dialog.getByRole("button", { name: "Create project instead" });
+  await expect(createProjectInstead).toHaveAttribute("data-method", "projects.register");
+  await createProjectInstead.click();
+  await expect(page.getByRole("dialog", { name: "Create project" }).getByLabel("Root path")).toBeVisible();
 });
 
 test("empty states expose provider-neutral next actions", async ({ page }) => {

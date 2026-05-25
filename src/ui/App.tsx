@@ -262,6 +262,7 @@ export function App() {
           selectedProjectId={selectedProjectId}
           dashboard={dashboard}
           onClose={() => setPendingAction(undefined)}
+          onReplaceAction={setPendingAction}
           onRun={runPendingAction}
         />
       ) : null}
@@ -2289,12 +2290,14 @@ function ActionRequestDialog({
   selectedProjectId,
   dashboard,
   onClose,
+  onReplaceAction,
   onRun
 }: {
   action: PendingActionRequest;
   selectedProjectId: string;
   dashboard: DashboardProjection;
   onClose(): void;
+  onReplaceAction(action: PendingActionRequest): void;
   onRun(action: PendingActionRequest, values: ActionFormValues): Promise<unknown>;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
@@ -2442,7 +2445,7 @@ function ActionRequestDialog({
         })),
     [dashboard.checkRuns, values.projectId]
   );
-  const blockedReason = actionBlockedReason(action.method, values, providerOptions);
+  const blockedReason = actionBlockedReason(action.method, values, providerOptions, projectOptions);
 
   useEffect(() => {
     dialogRef.current?.querySelector<HTMLInputElement>("input, select, textarea")?.focus();
@@ -2581,13 +2584,17 @@ function ActionRequestDialog({
       );
     }
     return (
-      <>
-        <label>
-          Project id
-          <input value={values.projectId} onChange={(event) => updateProject(event.target.value)} required />
-        </label>
-        <p className="fieldHint">Create or select a project workspace before starting project-scoped work.</p>
-      </>
+      <section className="providerSetupBlock" aria-label="Project required">
+        <h3>Choose or create a project workspace</h3>
+        <p className="fieldHint">Project-scoped actions need an existing workspace. Create a project first, then start work inside it.</p>
+        <button
+          type="button"
+          data-method="projects.register"
+          onClick={() => onReplaceAction({ method: "projects.register", label: "Create project" })}
+        >
+          Create project instead
+        </button>
+      </section>
     );
   }
 
@@ -2926,14 +2933,23 @@ function uniqueOptions(options: FormOption[]): FormOption[] {
   });
 }
 
-function actionBlockedReason(method: string, values: ActionFormValues, providerOptions: FormOption[]): string | undefined {
-  if (!actionStartsProvider(method)) return undefined;
-  const selectedProvider = providerOptions.find((provider) => provider.value === values.providerId);
-  if (selectedProvider?.disabled) {
-    return "Selected provider is not available for starting sessions.";
+function actionBlockedReason(
+  method: string,
+  values: ActionFormValues,
+  providerOptions: FormOption[],
+  projectOptions: FormOption[]
+): string | undefined {
+  if (actionNeedsProject(method) && projectOptions.length === 0) {
+    return "Choose or create a project workspace before running this action.";
   }
-  if (providerOptions.length > 0 && providerOptions.every((provider) => provider.disabled)) {
-    return "No available provider can start sessions. Configure a provider or use the fake provider.";
+  if (actionStartsProvider(method)) {
+    const selectedProvider = providerOptions.find((provider) => provider.value === values.providerId);
+    if (selectedProvider?.disabled) {
+      return "Selected provider is not available for starting sessions.";
+    }
+    if (providerOptions.length > 0 && providerOptions.every((provider) => provider.disabled)) {
+      return "No available provider can start sessions. Configure a provider or use the fake provider.";
+    }
   }
   return undefined;
 }
