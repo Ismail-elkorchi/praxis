@@ -86,6 +86,16 @@ export function App() {
   }, [dashboard.focusedProjectId, selectedProjectId]);
 
   useEffect(() => {
+    if (dashboard.projectCards.length === 0 && selectedProjectId) {
+      setSelectedProjectId("");
+      return;
+    }
+    if (dashboard.projectCards.length > 0 && !dashboard.projectCards.some((project) => project.projectId === selectedProjectId)) {
+      setSelectedProjectId(dashboard.projectCards[0]!.projectId);
+    }
+  }, [dashboard.projectCards, selectedProjectId]);
+
+  useEffect(() => {
     if (apiStatus !== "live") return undefined;
     return subscribeDashboard((snapshot) => {
       setLiveDashboard(snapshot);
@@ -466,7 +476,11 @@ function HomeView({
               onClick={() =>
                 action.id === "open-decisions"
                   ? onRoute("Decisions")
-                  : onAction({ method: action.method, label: action.label, projectId: selectedProjectId })
+                  : onAction({
+                      method: action.method,
+                      label: action.label,
+                      projectId: selectedProjectIdForDashboard(dashboard, selectedProjectId)
+                    })
               }
             >
               {action.label}
@@ -2022,7 +2036,7 @@ function CommandPalette({
       onAction({
         method: command.method,
         label: command.label,
-        projectId: command.id === "create-project" ? undefined : selectedProjectId
+        projectId: command.id === "create-project" ? undefined : selectedProjectIdForDashboard(dashboard, selectedProjectId)
       });
       onClose();
       return;
@@ -2160,9 +2174,13 @@ function actionStartsProvider(method: string): boolean {
 }
 
 function defaultProjectCwd(action: PendingActionRequest, dashboard: DashboardProjection, selectedProjectId: string): string {
-  const projectId = action.projectId ?? selectedProjectId;
+  const projectId = action.projectId ?? selectedProjectIdForDashboard(dashboard, selectedProjectId);
   if (action.method !== "agents.startSession") return "";
   return dashboard.projectCards.find((project) => project.projectId === projectId)?.subtitle ?? "";
+}
+
+function selectedProjectIdForDashboard(dashboard: DashboardProjection, selectedProjectId: string): string | undefined {
+  return dashboard.projectCards.some((project) => project.projectId === selectedProjectId) ? selectedProjectId : dashboard.projectCards[0]?.projectId;
 }
 
 function ActionRequestDialog({
@@ -2181,7 +2199,7 @@ function ActionRequestDialog({
   const dialogRef = useRef<HTMLElement>(null);
   const providers = dashboard.providerStatus;
   const [values, setValues] = useState<ActionFormValues>({
-    projectId: action.projectId ?? selectedProjectId,
+    projectId: action.projectId ?? selectedProjectIdForDashboard(dashboard, selectedProjectId) ?? "",
     rootPath: "",
     cwd: defaultProjectCwd(action, dashboard, selectedProjectId),
     name: "",

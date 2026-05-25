@@ -844,6 +844,34 @@ test("command palette opens executable project action flows", async ({ page }) =
   await expect(page.getByRole("region", { name: "Diff review details" })).toBeFocused();
 });
 
+test("project-scoped composer actions do not reuse stale selected projects", async ({ page }) => {
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result:
+          request.method === "dashboard.getSnapshot"
+            ? emptyDashboard({
+                home: {
+                  quickCreate: [{ id: "add-source", label: "Add source", method: "projects.addSource" }]
+                }
+              })
+            : {}
+      })
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add source" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Add source" });
+  await expect(dialog.getByLabel("Project id")).toHaveValue("");
+  await expect(dialog).toContainText("Create or select a project workspace before starting project-scoped work.");
+});
+
 test("empty states expose provider-neutral next actions", async ({ page }) => {
   await page.route("**/api", async (route) => {
     const request = route.request().postDataJSON() as { id: string; method: string };
