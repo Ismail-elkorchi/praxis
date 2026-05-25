@@ -325,6 +325,29 @@ test("check run panel shows active and recent runs with triage links", async ({ 
   await expect(page.getByRole("button", { name: "Run checks" })).toHaveAttribute("data-method", "checks.run");
 });
 
+test("project workspace action dialogs use workspace choices", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: /^Projects/ }).click();
+  await page.getByRole("button", { name: "Assign agents" }).click();
+
+  const assignDialog = page.getByRole("dialog", { name: "Assign agents" });
+  await expect(assignDialog).toBeVisible();
+  await expect(assignDialog.getByRole("combobox", { name: "Project", exact: true })).toContainText("Control Plane");
+  await expect(assignDialog.getByRole("combobox", { name: "Work item", exact: true })).toContainText("Implement provider-neutral control");
+  await expect(assignDialog.getByRole("combobox", { name: "Provider", exact: true })).toContainText("Fake provider");
+  await expect(assignDialog).toContainText("Agent runs are always linked to a visible work item.");
+
+  await assignDialog.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Run checks" }).click();
+
+  const checksDialog = page.getByRole("dialog", { name: "Run checks" });
+  await expect(checksDialog).toBeVisible();
+  await expect(checksDialog.getByRole("combobox", { name: "Project", exact: true })).toContainText("Control Plane");
+  await expect(checksDialog.getByRole("combobox", { name: "Check", exact: true })).toContainText("typecheck");
+  await expect(checksDialog).toContainText("Required failed checks block review readiness");
+});
+
 test("provider status cards show capability and compatibility details", async ({ page }) => {
   await page.goto("/");
 
@@ -438,6 +461,32 @@ test("command palette opens from global search and runs provider-neutral command
   await page.getByLabel("Search commands").focus();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
+});
+
+test("command palette opens executable project action flows", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Open command palette" }).click();
+  await page.getByLabel("Search commands").fill("create project");
+  const createProject = page.getByRole("option", { name: /Create project/ });
+  await expect(createProject).toHaveAttribute("data-method", "projects.register");
+  await createProject.click();
+
+  const createProjectDialog = page.getByRole("dialog", { name: "Create project" });
+  await expect(createProjectDialog).toBeVisible();
+  await expect(createProjectDialog.getByLabel("Root path")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
+
+  await createProjectDialog.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Open command palette" }).click();
+  await page.getByLabel("Search commands").fill("run checks");
+  const runChecks = page.getByRole("option", { name: /Run checks/ });
+  await expect(runChecks).toHaveAttribute("data-method", "checks.run");
+  await runChecks.click();
+
+  const runChecksDialog = page.getByRole("dialog", { name: "Run checks" });
+  await expect(runChecksDialog.getByRole("combobox", { name: "Project", exact: true })).toContainText("Control Plane");
+  await expect(runChecksDialog.getByRole("combobox", { name: "Check", exact: true })).toContainText("typecheck");
 });
 
 test("empty states expose provider-neutral next actions", async ({ page }) => {

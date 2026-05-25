@@ -1045,6 +1045,12 @@ pre {
   padding: 0.52rem 0.62rem;
 }
 
+.fieldHint {
+  margin: -0.35rem 0 0.1rem;
+  color: #61737b;
+  font-size: 0.82rem;
+}
+
 .actionForm textarea {
   min-height: 5.5rem;
   resize: vertical;

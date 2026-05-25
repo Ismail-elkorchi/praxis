@@ -236,7 +236,9 @@ export function App() {
       {commandPaletteOpen ? (
         <CommandPalette
           dashboard={dashboard}
+          selectedProjectId={selectedProjectId}
           onClose={() => setCommandPaletteOpen(false)}
+          onAction={openActionRequest}
           onRoute={(nextRoute) => {
             setRoute(nextRoute);
             setCommandPaletteOpen(false);
@@ -247,7 +249,7 @@ export function App() {
         <ActionRequestDialog
           action={pendingAction}
           selectedProjectId={selectedProjectId}
-          providers={dashboard.providerStatus}
+          dashboard={dashboard}
           onClose={() => setPendingAction(undefined)}
           onRun={runPendingAction}
         />
@@ -1626,11 +1628,15 @@ type CommandItem = {
 
 function CommandPalette({
   dashboard,
+  selectedProjectId,
   onClose,
+  onAction,
   onRoute
 }: {
   dashboard: DashboardProjection;
+  selectedProjectId: string;
   onClose(): void;
+  onAction(action: PendingActionRequest): void;
   onRoute(route: Route): void;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
@@ -1661,6 +1667,20 @@ function CommandPalette({
       command.label.toLowerCase().includes(normalizedQuery) ||
       command.method.toLowerCase().includes(normalizedQuery)
   );
+
+  function runCommand(command: CommandItem) {
+    if (command.disabled) return;
+    if (commandOpensAction(command)) {
+      onAction({
+        method: command.method,
+        label: command.label,
+        projectId: command.id === "create-project" ? undefined : selectedProjectId
+      });
+      onClose();
+      return;
+    }
+    onRoute(command.route);
+  }
 
   return (
     <div className="modalBackdrop" role="presentation" onMouseDown={onClose}>
@@ -1694,7 +1714,7 @@ function CommandPalette({
               role="option"
               data-method={command.method}
               disabled={command.disabled}
-              onClick={() => onRoute(command.route)}
+              onClick={() => runCommand(command)}
             >
               <span>{command.label}</span>
               <small>{command.method}</small>
@@ -1705,6 +1725,18 @@ function CommandPalette({
       </section>
     </div>
   );
+}
+
+function commandOpensAction(command: CommandItem): boolean {
+  return [
+    "create-project",
+    "add-source",
+    "create-work-item",
+    "start-agent-run",
+    "ask-in-project",
+    "create-artifact",
+    "run-checks"
+  ].includes(command.id);
 }
 
 type ActionFormValues = {
@@ -1727,20 +1759,34 @@ type ActionFormValues = {
   reason: string;
 };
 
+type FormOption = {
+  value: string;
+  label: string;
+  detail?: string;
+  disabled?: boolean;
+};
+
+function defaultProviderIdForAction(action: PendingActionRequest, providers: ProviderStatusViewModel[]): string {
+  if (action.providerId) return action.providerId;
+  const preferredProvider = action.method === "agentRuns.create" ? providers.find((provider) => provider.capabilities.canStartSession) : undefined;
+  return preferredProvider?.providerId ?? providers[0]?.providerId ?? "";
+}
+
 function ActionRequestDialog({
   action,
   selectedProjectId,
-  providers,
+  dashboard,
   onClose,
   onRun
 }: {
   action: PendingActionRequest;
   selectedProjectId: string;
-  providers: ProviderStatusViewModel[];
+  dashboard: DashboardProjection;
   onClose(): void;
   onRun(action: PendingActionRequest, values: ActionFormValues): Promise<void>;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
+  const providers = dashboard.providerStatus;
   const [values, setValues] = useState<ActionFormValues>({
     projectId: action.projectId ?? selectedProjectId,
     rootPath: "",
@@ -1753,7 +1799,7 @@ function ActionRequestDialog({
     workModes: "custom",
     workItemId: action.workItemId ?? "",
     agentRunId: action.agentRunId ?? "",
-    providerId: action.providerId ?? providers[0]?.providerId ?? "fake",
+    providerId: defaultProviderIdForAction(action, providers),
     roleName: "Worker",
     instruction: "",
     checkId: action.checkId ?? "",
@@ -1762,13 +1808,195 @@ function ActionRequestDialog({
   });
   const [status, setStatus] = useState<string | undefined>();
   const [running, setRunning] = useState(false);
+  const projectOptions = useMemo<FormOption[]>(
+    () =>
+      dashboard.projectCards.map((project) => ({
+        value: project.projectId,
+        label: project.title,
+        detail: project.stateLabel
+      })),
+    [dashboard.projectCards]
+  );
+  const selectedWorkspace = useMemo(
+    () => (dashboard.selectedWorkspace?.projectId === values.projectId ? dashboard.selectedWorkspace : undefined),
+    [dashboard.selectedWorkspace, values.projectId]
+  );
+  const workItemOptions = useMemo<FormOption[]>(
+    () =>
+      selectedWorkspace
+        ? [
+            ...selectedWorkspace.workItems.current,
+            ...selectedWorkspace.workItems.queued,
+            ...selectedWorkspace.workItems.blocked,
+            ...selectedWorkspace.workItems.completed
+          ].map((workItem) => ({
+            value: workItem.id,
+            label: workItem.title,
+            detail: workItem.status.replaceAll("_", " ")
+          }))
+        : [],
+    [selectedWorkspace]
+  );
+  const agentRunOptions = useMemo<FormOption[]>(() => {
+    const workspaceRuns = selectedWorkspace
+      ? (["queued", "running", "waiting", "blocked", "review", "done"] as const).flatMap((column) => selectedWorkspace.agentBoard[column])
+      : [];
+    const homeRuns = dashboard.home.runningAgents.filter((run) => run.projectId === values.projectId);
+    return uniqueOptions(
+      [...workspaceRuns, ...homeRuns].map((run) => ({
+        value: run.runId,
+        label: run.roleName,
+        detail: `${run.status.replaceAll("_", " ")} · ${run.linkedWorkItemTitle}`
+      }))
+    );
+  }, [dashboard.home.runningAgents, selectedWorkspace, values.projectId]);
+  const providerOptions = useMemo<FormOption[]>(
+    () =>
+      providers.map((provider) => ({
+        value: provider.providerId,
+        label: provider.name,
+        detail: provider.availability.status,
+        disabled: action.method === "agentRuns.create" && !provider.capabilities.canStartSession
+      })),
+    [action.method, providers]
+  );
+  const checkOptions = useMemo<FormOption[]>(
+    () =>
+      dashboard.checkRuns
+        .filter((run) => !values.projectId || run.projectId === values.projectId)
+        .map((run) => ({
+          value: run.checkId,
+          label: run.name,
+          detail: `${run.status} · ${run.projectTitle}`
+        })),
+    [dashboard.checkRuns, values.projectId]
+  );
+  const checkRunOptions = useMemo<FormOption[]>(
+    () =>
+      dashboard.checkRuns
+        .filter((run) => !values.projectId || run.projectId === values.projectId)
+        .map((run) => ({
+          value: run.runId,
+          label: run.name,
+          detail: `${run.status} · ${run.projectTitle}`
+        })),
+    [dashboard.checkRuns, values.projectId]
+  );
 
   useEffect(() => {
     dialogRef.current?.querySelector<HTMLInputElement>("input, select, textarea")?.focus();
   }, []);
 
+  useEffect(() => {
+    setValues((current) => {
+      const next = { ...current };
+      let changed = false;
+      function setDefault(field: keyof ActionFormValues, options: FormOption[]) {
+        if (next[field] || options.length === 0) return;
+        next[field] = options.find((option) => !option.disabled)?.value ?? options[0]?.value ?? "";
+        changed = true;
+      }
+      if (actionNeedsProject(action.method)) setDefault("projectId", projectOptions);
+      if (action.method === "agentRuns.create") setDefault("workItemId", workItemOptions);
+      if (action.method === "agentRuns.create") setDefault("providerId", providerOptions);
+      if (action.method === "agentRuns.start" || action.method === "agentRuns.sendInstruction" || action.method === "agentRuns.cancel") {
+        setDefault("agentRunId", agentRunOptions);
+      }
+      if (action.method === "checks.run" || action.method === "checks.waive") setDefault("checkId", checkOptions);
+      if (action.method === "checks.cancel") setDefault("runId", checkRunOptions);
+      if (action.method === "providers.getStatus" || action.method === "providers.list") setDefault("providerId", providerOptions);
+      return changed ? next : current;
+    });
+  }, [action.method, agentRunOptions, checkOptions, checkRunOptions, projectOptions, providerOptions, workItemOptions]);
+
   function updateField(field: keyof ActionFormValues, value: string) {
     setValues((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateProject(value: string) {
+    setValues((current) => ({
+      ...current,
+      projectId: value,
+      workItemId: "",
+      agentRunId: "",
+      checkId: "",
+      runId: ""
+    }));
+  }
+
+  function renderChoiceField({
+    label,
+    field,
+    options,
+    required = true,
+    fallbackLabel = `${label} id`,
+    hint
+  }: {
+    label: string;
+    field: keyof ActionFormValues;
+    options: FormOption[];
+    required?: boolean;
+    fallbackLabel?: string;
+    hint?: string;
+  }) {
+    if (options.length > 0) {
+      return (
+        <>
+          <label>
+            {label}
+            <select
+              value={values[field]}
+              onChange={(event) => updateField(field, event.target.value)}
+              required={required}
+            >
+              {values[field] ? null : <option value="">Select {label.toLowerCase()}</option>}
+              {options.map((option) => (
+                <option key={`${field}-${option.value}`} value={option.value} disabled={option.disabled}>
+                  {option.detail ? `${option.label} (${option.detail})` : option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {hint ? <p className="fieldHint">{hint}</p> : null}
+        </>
+      );
+    }
+    return (
+      <>
+        <label>
+          {fallbackLabel}
+          <input value={values[field]} onChange={(event) => updateField(field, event.target.value)} required={required} />
+        </label>
+        <p className="fieldHint">{hint ?? `${label} choices are not loaded for this project. Open the project workspace or paste the id.`}</p>
+      </>
+    );
+  }
+
+  function renderProjectField() {
+    if (projectOptions.length > 0) {
+      return (
+        <label>
+          Project
+          <select value={values.projectId} onChange={(event) => updateProject(event.target.value)} required>
+            {values.projectId ? null : <option value="">Select project</option>}
+            {projectOptions.map((project) => (
+              <option key={project.value} value={project.value}>
+                {project.detail ? `${project.label} (${project.detail})` : project.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      );
+    }
+    return (
+      <>
+        <label>
+          Project id
+          <input value={values.projectId} onChange={(event) => updateProject(event.target.value)} required />
+        </label>
+        <p className="fieldHint">Create or select a project workspace before starting project-scoped work.</p>
+      </>
+    );
   }
 
   async function submit(event: ReactFormEvent<HTMLFormElement>) {
@@ -1803,17 +2031,17 @@ function ActionRequestDialog({
           <p>{actionGuidance(action.method)}</p>
         </div>
         <form className="actionForm" onSubmit={submit}>
-          {actionNeedsProject(action.method) ? (
-            <label>
-              Project id
-              <input value={values.projectId} onChange={(event) => updateField("projectId", event.target.value)} required />
-            </label>
-          ) : null}
+          {actionNeedsProject(action.method) ? renderProjectField() : null}
           {action.method === "projects.register" ? (
             <>
               <label>
                 Root path
-                <input value={values.rootPath} onChange={(event) => updateField("rootPath", event.target.value)} required />
+                <input
+                  value={values.rootPath}
+                  onChange={(event) => updateField("rootPath", event.target.value)}
+                  placeholder="/path/to/project-workspace"
+                  required
+                />
               </label>
               <label>
                 Project name
@@ -1829,11 +2057,20 @@ function ActionRequestDialog({
               </label>
               <label>
                 Source type
-                <input value={values.type} onChange={(event) => updateField("type", event.target.value)} required />
+                <input
+                  value={values.type}
+                  onChange={(event) => updateField("type", event.target.value)}
+                  placeholder="note, url, repository, dataset, custom"
+                  required
+                />
               </label>
               <label>
                 URI or path
-                <input value={values.uriOrPath} onChange={(event) => updateField("uriOrPath", event.target.value)} />
+                <input
+                  value={values.uriOrPath}
+                  onChange={(event) => updateField("uriOrPath", event.target.value)}
+                  placeholder="Optional source location"
+                />
               </label>
             </>
           ) : null}
@@ -1855,20 +2092,19 @@ function ActionRequestDialog({
           ) : null}
           {action.method === "agentRuns.create" ? (
             <>
-              <label>
-                Work item id
-                <input value={values.workItemId} onChange={(event) => updateField("workItemId", event.target.value)} required />
-              </label>
-              <label>
-                Provider
-                <select value={values.providerId} onChange={(event) => updateField("providerId", event.target.value)}>
-                  {providers.map((provider) => (
-                    <option key={provider.providerId} value={provider.providerId}>
-                      {provider.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {renderChoiceField({
+                label: "Work item",
+                field: "workItemId",
+                options: workItemOptions,
+                hint: "Agent runs are always linked to a visible work item."
+              })}
+              {renderChoiceField({
+                label: "Provider",
+                field: "providerId",
+                options: providerOptions,
+                fallbackLabel: "Provider id",
+                hint: "Unavailable providers are shown but cannot be selected for a new run."
+              })}
               <label>
                 Role name
                 <input value={values.roleName} onChange={(event) => updateField("roleName", event.target.value)} required />
@@ -1881,16 +2117,30 @@ function ActionRequestDialog({
           ) : null}
           {action.method === "agentRuns.start" || action.method === "agentRuns.sendInstruction" ? (
             <>
+              {renderChoiceField({
+                label: "Agent run",
+                field: "agentRunId",
+                options: agentRunOptions,
+                hint: "Session and thread details stay hidden behind the agent run."
+              })}
               <label>
-                Agent run id
-                <input value={values.agentRunId} onChange={(event) => updateField("agentRunId", event.target.value)} required />
-              </label>
-              <label>
-                Instruction
-                <textarea value={values.instruction} onChange={(event) => updateField("instruction", event.target.value)} required />
+                {action.method === "agentRuns.start" ? "First instruction" : "Instruction"}
+                <textarea
+                  value={values.instruction}
+                  onChange={(event) => updateField("instruction", event.target.value)}
+                  required={action.method === "agentRuns.sendInstruction"}
+                />
               </label>
             </>
           ) : null}
+          {action.method === "agentRuns.cancel"
+            ? renderChoiceField({
+                label: "Agent run",
+                field: "agentRunId",
+                options: agentRunOptions,
+                hint: "Cancelling stops the selected project worker attempt, not the project."
+              })
+            : null}
           {action.method === "artifacts.create" ? (
             <>
               <label>
@@ -1899,7 +2149,12 @@ function ActionRequestDialog({
               </label>
               <label>
                 Artifact type
-                <input value={values.type} onChange={(event) => updateField("type", event.target.value)} required />
+                <input
+                  value={values.type}
+                  onChange={(event) => updateField("type", event.target.value)}
+                  placeholder="report, plan, checklist, code_patch, custom"
+                  required
+                />
               </label>
               <label>
                 Summary
@@ -1908,16 +2163,21 @@ function ActionRequestDialog({
             </>
           ) : null}
           {action.method === "checks.run" || action.method === "checks.waive" ? (
-            <label>
-              Check id
-              <input value={values.checkId} onChange={(event) => updateField("checkId", event.target.value)} required />
-            </label>
+            renderChoiceField({
+              label: "Check",
+              field: "checkId",
+              options: checkOptions,
+              hint: "Required failed checks block review readiness until they pass or are explicitly waived."
+            })
           ) : null}
           {action.method === "checks.cancel" ? (
-            <label>
-              Run id
-              <input value={values.runId} onChange={(event) => updateField("runId", event.target.value)} required />
-            </label>
+            renderChoiceField({
+              label: "Check run",
+              field: "runId",
+              options: checkRunOptions,
+              fallbackLabel: "Run id",
+              hint: "Only active check runs can be cancelled by the runtime."
+            })
           ) : null}
           {action.method === "checks.waive" ? (
             <label>
@@ -1925,6 +2185,16 @@ function ActionRequestDialog({
               <textarea value={values.reason} onChange={(event) => updateField("reason", event.target.value)} />
             </label>
           ) : null}
+          {action.method === "providers.getStatus" || action.method === "providers.list"
+            ? renderChoiceField({
+                label: "Provider",
+                field: "providerId",
+                options: providerOptions,
+                required: false,
+                fallbackLabel: "Provider id",
+                hint: "Use Settings to check availability, choose a default, or change startup enablement."
+              })
+            : null}
           {status ? <p>{status}</p> : null}
           <div className="actionRow">
             <button type="button" onClick={onClose}>
@@ -1938,6 +2208,15 @@ function ActionRequestDialog({
       </section>
     </div>
   );
+}
+
+function uniqueOptions(options: FormOption[]): FormOption[] {
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    if (seen.has(option.value)) return false;
+    seen.add(option.value);
+    return true;
+  });
 }
 
 function actionParams(action: PendingActionRequest, values: ActionFormValues): unknown {
