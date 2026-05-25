@@ -2639,6 +2639,7 @@ function SettingsPanel({
   const [selectedProviderId, setSelectedProviderId] = useState<string | undefined>();
   const [providerCheckMessage, setProviderCheckMessage] = useState<string | undefined>();
   const [checkedAvailabilityByProviderId, setCheckedAvailabilityByProviderId] = useState<Record<string, ProviderAvailability>>({});
+  const [projectRootsDraft, setProjectRootsDraft] = useState(defaultAppSettings.projectRoots.join("\n"));
   const [message, setMessage] = useState("Settings are ready.");
   const providersForDisplay = providers.map((provider) => ({
     ...provider,
@@ -2651,10 +2652,12 @@ function SettingsPanel({
     callApi<AppSettings>("settings.get", undefined, controller.signal)
       .then((nextSettings) => {
         setSettings(nextSettings);
+        setProjectRootsDraft(nextSettings.projectRoots.join("\n"));
         setMessage("Settings loaded from the local runtime.");
       })
       .catch(() => {
         setSettings(defaultAppSettings);
+        setProjectRootsDraft(defaultAppSettings.projectRoots.join("\n"));
         setMessage("Settings preview is using local defaults.");
       });
     return () => controller.abort();
@@ -2674,11 +2677,17 @@ function SettingsPanel({
       const nextSettings = await callApi<AppSettings>("settings.update", { patch, confirmRawProviderLogs }).catch(() => undefined);
       if (nextSettings) {
         setSettings(nextSettings);
+        if (patch.projectRoots) {
+          setProjectRootsDraft(nextSettings.projectRoots.join("\n"));
+        }
         setMessage("Settings saved to the local runtime.");
         return;
       }
     }
     setSettings(fallback);
+    if (patch.projectRoots) {
+      setProjectRootsDraft(fallback.projectRoots.join("\n"));
+    }
     setMessage("Settings updated in the preview state.");
   }
 
@@ -2767,8 +2776,17 @@ function SettingsPanel({
       </section>
       <section className="settingsGroup" aria-label="Project discovery">
         <h3>Project discovery</h3>
+        <label className="settingsField">
+          Project roots
+          <textarea
+            value={projectRootsDraft}
+            onChange={(event) => setProjectRootsDraft(event.target.value)}
+            placeholder="/path/to/workspace/root"
+          />
+        </label>
+        <p>Enter one project discovery root per line. Saving updates the roots used by the local runtime on restart.</p>
         {settings.projectRoots.length > 0 ? (
-          <ul className="settingsList">
+          <ul className="settingsList" aria-label="Saved project roots">
             {settings.projectRoots.map((root) => (
               <li key={root}>
                 <code>{root}</code>
@@ -2778,7 +2796,7 @@ function SettingsPanel({
         ) : (
           <p>No project roots configured.</p>
         )}
-        <button type="button" data-method="settings.update" onClick={() => updateSettings({ projectRoots: settings.projectRoots })}>
+        <button type="button" data-method="settings.update" onClick={() => updateSettings({ projectRoots: parseProjectRootsDraft(projectRootsDraft) })}>
           Save project roots
         </button>
       </section>
@@ -2945,6 +2963,10 @@ function mergeSettings(settings: AppSettings, patch: Partial<AppSettings>): AppS
     enabledProviderIds: [...(patch.enabledProviderIds ?? settings.enabledProviderIds)],
     projectRoots: [...(patch.projectRoots ?? settings.projectRoots)]
   };
+}
+
+function parseProjectRootsDraft(value: string): string[] {
+  return [...new Set(value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))];
 }
 
 function demoDiagnostics(): ObservabilityDiagnostics {

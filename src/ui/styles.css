@@ -885,6 +885,23 @@ pre {
   align-items: flex-start;
 }
 
+.settingsField {
+  display: grid;
+  gap: 0.35rem;
+  color: #485961;
+  font-size: 0.9rem;
+}
+
+.settingsField textarea {
+  min-height: 5.5rem;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid #b7c3c9;
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  resize: vertical;
+}
+
 .settingsGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -456,6 +456,13 @@ test("settings panel confirms raw provider logs and keeps provider settings sepa
   await expect(settingsPanel).toBeVisible();
   await expect(settingsPanel.getByRole("region", { name: "Logging" })).toContainText("disabled");
 
+  const projectDiscovery = settingsPanel.getByRole("region", { name: "Project discovery" });
+  await projectDiscovery.getByLabel("Project roots").fill("/workspace/research\n/workspace/writing\n/workspace/research");
+  await projectDiscovery.getByRole("button", { name: "Save project roots" }).click();
+  await expect(projectDiscovery.getByRole("list", { name: "Saved project roots" })).toContainText("/workspace/research");
+  await expect(projectDiscovery.getByRole("list", { name: "Saved project roots" })).toContainText("/workspace/writing");
+  await expect(settingsPanel).toContainText("Settings updated in the preview state.");
+
   const enableLogs = settingsPanel.getByRole("button", { name: "Enable raw provider logs" });
   await expect(enableLogs).toHaveAttribute("data-method", "settings.update");
   await enableLogs.click();
