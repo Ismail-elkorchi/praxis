@@ -21,12 +21,16 @@ export async function createPraxisApp(
   const eventStore: EventStore = input.eventStore ?? new InMemoryEventStore();
   const events = new AppEventLog(eventStore);
   await events.restore();
+  const settings = new SettingsService(isSettingsRepository(eventStore) ? eventStore : undefined);
 
   const providerRegistry = new ProviderRegistry();
   const fakeProvider = new FakeProviderAdapter({ scenario: input.fakeScenario });
   providerRegistry.register(fakeProvider);
+  const enabledProviderIds = settings.get().enabledProviderIds;
   for (const adapter of input.providerAdapters ?? []) {
-    providerRegistry.register(adapter);
+    if (enabledProviderIds.length === 0 || enabledProviderIds.includes(adapter.id)) {
+      providerRegistry.register(adapter);
+    }
   }
 
   const git = new GitService();
@@ -35,7 +39,6 @@ export async function createPraxisApp(
   const checks = new CheckService(events, () => events.snapshot());
   const policies = new PolicyService();
   const plugins = new PluginRegistry(events);
-  const settings = new SettingsService(isSettingsRepository(eventStore) ? eventStore : undefined);
   const observability = new ObservabilityService(events, settings, policies, plugins, () => events.snapshot());
 
   await providers.registerAvailableProviders();

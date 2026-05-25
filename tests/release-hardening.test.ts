@@ -100,6 +100,23 @@ describe("release hardening", () => {
     await second.shutdown();
   });
 
+  it("can disable optional providers while preserving fake-provider operation", async () => {
+    const databasePath = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-provider-disabled-")), "praxis.sqlite");
+    const first = await startPraxisRuntime({ databasePath, listen: false });
+    first.app.settings.update({ enabledProviderIds: [providerId("fake")] });
+    await first.shutdown();
+
+    const second = await startPraxisRuntime({ databasePath, providerAdapters: [unavailableProviderAdapter()], listen: false });
+    const rootPath = await createTempProject({ packageJson: false });
+    const project = await second.app.projects.registerProject({ rootPath });
+    const sessionId = await second.app.providers.startSession({ providerId: providerId("fake"), projectId: project.id, cwd: rootPath });
+
+    expect(second.app.providerRegistry.listRealProviders()).toEqual([]);
+    expect(second.app.snapshot().dashboard.providerStatus.map((provider) => provider.name)).toEqual(["Fake provider"]);
+    expect(second.app.snapshot().projects[project.id]?.sessions[sessionId]?.providerId).toBe(providerId("fake"));
+    await second.shutdown();
+  });
+
   it("recovers active sessions after an unclean runtime restart", async () => {
     const databasePath = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-runtime-recovery-")), "praxis.sqlite");
     const first = await startPraxisRuntime({ databasePath, listen: false });
