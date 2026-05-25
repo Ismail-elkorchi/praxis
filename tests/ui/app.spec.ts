@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
 import type {
+  ProjectArtifact,
+  ProjectSource,
+  ProjectWorkItem
+} from "../../src/core";
+import type {
   AgentRunCardViewModel,
   DashboardProjection,
   ProjectCardViewModel,
@@ -415,18 +420,18 @@ test("empty project check panel preserves workspace context", async ({ page }) =
   await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: /^Projects/ }).click();
   const checks = page.getByRole("region", { name: "Checks inside project workspace" });
   await expect(checks.getByRole("heading", { name: "No checks have run" })).toBeVisible();
-  const addCheck = checks.getByRole("button", { name: "Add check" });
-  await expect(addCheck).toHaveAttribute("data-method", "checks.list");
-  await addCheck.click();
+  const listChecks = checks.getByRole("button", { name: "List available checks" });
+  await expect(listChecks).toHaveAttribute("data-method", "checks.list");
+  await listChecks.click();
 
-  const addCheckDialog = page.getByRole("dialog", { name: "Add check" });
-  await expect(addCheckDialog).toBeVisible();
-  await expect(addCheckDialog.getByRole("combobox", { name: "Project", exact: true })).toContainText("No-check Workspace");
-  const runAction = addCheckDialog.getByRole("button", { name: "Run action" });
+  const listChecksDialog = page.getByRole("dialog", { name: "List available checks" });
+  await expect(listChecksDialog).toBeVisible();
+  await expect(listChecksDialog.getByRole("combobox", { name: "Project", exact: true })).toContainText("No-check Workspace");
+  const runAction = listChecksDialog.getByRole("button", { name: "Run action" });
   await expect(runAction).toHaveAttribute("data-method", "checks.list");
   await runAction.click();
-  await expect(addCheckDialog.getByRole("region", { name: "Action result" })).toContainText("Available checks");
-  await expect(addCheckDialog.getByRole("region", { name: "Action result" })).toContainText("research review");
+  await expect(listChecksDialog.getByRole("region", { name: "Action result" })).toContainText("Available checks");
+  await expect(listChecksDialog.getByRole("region", { name: "Action result" })).toContainText("research review");
 });
 
 test("project workspace action dialogs use workspace choices", async ({ page }) => {
@@ -451,6 +456,93 @@ test("project workspace action dialogs use workspace choices", async ({ page }) 
   await expect(checksDialog.getByRole("combobox", { name: "Project", exact: true })).toContainText("Control Plane");
   await expect(checksDialog.getByRole("combobox", { name: "Check", exact: true })).toContainText("typecheck");
   await expect(checksDialog).toContainText("Required failed checks block review readiness");
+});
+
+test("project workspace object actions use explicit API context", async ({ page }) => {
+  const requests: Array<{ method: string; params?: Record<string, unknown> }> = [];
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string; params?: Record<string, unknown> };
+    requests.push({ method: request.method, params: request.params });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result: request.method === "dashboard.getSnapshot" ? workspaceLifecycleDashboard() : {}
+      })
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: /^Projects/ }).click();
+
+  const queuedWork = page.getByRole("region", { name: "Queued work" });
+  await queuedWork.getByRole("button", { name: "Queue" }).click();
+  const queueDialog = page.getByRole("dialog", { name: "Queue work item" });
+  await expect(queueDialog.getByRole("combobox", { name: "Work item", exact: true })).toContainText("Draft field guide");
+  await queueDialog.getByRole("button", { name: "Run action" }).click();
+  expect(requests.find((request) => request.method === "workItems.queue")?.params).toMatchObject({
+    projectId: "project-no-checks",
+    workItemId: "work-action-1"
+  });
+
+  const sources = page.getByRole("region", { name: "Sources panel" });
+  await sources.getByRole("button", { name: "Remove source" }).click();
+  const removeSourceDialog = page.getByRole("dialog", { name: "Remove source" });
+  await expect(removeSourceDialog.getByRole("combobox", { name: "Source", exact: true })).toContainText("Interview notes");
+  await removeSourceDialog.getByRole("button", { name: "Run action" }).click();
+  expect(requests.find((request) => request.method === "projects.removeSource")?.params).toMatchObject({
+    projectId: "project-no-checks",
+    sourceId: "source-action-1"
+  });
+
+  const artifacts = page.getByRole("region", { name: "Artifacts panel" });
+  await artifacts.getByRole("button", { name: "Mark reviewed" }).click();
+  const reviewArtifactDialog = page.getByRole("dialog", { name: "Mark artifact reviewed" });
+  await expect(reviewArtifactDialog.getByRole("combobox", { name: "Artifact", exact: true })).toContainText("Field guide draft");
+  await reviewArtifactDialog.getByRole("button", { name: "Run action" }).click();
+  expect(requests.find((request) => request.method === "artifacts.markReviewed")?.params).toMatchObject({
+    projectId: "project-no-checks",
+    artifactId: "artifact-action-1"
+  });
+
+  const runningAgents = page.getByRole("region", { name: "running agents" });
+  await runningAgents.getByRole("button", { name: "Stop run" }).click();
+  const stopRunDialog = page.getByRole("dialog", { name: "Stop run" });
+  await expect(stopRunDialog.getByRole("combobox", { name: "Agent run", exact: true })).toContainText("Writer");
+  await stopRunDialog.getByLabel("Reason").fill("User paused this work.");
+  await stopRunDialog.getByRole("button", { name: "Run action" }).click();
+  expect(requests.find((request) => request.method === "agentRuns.stop")?.params).toMatchObject({
+    projectId: "project-no-checks",
+    agentRunId: "run-action-1",
+    reason: "User paused this work."
+  });
+});
+
+test("import sessions project action asks for provider context before running", async ({ page }) => {
+  const requestedMethods: string[] = [];
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    requestedMethods.push(request.method);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result: request.method === "dashboard.getSnapshot" ? importSessionsDashboard() : {}
+      })
+    });
+  });
+
+  await page.goto("/");
+  const importProject = page.getByRole("article").filter({ hasText: "Import action project" });
+  await importProject.getByRole("button", { name: "Import sessions" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Import sessions" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("combobox", { name: "Project", exact: true })).toContainText("Import action project");
+  await expect(dialog.getByRole("combobox", { name: "Provider", exact: true })).toContainText("Import provider");
+  expect(requestedMethods).not.toContain("agents.importSessions");
 });
 
 test("agent open details expands advanced details without a dead API dialog", async ({ page }) => {
@@ -512,6 +604,30 @@ test("project session actions open executable context dialogs", async ({ page })
   await expect(dialog.getByRole("combobox", { name: "Provider", exact: true })).toContainText("Runnable provider");
   await expect(dialog.getByLabel("Working folder")).toHaveValue("/workspace/session-action");
   await expect(dialog.getByRole("button", { name: "Run action" })).toHaveAttribute("data-method", "agents.startSession");
+});
+
+test("start dialogs keep unavailable providers visible but unselectable", async ({ page }) => {
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result: request.method === "dashboard.getSnapshot" ? unavailableStartProviderDashboard() : {}
+      })
+    });
+  });
+
+  await page.goto("/");
+  const project = page.getByRole("article").filter({ hasText: "Unavailable start project" });
+  await project.getByRole("button", { name: "Start task" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Start task" });
+  const providerSelect = dialog.getByRole("combobox", { name: "Provider", exact: true });
+  await expect(providerSelect).toHaveValue("provider-available");
+  await expect(providerSelect.locator('option[value="provider-unavailable"]')).toHaveAttribute("disabled", "");
+  await expect(providerSelect.locator('option[value="provider-available"]')).not.toHaveAttribute("disabled", "");
 });
 
 test("provider status cards show capability and compatibility details", async ({ page }) => {
@@ -607,11 +723,13 @@ test("provider configuration shows setup steps and updates from availability che
   await expect(providerConfiguration.getByRole("region", { name: "Provider setup checklist" })).toContainText("Install the provider command.");
   await expect(providerConfiguration.getByRole("region", { name: "Provider commands" })).toContainText("agentctl --version");
   await expect(providerConfiguration.getByRole("region", { name: "Provider environment overrides" })).toContainText("AGENTCTL_BIN");
+  await expect(providerConfiguration.getByRole("button", { name: "Set as default provider" })).toBeDisabled();
 
   await providerConfiguration.getByRole("button", { name: "Check availability" }).click();
   await expect(providerConfiguration).toContainText("Availability check passed with version 1.2.3.");
   await expect(providerConfiguration.getByText("available").first()).toBeVisible();
   await expect(providerCard.getByText("available").first()).toBeVisible();
+  await expect(providerConfiguration.getByRole("button", { name: "Set as default provider" })).toBeEnabled();
 });
 
 test("settings panel confirms raw provider logs and keeps provider settings separate", async ({ page }) => {
@@ -883,6 +1001,23 @@ function setupProviderStatus(name: string, status: "available" | "unavailable"):
   };
 }
 
+function providerStatusWithId(
+  providerId: string,
+  name: string,
+  status: "available" | "unavailable",
+  patch: Partial<ProviderStatusViewModel["capabilities"]> = {}
+): ProviderStatusViewModel {
+  const provider = setupProviderStatus(name, status);
+  return {
+    ...provider,
+    providerId: providerId as ProviderStatusViewModel["providerId"],
+    capabilities: {
+      ...provider.capabilities,
+      ...patch
+    }
+  };
+}
+
 function setupProviderDetails(command: string): Record<string, unknown> {
   return {
     command,
@@ -895,6 +1030,42 @@ function setupProviderDetails(command: string): Record<string, unknown> {
       jsonSchemaCommand: [command, "generate-json-schema"]
     }
   };
+}
+
+function unavailableStartProviderDashboard(): DashboardProjection {
+  const projectId = "project-unavailable-start" as ProjectCardViewModel["projectId"];
+  const projectCard: ProjectCardViewModel = {
+    projectId,
+    title: "Unavailable start project",
+    subtitle: "/workspace/unavailable-start",
+    profileFacets: ["Project workspace", "operate", "local folder"],
+    runtimeState: "idle",
+    urgency: 0,
+    stateLabel: "Idle",
+    stateReason: "Ready to start project work.",
+    providerLabel: "Unavailable runner",
+    branchLabel: "main",
+    changedFileCount: 0,
+    pendingApprovalCount: 0,
+    failedCheckCount: 0,
+    activeTurnCount: 0,
+    activeAgentCount: 0,
+    waitingAgentCount: 0,
+    blockedAgentCount: 0,
+    badges: [{ label: "Idle", tone: "idle" }],
+    primaryAction: { id: "start-task", label: "Start task", method: "agents.startSession" },
+    secondaryActions: [],
+    diffFiles: [],
+    evidence: []
+  };
+  return emptyDashboard({
+    projectCards: [projectCard],
+    home: { activeProjects: [projectCard] },
+    providerStatus: [
+      providerStatusWithId("provider-unavailable", "Unavailable runner", "unavailable", { canStartSession: true }),
+      providerStatusWithId("provider-available", "Available runner", "available", { canStartSession: true })
+    ]
+  });
 }
 
 function noCheckWorkspaceDashboard(): DashboardProjection {
@@ -973,6 +1144,129 @@ function noCheckWorkspaceDashboard(): DashboardProjection {
         }
       ]
     } as NonNullable<DashboardProjection["selectedWorkspace"]>
+  });
+}
+
+function workspaceLifecycleDashboard(): DashboardProjection {
+  const dashboard = noCheckWorkspaceDashboard();
+  const workspace = dashboard.selectedWorkspace!;
+  const projectId = workspace.projectId;
+  const now = new Date(0).toISOString();
+  const source: ProjectSource & { usedByWorkItemIds: string[] } = {
+    id: "source-action-1" as ProjectSource["id"],
+    projectId,
+    type: "note",
+    title: "Interview notes",
+    uriOrPath: "notes/interview.md",
+    addedBy: "user",
+    createdAt: now,
+    updatedAt: now,
+    metadata: {},
+    usedByWorkItemIds: ["work-action-1"]
+  };
+  const workItem: ProjectWorkItem = {
+    id: "work-action-1" as ProjectWorkItem["id"],
+    projectId,
+    title: "Draft field guide",
+    goal: "Turn source notes into a usable field guide.",
+    workModes: ["write", "research"],
+    status: "planned",
+    priority: 2,
+    sourceIds: [source.id],
+    artifactIds: ["artifact-action-1" as ProjectWorkItem["artifactIds"][number]],
+    createdAt: now,
+    updatedAt: now,
+    metadata: {}
+  };
+  const artifact: ProjectArtifact = {
+    id: "artifact-action-1" as ProjectArtifact["id"],
+    projectId,
+    workItemId: workItem.id,
+    agentRunId: "run-action-1" as ProjectArtifact["agentRunId"],
+    type: "report",
+    title: "Field guide draft",
+    summary: "Draft report ready for review.",
+    status: "draft",
+    sourceIds: [source.id],
+    evidence: [],
+    createdAt: now,
+    updatedAt: now,
+    metadata: {}
+  };
+  const run: AgentRunCardViewModel = {
+    runId: "run-action-1" as AgentRunCardViewModel["runId"],
+    projectId,
+    workItemId: workItem.id,
+    roleName: "Writer",
+    rolePreset: "writer",
+    providerLabel: "Fake provider",
+    providerId: "fake" as AgentRunCardViewModel["providerId"],
+    linkedWorkItemTitle: workItem.title,
+    status: "running",
+    lastEvent: "agent.run.started",
+    pendingDecisionCount: 0,
+    pendingInput: false,
+    producedArtifactCount: 1,
+    primaryAction: { id: "send-instruction", label: "Send instruction", method: "agentRuns.sendInstruction" },
+    evidence: [],
+    advanced: {
+      sessionId: "session-action-1" as AgentRunCardViewModel["advanced"]["sessionId"],
+      providerSessionExternalKind: "runtime session"
+    }
+  };
+  return {
+    ...dashboard,
+    providerStatus: [setupProviderStatus("Fake provider", "available")],
+    selectedWorkspace: {
+      ...workspace,
+      workItems: {
+        current: [],
+        queued: [workItem],
+        blocked: [],
+        completed: []
+      },
+      agentBoard: {
+        ...workspace.agentBoard,
+        running: [run]
+      },
+      sources: [source],
+      artifacts: [artifact]
+    }
+  };
+}
+
+function importSessionsDashboard(): DashboardProjection {
+  const projectId = "project-import-action" as ProjectCardViewModel["projectId"];
+  const provider = setupProviderStatus("Import provider", "available");
+  provider.capabilities.canImportExistingSessions = true;
+  const projectCard: ProjectCardViewModel = {
+    projectId,
+    title: "Import action project",
+    subtitle: "/workspace/import-action",
+    profileFacets: ["Project workspace", "operate", "local folder"],
+    runtimeState: "stale",
+    urgency: 3,
+    stateLabel: "Stale",
+    stateReason: "Provider sessions can be imported for recovery.",
+    providerLabel: "Import provider",
+    branchLabel: "main",
+    changedFileCount: 0,
+    pendingApprovalCount: 0,
+    failedCheckCount: 0,
+    activeTurnCount: 0,
+    activeAgentCount: 0,
+    waitingAgentCount: 0,
+    blockedAgentCount: 1,
+    badges: [{ label: "Stale", tone: "stale" }],
+    primaryAction: { id: "open-workspace", label: "Open workspace", method: "projects.getWorkspace" },
+    secondaryActions: [{ id: "import-sessions", label: "Import sessions", method: "agents.importSessions" }],
+    diffFiles: [],
+    evidence: []
+  };
+  return emptyDashboard({
+    projectCards: [projectCard],
+    home: { activeProjects: [projectCard] },
+    providerStatus: [provider]
   });
 }
 

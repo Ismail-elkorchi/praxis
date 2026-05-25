@@ -22,8 +22,7 @@ import type {
   ProjectSource,
   ProjectWorkItem,
   Proposition,
-  ProviderAvailability,
-  ProviderCapabilities
+  ProviderAvailability
 } from "../core";
 import { gitStatusHash } from "../git/statusHash";
 import type {
@@ -762,7 +761,7 @@ function projectCard(project: ProjectSnapshot, snapshot: AppSnapshot): ProjectCa
     lastActivityAt: project.lastActivityAt,
     badges: badges(project),
     primaryAction: openWorkspaceAction(project.project.id),
-    secondaryActions: secondaryActions(project, evidence, provider?.capabilities),
+    secondaryActions: secondaryActions(project, evidence, provider),
     diffFiles: diffFiles(project),
     evidence
   };
@@ -1474,15 +1473,17 @@ function badges(project: ProjectSnapshot): DashboardBadge[] {
   return result;
 }
 
-function primaryAction(project: ProjectSnapshot, capabilities: ProviderCapabilities | undefined): DashboardAction {
+function primaryAction(project: ProjectSnapshot, provider: AgentProvider | undefined): DashboardAction {
+  const capabilities = provider?.capabilities;
+  const providerAvailable = provider?.availability.status === "available";
   if (project.approvals.some((approval) => approval.status === "pending")) {
     return { id: "open-approvals", label: "Open approvals", method: "agents.respondToApproval" };
   }
   if (project.runtimeState === "stale") {
-    if (capabilities?.canResumeSession) {
+    if (providerAvailable && capabilities?.canResumeSession) {
       return { id: "resume-session", label: "Resume session", method: "agents.resumeSession" };
     }
-    if (capabilities?.canStartSession) {
+    if (providerAvailable && capabilities?.canStartSession) {
       return { id: "recover-session", label: "Start recovery task", method: "agents.startSession" };
     }
     return {
@@ -1490,7 +1491,7 @@ function primaryAction(project: ProjectSnapshot, capabilities: ProviderCapabilit
       label: "Start recovery task",
       method: "agents.startSession",
       disabled: true,
-      disabledReason: "Provider does not support recovery actions."
+      disabledReason: provider ? "Provider is not currently available." : "Provider does not support recovery actions."
     };
   }
   if (project.runtimeState === "checks_failed") {
@@ -1502,23 +1503,25 @@ function primaryAction(project: ProjectSnapshot, capabilities: ProviderCapabilit
   if (project.runtimeState === "ready_to_merge" || project.runtimeState === "dirty_worktree") {
     return { id: "review-diff", label: "Review diff", method: "git.openDiff" };
   }
-  if (!capabilities?.canStartSession) {
+  if (!providerAvailable || !capabilities?.canStartSession) {
     return {
       id: "start-task",
       label: "Start task",
       method: "agents.startSession",
       disabled: true,
-      disabledReason: "Provider does not support starting sessions."
+      disabledReason: providerAvailable ? "Provider does not support starting sessions." : "Provider is not currently available."
     };
   }
   return { id: "start-task", label: "Start task", method: "agents.startSession" };
 }
 
-function secondaryActions(project: ProjectSnapshot, evidence: EvidenceRef[], capabilities: ProviderCapabilities | undefined): DashboardAction[] {
+function secondaryActions(project: ProjectSnapshot, evidence: EvidenceRef[], provider: AgentProvider | undefined): DashboardAction[] {
+  const capabilities = provider?.capabilities;
+  const providerAvailable = provider?.availability.status === "available";
   return [
-    primaryAction(project, capabilities),
+    primaryAction(project, provider),
     ...(project.runtimeState === "stale" ? [{ id: "stop-session", label: "Stop session", method: "agents.stopSession" }] : []),
-    ...(capabilities?.canImportExistingSessions
+    ...(providerAvailable && capabilities?.canImportExistingSessions
       ? [{ id: "import-sessions", label: "Import sessions", method: "agents.importSessions" }]
       : []),
     { id: "run-checks", label: "Run checks", method: "checks.run" },

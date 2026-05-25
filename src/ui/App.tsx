@@ -44,6 +44,8 @@ type PendingActionRequest = {
   projectId?: string;
   workItemId?: string;
   agentRunId?: string;
+  artifactId?: string;
+  sourceId?: string;
   sessionId?: string;
   checkId?: string;
   runId?: string;
@@ -174,19 +176,6 @@ export function App() {
     }
     if (action.id === "mark-reviewed") {
       openActionRequest({ method: action.method, label: action.label, projectId: project.projectId });
-      return;
-    }
-    if (action.id === "import-sessions") {
-      const provider = dashboard.providerStatus.find((item) => item.name === project.providerLabel) ?? dashboard.providerStatus[0];
-      if (apiStatus === "live" && provider) {
-        void callApi<unknown>("agents.importSessions", { providerId: provider.providerId, projectId: project.projectId })
-          .then(() => callApi<DashboardProjection>("dashboard.getSnapshot"))
-          .then((snapshot) => {
-            if (snapshot) setLiveDashboard(snapshot);
-          })
-          .catch(() => undefined);
-      }
-      requestDetailFocus("project");
       return;
     }
     if (action.id === "open-evidence") {
@@ -611,10 +600,10 @@ function ProjectWorkspace({
       <div className="workspaceColumns">
         <section className="cockpitBand" aria-label="Work Items panel">
           <h2>Work Items</h2>
-          <WorkItemColumn title="Current work" items={workspace.workItems.current} />
-          <WorkItemColumn title="Queued work" items={workspace.workItems.queued} />
-          <WorkItemColumn title="Blocked work" items={workspace.workItems.blocked} />
-          <WorkItemColumn title="Completed work" items={workspace.workItems.completed} />
+          <WorkItemColumn title="Current work" items={workspace.workItems.current} onAction={onAction} />
+          <WorkItemColumn title="Queued work" items={workspace.workItems.queued} onAction={onAction} />
+          <WorkItemColumn title="Blocked work" items={workspace.workItems.blocked} onAction={onAction} />
+          <WorkItemColumn title="Completed work" items={workspace.workItems.completed} onAction={onAction} />
           <div className="actionRow">
             <button type="button" data-method="workItems.create" onClick={() => onAction({ method: "workItems.create", label: "Create work item", projectId: workspace.projectId })}>Create work item</button>
             <button type="button" data-method="projects.addSource" onClick={() => onAction({ method: "projects.addSource", label: "Attach sources", projectId: workspace.projectId })}>Attach sources</button>
@@ -649,12 +638,30 @@ function ProjectWorkspace({
               <h3>{source.title}</h3>
               <p>{source.type.replaceAll("_", " ")}{source.uriOrPath ? ` · ${source.uriOrPath}` : ""}</p>
               <small>{source.usedByWorkItemIds.length} work item(s)</small>
+              {source.addedBy !== "system" ? (
+                <div className="actionRow">
+                  <button
+                    type="button"
+                    data-method="projects.removeSource"
+                    onClick={() =>
+                      onAction({
+                        method: "projects.removeSource",
+                        label: "Remove source",
+                        projectId: workspace.projectId,
+                        sourceId: source.id
+                      })
+                    }
+                  >
+                    Remove source
+                  </button>
+                </div>
+              ) : null}
             </article>
           ))}
         </section>
         <section className="cockpitBand" aria-label="Artifacts panel">
           <h2>Artifacts</h2>
-          <ArtifactList artifacts={workspace.artifacts} />
+          <WorkspaceArtifactList artifacts={workspace.artifacts} onAction={onAction} />
         </section>
       </div>
 
@@ -677,7 +684,15 @@ function ProjectWorkspace({
   );
 }
 
-function WorkItemColumn({ title, items }: { title: string; items: ProjectWorkspaceViewModel["workItems"]["current"] }) {
+function WorkItemColumn({
+  title,
+  items,
+  onAction
+}: {
+  title: string;
+  items: ProjectWorkspaceViewModel["workItems"]["current"];
+  onAction(action: PendingActionRequest): void;
+}) {
   return (
     <section className="workItemColumn" aria-label={title}>
       <h3>{title}</h3>
@@ -686,6 +701,56 @@ function WorkItemColumn({ title, items }: { title: string; items: ProjectWorkspa
           <h4>{item.title}</h4>
           <p>{item.goal}</p>
           <small>{item.status} · {item.workModes.join(", ")}</small>
+          {item.status !== "completed" && item.status !== "cancelled" ? (
+            <div className="actionRow">
+              {item.status === "planned" ? (
+                <button
+                  type="button"
+                  data-method="workItems.queue"
+                  onClick={() =>
+                    onAction({
+                      method: "workItems.queue",
+                      label: "Queue work item",
+                      projectId: item.projectId,
+                      workItemId: item.id
+                    })
+                  }
+                >
+                  Queue
+                </button>
+              ) : null}
+              {item.status !== "planned" ? (
+                <button
+                  type="button"
+                  data-method="workItems.complete"
+                  onClick={() =>
+                    onAction({
+                      method: "workItems.complete",
+                      label: "Complete work item",
+                      projectId: item.projectId,
+                      workItemId: item.id
+                    })
+                  }
+                >
+                  Complete
+                </button>
+              ) : null}
+              <button
+                type="button"
+                data-method="workItems.cancel"
+                onClick={() =>
+                  onAction({
+                    method: "workItems.cancel",
+                    label: "Cancel work item",
+                    projectId: item.projectId,
+                    workItemId: item.id
+                  })
+                }
+              >
+                Cancel
+              </button>
+            </div>
+          ) : null}
         </article>
       ))}
       {items.length === 0 ? <p className="emptyText">None.</p> : null}
@@ -737,6 +802,42 @@ function AgentRunList({ runs, onAction }: { runs: AgentRunCardViewModel[]; onAct
             >
               {run.primaryAction.label}
             </button>
+            {run.status === "queued" ? (
+              <button
+                type="button"
+                data-method="agentRuns.cancel"
+                onClick={() =>
+                  onAction({
+                    method: "agentRuns.cancel",
+                    label: "Cancel run",
+                    projectId: run.projectId,
+                    workItemId: run.workItemId,
+                    agentRunId: run.runId,
+                    providerId: run.providerId
+                  })
+                }
+              >
+                Cancel run
+              </button>
+            ) : null}
+            {run.status === "running" || run.status === "waiting_for_approval" || run.status === "waiting_for_input" ? (
+              <button
+                type="button"
+                data-method="agentRuns.stop"
+                onClick={() =>
+                  onAction({
+                    method: "agentRuns.stop",
+                    label: "Stop run",
+                    projectId: run.projectId,
+                    workItemId: run.workItemId,
+                    agentRunId: run.runId,
+                    providerId: run.providerId
+                  })
+                }
+              >
+                Stop run
+              </button>
+            ) : null}
             <details
               open={detailsOpen}
               onToggle={(event) => {
@@ -769,6 +870,82 @@ function ArtifactList({ artifacts }: { artifacts: DashboardProjection["home"]["r
           <h3>{artifact.title}</h3>
           <p>{artifact.summary || artifact.status}</p>
           <small>{artifact.sourceIds.length} source(s) · {artifact.evidence.length} evidence reference(s)</small>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function WorkspaceArtifactList({
+  artifacts,
+  onAction
+}: {
+  artifacts: ProjectWorkspaceViewModel["artifacts"];
+  onAction(action: PendingActionRequest): void;
+}) {
+  if (artifacts.length === 0) return <p className="emptyText">No artifacts yet.</p>;
+  return (
+    <div className="artifactGrid">
+      {artifacts.map((artifact) => (
+        <article key={artifact.id} className={`workspaceMiniCard artifact-${artifact.status}`}>
+          <span className="stateBadge review">{artifact.type.replaceAll("_", " ")}</span>
+          <h3>{artifact.title}</h3>
+          <p>{artifact.summary || artifact.status}</p>
+          <small>{artifact.sourceIds.length} source(s) · {artifact.evidence.length} evidence reference(s)</small>
+          {artifact.status !== "accepted" && artifact.status !== "rejected" && artifact.status !== "archived" ? (
+            <div className="actionRow">
+              {artifact.status !== "reviewed" ? (
+                <button
+                  type="button"
+                  data-method="artifacts.markReviewed"
+                  onClick={() =>
+                    onAction({
+                      method: "artifacts.markReviewed",
+                      label: "Mark artifact reviewed",
+                      projectId: artifact.projectId,
+                      workItemId: artifact.workItemId,
+                      agentRunId: artifact.agentRunId,
+                      artifactId: artifact.id
+                    })
+                  }
+                >
+                  Mark reviewed
+                </button>
+              ) : null}
+              <button
+                type="button"
+                data-method="artifacts.accept"
+                onClick={() =>
+                  onAction({
+                    method: "artifacts.accept",
+                    label: "Accept artifact",
+                    projectId: artifact.projectId,
+                    workItemId: artifact.workItemId,
+                    agentRunId: artifact.agentRunId,
+                    artifactId: artifact.id
+                  })
+                }
+              >
+                Accept
+              </button>
+              <button
+                type="button"
+                data-method="artifacts.reject"
+                onClick={() =>
+                  onAction({
+                    method: "artifacts.reject",
+                    label: "Reject artifact",
+                    projectId: artifact.projectId,
+                    workItemId: artifact.workItemId,
+                    agentRunId: artifact.agentRunId,
+                    artifactId: artifact.id
+                  })
+                }
+              >
+                Reject
+              </button>
+            </div>
+          ) : null}
         </article>
       ))}
     </div>
@@ -1479,7 +1656,17 @@ function ProviderConfigurationPanel({
             Clear default provider
           </button>
         ) : (
-          <button type="button" data-method="settings.update" onClick={setDefaultProvider} disabled={!providerEnabled && providers.length === 0}>
+          <button
+            type="button"
+            data-method="settings.update"
+            onClick={setDefaultProvider}
+            disabled={configuredProvider.availability.status !== "available"}
+            title={
+              configuredProvider.availability.status !== "available"
+                ? "Provider must be available before it can be the default."
+                : undefined
+            }
+          >
             Set as default provider
           </button>
         )}
@@ -1806,7 +1993,7 @@ function CommandPalette({
       label: "Start agent run",
       method: "agentRuns.start",
       route: "Projects",
-      disabled: dashboard.providerStatus.every((provider) => !provider.capabilities.canStartSession)
+      disabled: dashboard.providerStatus.every((provider) => !providerCanStartSession(provider))
     },
     { id: "ask-in-project", label: "Ask within selected project", method: "agentRuns.sendInstruction", route: "Projects" },
     { id: "create-artifact", label: "Create artifact", method: "artifacts.create", route: "Artifacts" },
@@ -1932,6 +2119,7 @@ type ActionFormValues = {
   workItemId: string;
   agentRunId: string;
   artifactId: string;
+  sourceId: string;
   providerId: string;
   roleName: string;
   instruction: string;
@@ -1953,12 +2141,22 @@ type FormOption = {
 };
 
 function defaultProviderIdForAction(action: PendingActionRequest, providers: ProviderStatusViewModel[]): string {
-  if (action.providerId) return action.providerId;
-  const preferredProvider =
-    action.method === "agentRuns.create" || action.method === "agents.startSession"
-      ? providers.find((provider) => provider.capabilities.canStartSession)
-      : undefined;
+  if (action.providerId) {
+    const explicitProvider = providers.find((provider) => provider.providerId === action.providerId);
+    if (!actionStartsProvider(action.method) || (explicitProvider && providerCanStartSession(explicitProvider))) {
+      return action.providerId;
+    }
+  }
+  const preferredProvider = actionStartsProvider(action.method) ? providers.find(providerCanStartSession) : undefined;
   return preferredProvider?.providerId ?? providers[0]?.providerId ?? "";
+}
+
+function providerCanStartSession(provider: ProviderStatusViewModel): boolean {
+  return provider.capabilities.canStartSession && provider.availability.status === "available";
+}
+
+function actionStartsProvider(method: string): boolean {
+  return method === "agentRuns.create" || method === "agents.startSession";
 }
 
 function defaultProjectCwd(action: PendingActionRequest, dashboard: DashboardProjection, selectedProjectId: string): string {
@@ -1995,7 +2193,8 @@ function ActionRequestDialog({
     workModes: "custom",
     workItemId: action.workItemId ?? "",
     agentRunId: action.agentRunId ?? "",
-    artifactId: "",
+    artifactId: action.artifactId ?? "",
+    sourceId: action.sourceId ?? "",
     providerId: defaultProviderIdForAction(action, providers),
     roleName: "Worker",
     instruction: "",
@@ -2083,15 +2282,22 @@ function ActionRequestDialog({
       }))
     );
   }, [dashboard.home.recentArtifacts, selectedWorkspace, values.projectId]);
+  const sourceOptions = useMemo<FormOption[]>(
+    () =>
+      (selectedWorkspace?.sources ?? []).map((source) => ({
+        value: source.id,
+        label: source.title,
+        detail: `${source.type.replaceAll("_", " ")} · ${source.usedByWorkItemIds.length} work item(s)`
+      })),
+    [selectedWorkspace]
+  );
   const providerOptions = useMemo<FormOption[]>(
     () =>
       providers.map((provider) => ({
         value: provider.providerId,
         label: provider.name,
         detail: provider.availability.status,
-        disabled:
-          (action.method === "agentRuns.create" || action.method === "agents.startSession") &&
-          !provider.capabilities.canStartSession
+        disabled: actionStartsProvider(action.method) && !providerCanStartSession(provider)
       })),
     [action.method, providers]
   );
@@ -2134,8 +2340,17 @@ function ActionRequestDialog({
       if (actionNeedsProject(action.method)) setDefault("projectId", projectOptions);
       if (action.method === "agentRuns.create") setDefault("workItemId", workItemOptions);
       if (action.method === "agentRuns.create") setDefault("providerId", providerOptions);
-      if (action.method === "agentRuns.start" || action.method === "agentRuns.sendInstruction" || action.method === "agentRuns.cancel") {
+      if (
+        action.method === "agentRuns.start" ||
+        action.method === "agentRuns.sendInstruction" ||
+        action.method === "agentRuns.cancel" ||
+        action.method === "agentRuns.stop"
+      ) {
         setDefault("agentRunId", agentRunOptions);
+      }
+      if (action.method === "projects.removeSource") setDefault("sourceId", sourceOptions);
+      if (action.method === "workItems.queue" || action.method === "workItems.cancel" || action.method === "workItems.complete") {
+        setDefault("workItemId", workItemOptions);
       }
       if (action.method === "agents.resumeSession" || action.method === "agents.stopSession" || action.method === "agents.sendTurn") {
         setDefault("sessionId", sessionOptions);
@@ -2157,7 +2372,7 @@ function ActionRequestDialog({
       if (action.method === "providers.getStatus" || action.method === "providers.list") setDefault("providerId", providerOptions);
       return changed ? next : current;
     });
-  }, [action.method, agentRunOptions, artifactOptions, checkOptions, checkRunOptions, projectOptions, providerOptions, sessionOptions, workItemOptions]);
+  }, [action.method, agentRunOptions, artifactOptions, checkOptions, checkRunOptions, projectOptions, providerOptions, sessionOptions, sourceOptions, workItemOptions]);
 
   function updateField(field: ActionFormTextField, value: string) {
     setValues((current) => ({ ...current, [field]: value }));
@@ -2347,6 +2562,15 @@ function ActionRequestDialog({
               </label>
             </>
           ) : null}
+          {action.method === "projects.removeSource"
+            ? renderChoiceField({
+                label: "Source",
+                field: "sourceId",
+                options: sourceOptions,
+                fallbackLabel: "Source id",
+                hint: "Removing a source detaches it from the project workspace history."
+              })
+            : null}
           {action.method === "workItems.create" ? (
             <>
               <label>
@@ -2363,6 +2587,14 @@ function ActionRequestDialog({
               </label>
             </>
           ) : null}
+          {action.method === "workItems.queue" || action.method === "workItems.cancel" || action.method === "workItems.complete"
+            ? renderChoiceField({
+                label: "Work item",
+                field: "workItemId",
+                options: workItemOptions,
+                hint: "Work item lifecycle changes stay scoped to the selected project."
+              })
+            : null}
           {action.method === "agentRuns.create" ? (
             <>
               {renderChoiceField({
@@ -2406,14 +2638,23 @@ function ActionRequestDialog({
               </label>
             </>
           ) : null}
-          {action.method === "agentRuns.cancel"
+          {action.method === "agentRuns.cancel" || action.method === "agentRuns.stop"
             ? renderChoiceField({
                 label: "Agent run",
                 field: "agentRunId",
                 options: agentRunOptions,
-                hint: "Cancelling stops the selected project worker attempt, not the project."
+                hint:
+                  action.method === "agentRuns.stop"
+                    ? "Stopping asks the provider to stop the linked runtime session before closing the run."
+                    : "Cancelling stops the selected project worker attempt, not the project."
               })
             : null}
+          {action.method === "agentRuns.stop" ? (
+            <label>
+              Reason
+              <textarea value={values.reason} onChange={(event) => updateField("reason", event.target.value)} />
+            </label>
+          ) : null}
           {action.method === "agents.startSession" ? (
             <>
               {renderChoiceField({
@@ -2582,6 +2823,11 @@ function actionParams(action: PendingActionRequest, values: ActionFormValues): u
         addedBy: "user",
         metadata: {}
       };
+    case "projects.removeSource":
+      return {
+        projectId: requireValue(values.projectId, "Project id"),
+        sourceId: requireValue(values.sourceId, "Source id")
+      };
     case "workItems.create":
       return {
         projectId: requireValue(values.projectId, "Project id"),
@@ -2593,6 +2839,12 @@ function actionParams(action: PendingActionRequest, values: ActionFormValues): u
         artifactIds: [],
         metadata: {}
       };
+    case "workItems.queue":
+      return { projectId: requireValue(values.projectId, "Project id"), workItemId: requireValue(values.workItemId, "Work item id") };
+    case "workItems.cancel":
+      return { projectId: requireValue(values.projectId, "Project id"), workItemId: requireValue(values.workItemId, "Work item id") };
+    case "workItems.complete":
+      return { projectId: requireValue(values.projectId, "Project id"), workItemId: requireValue(values.workItemId, "Work item id") };
     case "agentRuns.create":
       return {
         projectId: requireValue(values.projectId, "Project id"),
@@ -2608,6 +2860,12 @@ function actionParams(action: PendingActionRequest, values: ActionFormValues): u
         projectId: requireValue(values.projectId, "Project id"),
         agentRunId: requireValue(values.agentRunId, "Agent run id"),
         instruction: values.instruction || undefined
+      };
+    case "agentRuns.stop":
+      return {
+        projectId: requireValue(values.projectId, "Project id"),
+        agentRunId: requireValue(values.agentRunId, "Agent run id"),
+        reason: values.reason || undefined
       };
     case "agentRuns.sendInstruction":
       return {
@@ -2722,9 +2980,14 @@ function actionNeedsProject(method: string): boolean {
   return [
     "projects.markReadyToMerge",
     "projects.addSource",
+    "projects.removeSource",
     "workItems.create",
+    "workItems.queue",
+    "workItems.cancel",
+    "workItems.complete",
     "agentRuns.create",
     "agentRuns.start",
+    "agentRuns.stop",
     "agentRuns.sendInstruction",
     "agentRuns.cancel",
     "agents.startSession",
@@ -2758,9 +3021,14 @@ function actionGuidance(method: string): string {
   if (method === "projects.register") return "Register a durable project workspace from a local root path.";
   if (method === "projects.markReadyToMerge") return "Mark reviewed project output as ready after checking current project state.";
   if (method === "projects.addSource") return "Attach a source to the selected project so work items can reference it.";
+  if (method === "projects.removeSource") return "Remove a selected source from the project workspace.";
   if (method === "workItems.create") return "Create a visible unit of project work before assigning an agent run.";
+  if (method === "workItems.queue") return "Queue the selected work item so it can be picked up by an agent run.";
+  if (method === "workItems.cancel") return "Cancel the selected work item while keeping project history.";
+  if (method === "workItems.complete") return "Mark the selected work item as completed.";
   if (method === "agentRuns.create") return "Create an agent run linked to a work item and provider.";
   if (method === "agentRuns.start") return "Start the selected agent run and optionally include the first instruction.";
+  if (method === "agentRuns.stop") return "Stop the selected agent run and detach its active runtime session when one is linked.";
   if (method === "agentRuns.sendInstruction") return "Send a follow-up instruction to a running or waiting agent run.";
   if (method === "agents.startSession") return "Start an advanced provider session inside the selected project workspace.";
   if (method === "agents.resumeSession") return "Resume an advanced provider session using its owning provider.";
@@ -2804,9 +3072,9 @@ function CheckRunPanel({
         <button
           type="button"
           data-method="checks.list"
-          onClick={() => onAction({ method: "checks.list", label: "Add check", projectId })}
+          onClick={() => onAction({ method: "checks.list", label: "List available checks", projectId })}
         >
-          Add check
+          List available checks
         </button>
       </section>
     );
