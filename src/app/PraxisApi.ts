@@ -11,6 +11,7 @@ import type {
 } from "../core";
 import { createDomainEvent } from "../events/eventFactory";
 import type { EventQuery } from "../events/EventStore";
+import { gitStatusHash } from "../git/statusHash";
 import type { AppSettings } from "../settings/SettingsService";
 import type { PraxisRuntime } from "./PraxisApp";
 import { PraxisError } from "./errors";
@@ -65,6 +66,7 @@ export const apiMethods = [
   "git.getStatus",
   "git.openDiff",
   "git.createWorktree",
+  "git.discardChanges",
   "events.replay",
   "events.query"
 ] as const;
@@ -246,6 +248,36 @@ export class PraxisApi {
           })
         );
         return created;
+      }
+      case "git.discardChanges": {
+        const input = params as { projectId?: ProjectId; rootPath: string; paths: string[]; confirmDiscard?: boolean };
+        if (!input.confirmDiscard) {
+          throw new PraxisError("confirmation_required", "Discarding changes requires explicit confirmation.", {
+            method: "git.discardChanges"
+          });
+        }
+        const result = await this.app.git.discardChanges({ rootPath: input.rootPath, paths: input.paths });
+        const projectId = input.projectId ?? projectIdForRoot(this.app, input.rootPath);
+        await this.app.events.appendMany([
+          createDomainEvent({
+            type: "git.changesDiscarded",
+            projectId,
+            source: "user",
+            payload: { rootPath: input.rootPath, paths: result.discardedPaths },
+            evidence: [
+              { type: "git", repoPath: input.rootPath, sha: result.git.headSha, statusHash: gitStatusHash(result.git) },
+              { type: "user", commandId: "git.discardChanges" }
+            ]
+          }),
+          createDomainEvent({
+            type: "git.statusChanged",
+            projectId,
+            source: "git",
+            payload: result.git,
+            evidence: [{ type: "git", repoPath: input.rootPath, sha: result.git.headSha }]
+          })
+        ]);
+        return result;
       }
       case "events.replay":
         return this.app.replay();

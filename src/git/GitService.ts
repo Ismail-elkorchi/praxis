@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { GitSnapshot } from "../core";
@@ -20,6 +20,11 @@ type NameStatusChange = {
   path: string;
   oldPath?: string;
   changeKind: DiffFileViewModel["changeKind"];
+};
+
+export type DiscardChangesResult = {
+  discardedPaths: string[];
+  git: GitSnapshot;
 };
 
 export class GitService {
@@ -121,6 +126,35 @@ export class GitService {
     return { path: input.worktreePath, branch: input.branch };
   }
 
+  async discardChanges(input: { rootPath: string; paths: string[] }): Promise<DiscardChangesResult> {
+    const rootPath = path.resolve(input.rootPath);
+    const status = await this.getStatus(rootPath);
+    if (!status.isRepo) {
+      throw new Error("Discarding changes requires a git repository.");
+    }
+
+    const paths = unique(input.paths.map((filePath) => normalizeRelativePath(rootPath, filePath)));
+    if (paths.length === 0) {
+      throw new Error("At least one changed file path is required.");
+    }
+
+    const untrackedFiles = new Set(status.untrackedFiles);
+    for (const filePath of paths) {
+      const fullPath = path.join(rootPath, filePath);
+      if (untrackedFiles.has(filePath) || !(await existsInHead(rootPath, filePath))) {
+        await git(rootPath, ["rm", "--cached", "--ignore-unmatch", "--", filePath]).catch(() => undefined);
+        await rm(fullPath, { recursive: true, force: true });
+        continue;
+      }
+      await git(rootPath, ["restore", "--staged", "--worktree", "--", filePath]);
+    }
+
+    return {
+      discardedPaths: paths,
+      git: await this.getStatus(rootPath)
+    };
+  }
+
   private async isRepository(rootPath: string): Promise<boolean> {
     try {
       const result = await git(rootPath, ["rev-parse", "--is-inside-work-tree"]);
@@ -180,6 +214,27 @@ async function refExists(rootPath: string, ref: string): Promise<boolean> {
   return git(rootPath, ["show-ref", "--verify", "--quiet", ref])
     .then(() => true)
     .catch(() => false);
+}
+
+async function existsInHead(rootPath: string, filePath: string): Promise<boolean> {
+  return git(rootPath, ["cat-file", "-e", `HEAD:${filePath}`])
+    .then(() => true)
+    .catch(() => false);
+}
+
+function normalizeRelativePath(rootPath: string, filePath: string): string {
+  if (!filePath || path.isAbsolute(filePath)) {
+    throw new Error("Discard paths must be relative to the project root.");
+  }
+  const resolved = path.resolve(rootPath, filePath);
+  if (resolved !== rootPath && !resolved.startsWith(`${rootPath}${path.sep}`)) {
+    throw new Error("Discard paths must stay inside the project root.");
+  }
+  return path.relative(rootPath, resolved);
+}
+
+function unique<T>(values: T[]): T[] {
+  return [...new Set(values)];
 }
 
 function parsePorcelain(output: string): Pick<

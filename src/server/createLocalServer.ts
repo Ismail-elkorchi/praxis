@@ -30,7 +30,8 @@ const pushChannelsByMethod: Record<string, string[]> = {
   "settings.update": ["dashboard.snapshotChanged"],
   "checks.run": ["dashboard.snapshotChanged", "check.updated"],
   "checks.cancel": ["dashboard.snapshotChanged", "check.updated"],
-  "git.createWorktree": ["dashboard.snapshotChanged", "git.statusChanged"]
+  "git.createWorktree": ["dashboard.snapshotChanged", "git.statusChanged"],
+  "git.discardChanges": ["dashboard.snapshotChanged", "git.statusChanged"]
 };
 
 export function createLocalServer(options: LocalServerOptions) {

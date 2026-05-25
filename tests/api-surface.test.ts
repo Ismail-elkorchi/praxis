@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -45,6 +45,7 @@ const requiredApiMethods = [
   "git.getStatus",
   "git.openDiff",
   "git.createWorktree",
+  "git.discardChanges",
   "events.replay",
   "events.query"
 ];
@@ -421,6 +422,52 @@ describe("provider-neutral API surface", () => {
     expect(store.countRows("worktrees")).toBe(1);
     expect(store.tableRows("worktrees")[0]).toMatchObject({ project_id: project.id, root_path: worktreePath });
     store.close();
+  });
+
+  it("requires confirmation before discarding git changes and records an audit event", async () => {
+    const app = await createPraxisApp();
+    const api = new PraxisApi(app);
+    const rootPath = await createTempProject({ git: true, packageJson: false });
+    const project = await app.projects.registerProject({ rootPath });
+    const readmePath = path.join(rootPath, "README.md");
+    const scratchPath = path.join(rootPath, "scratch.txt");
+
+    await writeFile(readmePath, "# Changed project\n");
+    await writeFile(scratchPath, "scratch\n");
+    await app.projects.refreshProject(project.id);
+    expect(app.snapshot().projects[project.id]?.git.dirty).toBe(true);
+
+    await expect(
+      api.handle({
+        id: "discard-unconfirmed",
+        method: "git.discardChanges",
+        params: { projectId: project.id, rootPath, paths: ["README.md", "scratch.txt"] }
+      })
+    ).resolves.toMatchObject({
+      id: "discard-unconfirmed",
+      error: { code: "confirmation_required" }
+    });
+
+    await expect(
+      api.handle({
+        id: "discard-confirmed",
+        method: "git.discardChanges",
+        params: { projectId: project.id, rootPath, paths: ["README.md", "scratch.txt"], confirmDiscard: true }
+      })
+    ).resolves.toMatchObject({
+      id: "discard-confirmed",
+      result: {
+        discardedPaths: ["README.md", "scratch.txt"],
+        git: { dirty: false }
+      }
+    });
+
+    expect(await readFile(readmePath, "utf8")).toBe("# Test project\n");
+    await expect(readFile(scratchPath, "utf8")).rejects.toThrow();
+    expect(app.snapshot().projects[project.id]?.git.dirty).toBe(false);
+    expect((await app.events.queryEvents()).map((event) => event.type)).toEqual(
+      expect.arrayContaining(["git.changesDiscarded", "git.statusChanged"])
+    );
   });
 
   it("filters event queries by project, provider, session, and event type", async () => {

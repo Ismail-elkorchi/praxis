@@ -1168,6 +1168,7 @@ function formatDuration(durationMs: number | undefined): string {
 }
 
 function FailureTriage() {
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
   return (
     <section className="splitPanel">
       <div>
@@ -1183,10 +1184,50 @@ function FailureTriage() {
           <button type="button" data-method="agents.sendTurn">
             Send instruction
           </button>
+          <button type="button" className="secondaryDanger" data-method="git.discardChanges" onClick={() => setConfirmDiscardOpen(true)}>
+            Discard changes
+          </button>
         </div>
       </div>
       <pre tabIndex={0}>Changed file: src/example.ts{"\n"}Output: expected fake assertion to pass</pre>
+      {confirmDiscardOpen ? <DiscardChangesDialog onCancel={() => setConfirmDiscardOpen(false)} /> : null}
     </section>
+  );
+}
+
+function DiscardChangesDialog({ onCancel }: { onCancel(): void }) {
+  const dialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    dialogRef.current?.querySelector<HTMLButtonElement>("[data-autofocus]")?.focus();
+  }, []);
+
+  return (
+    <div className="modalBackdrop" role="presentation" onMouseDown={onCancel}>
+      <section
+        ref={dialogRef}
+        className="confirmationDialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="discard-confirmation-title"
+        onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => handleDialogKeyDown(event, dialogRef.current, onCancel)}
+      >
+        <div>
+          <span className="stateBadge failed">destructive</span>
+          <h2 id="discard-confirmation-title">Confirm discard</h2>
+          <p>Discard selected git changes only after reviewing the diff and check output.</p>
+        </div>
+        <div className="actionRow">
+          <button type="button" onClick={onCancel}>
+            Keep changes
+          </button>
+          <button type="button" data-autofocus data-method="git.discardChanges" onClick={onCancel}>
+            Confirm discard
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
