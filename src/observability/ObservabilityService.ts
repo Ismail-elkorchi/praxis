@@ -40,6 +40,13 @@ export type EventLogEntry = {
   payload: unknown;
 };
 
+export type DashboardSnapshotGenerationObservation = {
+  method: string;
+  durationMs: number;
+  ok: boolean;
+  recordedAt: string;
+};
+
 export type ReplayHealth =
   | {
       status: "ok";
@@ -87,12 +94,14 @@ export type ObservabilityDiagnostics = {
   metrics: {
     eventIngestion: EventIngestionObservation[];
     projectionTimings: ProjectionTimingObservation[];
+    dashboardSnapshotGeneration: DashboardSnapshotGenerationObservation[];
     providerEventIngestionLatencyMs: SummaryStats;
     approvalWaitTimeMs: SummaryStats;
     agentTurnDurationMs: SummaryStats;
     commandDurationMs: SummaryStats;
     checkDurationMs: SummaryStats;
     apiLatencyMs: SummaryStats;
+    dashboardSnapshotGenerationMs: SummaryStats;
     staleSessionCount: number;
     eventNormalizationFailureCount: number;
   };
@@ -116,6 +125,7 @@ type ApiLatencyObservation = {
 
 export class ObservabilityService {
   private readonly apiLatency: ApiLatencyObservation[] = [];
+  private readonly dashboardSnapshotGeneration: DashboardSnapshotGenerationObservation[] = [];
 
   constructor(
     private readonly events: AppEventLog,
@@ -135,6 +145,16 @@ export class ObservabilityService {
     trim(this.apiLatency, 500);
   }
 
+  recordDashboardSnapshotGeneration(input: { method: string; durationMs: number; ok: boolean }): void {
+    this.dashboardSnapshotGeneration.push({
+      method: input.method,
+      durationMs: input.durationMs,
+      ok: input.ok,
+      recordedAt: new Date().toISOString()
+    });
+    trim(this.dashboardSnapshotGeneration, 500);
+  }
+
   async diagnostics(): Promise<ObservabilityDiagnostics> {
     const snapshot = this.getSnapshot();
     const events = await this.events.queryEvents();
@@ -150,6 +170,7 @@ export class ObservabilityService {
       metrics: {
         eventIngestion: telemetry.eventIngestion,
         projectionTimings: telemetry.projectionTimings,
+        dashboardSnapshotGeneration: this.dashboardSnapshotGeneration.map((entry) => ({ ...entry })),
         providerEventIngestionLatencyMs: summarize(
           telemetry.eventIngestion
             .filter((entry) => Boolean(entry.providerId) || entry.source === "provider")
@@ -160,6 +181,7 @@ export class ObservabilityService {
         commandDurationMs: summarize(commandDurations(snapshot)),
         checkDurationMs: summarize(checkDurations(snapshot)),
         apiLatencyMs: summarize(this.apiLatency.map((entry) => entry.durationMs)),
+        dashboardSnapshotGenerationMs: summarize(this.dashboardSnapshotGeneration.map((entry) => entry.durationMs)),
         staleSessionCount: snapshot.dashboard.globalStatus.staleSessionCount,
         eventNormalizationFailureCount: eventNormalizationFailures(events)
       },

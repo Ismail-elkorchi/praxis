@@ -1425,6 +1425,10 @@ function SettingsPanel({ apiStatus, onRoute }: { apiStatus: ApiStatus; onRoute(r
             <dt>API samples</dt>
             <dd>{diagnostics.metrics.apiLatencyMs.count}</dd>
           </div>
+          <div>
+            <dt>Snapshot samples</dt>
+            <dd>{diagnostics.metrics.dashboardSnapshotGenerationMs.count}</dd>
+          </div>
         </dl>
         <div className="actionRow">
           <button
@@ -1468,7 +1472,10 @@ function DebugExportPreview({
           Proposition inspector: {truePropositions} true, {falsePropositions} false, {unknownPropositions} unknown, {stalePropositions} stale.
         </li>
         <li>Safety inspector: {diagnostics.safetyInspector.pendingApprovals.length} pending approvals and policy outputs.</li>
-        <li>Metrics: event ingestion, projection timing, provider latency, approval wait, turn, command, check, and API latency summaries.</li>
+        <li>
+          Metrics: event ingestion, projection timing, provider latency, approval wait, turn, command, check, API latency, and snapshot
+          generation summaries.
+        </li>
         <li>Replay health: {diagnostics.replay.status}.</li>
         <li>{rawProviderLogsEnabled ? "Raw provider logs included after redaction." : "Raw provider logs excluded by current settings."}</li>
       </ul>
@@ -1600,12 +1607,14 @@ function demoDiagnostics(): ObservabilityDiagnostics {
     metrics: {
       eventIngestion: [],
       projectionTimings: [],
+      dashboardSnapshotGeneration: [],
       providerEventIngestionLatencyMs: emptyStats(),
       approvalWaitTimeMs: emptyStats(),
       agentTurnDurationMs: emptyStats(),
       commandDurationMs: emptyStats(),
       checkDurationMs: emptyStats(),
       apiLatencyMs: emptyStats(),
+      dashboardSnapshotGenerationMs: emptyStats(),
       staleSessionCount: 0,
       eventNormalizationFailureCount: 0
     },

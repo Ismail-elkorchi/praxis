@@ -96,6 +96,11 @@ describe("observability diagnostics", () => {
       const diagnostics = await app.observability.diagnostics();
       expect(diagnostics.metrics.apiLatencyMs.count).toBe(1);
       expect(diagnostics.metrics.apiLatencyMs.latest).toBeGreaterThanOrEqual(0);
+      expect(diagnostics.metrics.dashboardSnapshotGeneration).toEqual([
+        expect.objectContaining({ method: "dashboard.getSnapshot", ok: true })
+      ]);
+      expect(diagnostics.metrics.dashboardSnapshotGenerationMs.count).toBe(1);
+      expect(diagnostics.metrics.dashboardSnapshotGenerationMs.latest).toBeGreaterThanOrEqual(0);
     } finally {
       sockets.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));

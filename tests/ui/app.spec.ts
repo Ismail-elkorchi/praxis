@@ -377,6 +377,7 @@ test("settings panel confirms raw provider logs and keeps provider settings sepa
 
   const diagnostics = settingsPanel.getByRole("region", { name: "Diagnostics" });
   await expect(diagnostics).toContainText("replay ok");
+  await expect(diagnostics).toContainText("Snapshot samples");
   const reviewDebugExport = diagnostics.getByRole("button", { name: "Review debug export" });
   await expect(reviewDebugExport).toHaveAttribute("data-method", "diagnostics.get");
   await reviewDebugExport.click();
@@ -386,6 +387,7 @@ test("settings panel confirms raw provider logs and keeps provider settings sepa
   await expect(debugPreview).toContainText("Event log");
   await expect(debugPreview).toContainText("Projection inspector");
   await expect(debugPreview).toContainText("Safety inspector");
+  await expect(debugPreview).toContainText("snapshot generation");
   await expect(debugPreview).toContainText("Raw provider logs");
   await expect(debugPreview).toContainText("[REDACTED]");
 });

@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import type {
   AgentSessionId,
   AgentTurnId,
@@ -79,10 +80,22 @@ export class PraxisApi {
   constructor(private readonly app: PraxisRuntime) {}
 
   async handle(request: ClientRequest): Promise<ServerResponse> {
+    const snapshotStarted = isDashboardSnapshotRequest(request.method) ? performance.now() : undefined;
+    let ok = false;
     try {
-      return { id: request.id, result: await this.dispatch(request.method as ApiMethod, request.params) };
+      const result = await this.dispatch(request.method as ApiMethod, request.params);
+      ok = true;
+      return { id: request.id, result };
     } catch (error) {
       return { id: request.id, error: toApiError(error) };
+    } finally {
+      if (snapshotStarted !== undefined) {
+        this.app.observability.recordDashboardSnapshotGeneration({
+          method: request.method,
+          durationMs: performance.now() - snapshotStarted,
+          ok
+        });
+      }
     }
   }
 
@@ -317,6 +330,10 @@ export class PraxisApi {
         throw new PraxisError("method_not_found", "API method was not found.", { method });
     }
   }
+}
+
+function isDashboardSnapshotRequest(method: string): boolean {
+  return method === "dashboard.getSnapshot" || method === "dashboard.subscribe" || method === "dashboard.explainMode";
 }
 
 function projectIdForRoot(app: PraxisRuntime, rootPath: string): ProjectId | undefined {
