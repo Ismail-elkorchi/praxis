@@ -5,7 +5,7 @@ import { performance } from "node:perf_hooks";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import type { PraxisRuntime } from "../app/PraxisApp";
-import { PraxisApi, type ClientRequest } from "../app/PraxisApi";
+import { PraxisApi, type ApiError, type ClientRequest, type ServerResponse } from "../app/PraxisApi";
 import type { DomainEvent } from "../core";
 
 export type LocalServerOptions = {
@@ -47,18 +47,29 @@ export function createLocalServer(options: LocalServerOptions) {
 
       if (request.method === "POST" && request.url === "/api") {
         const body = await readBody(request);
-        const clientRequest = JSON.parse(body) as ClientRequest;
-        const beforeSequence = await latestEventSequence();
         const started = performance.now();
-        const result = await api.handle(clientRequest);
-        options.app.observability.recordApiRequest({
-          method: clientRequest.method,
-          durationMs: performance.now() - started,
-          ok: !("error" in result)
-        });
-        writeJson(response, "error" in result ? 400 : 200, result);
-        if (!("error" in result)) {
-          await broadcastPushes(clientRequest.method, beforeSequence);
+        let observedMethod = "invalid_request";
+        try {
+          const clientRequest = parseClientRequest(body);
+          observedMethod = clientRequest.method;
+          const beforeSequence = await latestEventSequence();
+          const result = await api.handle(clientRequest);
+          options.app.observability.recordApiRequest({
+            method: clientRequest.method,
+            durationMs: performance.now() - started,
+            ok: !("error" in result)
+          });
+          writeJson(response, "error" in result ? 400 : 200, result);
+          if (!("error" in result)) {
+            await broadcastPushes(clientRequest.method, beforeSequence);
+          }
+        } catch (error) {
+          options.app.observability.recordApiRequest({
+            method: observedMethod,
+            durationMs: performance.now() - started,
+            ok: false
+          });
+          writeJson(response, error instanceof LocalRequestError ? 400 : 500, localApiErrorResponse("unknown", error));
         }
         return;
       }
@@ -69,9 +80,9 @@ export function createLocalServer(options: LocalServerOptions) {
         }
       }
 
-      writeJson(response, 404, { error: "not_found" });
+      writeJson(response, 404, { error: localApiError("not_found", "Route was not found.") });
     } catch (error) {
-      writeJson(response, 500, { error: "internal_error", message: error instanceof Error ? error.message : "Unexpected error." });
+      writeJson(response, 500, { error: toLocalApiError(error) });
     }
   });
 
@@ -80,18 +91,29 @@ export function createLocalServer(options: LocalServerOptions) {
   sockets.on("connection", (socket) => {
     socket.send(JSON.stringify({ type: "push", channel: "dashboard.snapshotChanged", data: options.app.snapshot().dashboard }));
     socket.on("message", async (message) => {
-      const clientRequest = JSON.parse(String(message)) as ClientRequest;
-      const beforeSequence = await latestEventSequence();
       const started = performance.now();
-      const result = await api.handle(clientRequest);
-      options.app.observability.recordApiRequest({
-        method: clientRequest.method,
-        durationMs: performance.now() - started,
-        ok: !("error" in result)
-      });
-      socket.send(JSON.stringify(result));
-      if (!("error" in result)) {
-        await broadcastPushes(clientRequest.method, beforeSequence);
+      let observedMethod = "invalid_request";
+      try {
+        const clientRequest = parseClientRequest(String(message));
+        observedMethod = clientRequest.method;
+        const beforeSequence = await latestEventSequence();
+        const result = await api.handle(clientRequest);
+        options.app.observability.recordApiRequest({
+          method: clientRequest.method,
+          durationMs: performance.now() - started,
+          ok: !("error" in result)
+        });
+        socket.send(JSON.stringify(result));
+        if (!("error" in result)) {
+          await broadcastPushes(clientRequest.method, beforeSequence);
+        }
+      } catch (error) {
+        options.app.observability.recordApiRequest({
+          method: observedMethod,
+          durationMs: performance.now() - started,
+          ok: false
+        });
+        socket.send(JSON.stringify(localApiErrorResponse("unknown", error)));
       }
     });
   });
@@ -153,6 +175,52 @@ function channelsForEvent(event: DomainEvent): string[] {
   if (event.type.startsWith("provider.")) return ["provider.statusChanged"];
   if (event.type.startsWith("project.")) return ["project.stateChanged"];
   return [];
+}
+
+class LocalRequestError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly details?: Record<string, unknown>
+  ) {
+    super(message);
+    this.name = "LocalRequestError";
+  }
+}
+
+function parseClientRequest(body: string): ClientRequest {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new LocalRequestError("invalid_request", "API request body must be valid JSON.");
+  }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("id" in parsed) ||
+    typeof parsed.id !== "string" ||
+    !("method" in parsed) ||
+    typeof parsed.method !== "string"
+  ) {
+    throw new LocalRequestError("invalid_request", "API request must include string id and method.");
+  }
+  return parsed as ClientRequest;
+}
+
+function localApiErrorResponse(id: string, error: unknown): ServerResponse {
+  return { id, error: toLocalApiError(error) };
+}
+
+function toLocalApiError(error: unknown): ApiError {
+  if (error instanceof LocalRequestError) {
+    return localApiError(error.code, error.message, error.details);
+  }
+  return localApiError("internal_error", error instanceof Error ? error.message : "Unexpected error.");
+}
+
+function localApiError(code: string, message: string, details?: Record<string, unknown>): ApiError {
+  return details ? { code, message, details } : { code, message };
 }
 
 async function serveStatic(staticRoot: string, request: IncomingMessage, response: HttpResponse): Promise<boolean> {

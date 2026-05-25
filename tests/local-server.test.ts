@@ -105,6 +105,63 @@ describe("local API and WebSocket server", () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   }, 10_000);
+
+  it("returns machine-coded errors for malformed local requests", async () => {
+    const app = await createPraxisApp();
+    const { server, sockets } = createLocalServer({ app });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const { port } = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${port}`;
+    let socket: WebSocket | undefined;
+    const messages: unknown[] = [];
+    try {
+      const malformedResponse = await fetch(`${baseUrl}/api`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{"
+      });
+      await expect(malformedResponse.json()).resolves.toEqual({
+        id: "unknown",
+        error: {
+          code: "invalid_request",
+          message: "API request body must be valid JSON."
+        }
+      });
+      expect(malformedResponse.status).toBe(400);
+
+      const missingMethodResponse = await fetch(`${baseUrl}/api`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "missing-method" })
+      });
+      await expect(missingMethodResponse.json()).resolves.toEqual({
+        id: "unknown",
+        error: {
+          code: "invalid_request",
+          message: "API request must include string id and method."
+        }
+      });
+      expect(missingMethodResponse.status).toBe(400);
+
+      await expect(fetch(`${baseUrl}/missing`).then((response) => response.json())).resolves.toEqual({
+        error: {
+          code: "not_found",
+          message: "Route was not found."
+        }
+      });
+
+      socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+      socket.on("message", (message) => messages.push(JSON.parse(String(message))));
+      await once(socket, "open");
+      socket.send("{");
+      await waitFor(() => messages.some((message) => isErrorResponse(message, "invalid_request")));
+    } finally {
+      socket?.terminate();
+      sockets.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 });
 
 async function postApi<T>(
@@ -144,6 +201,18 @@ function isPushChannel(value: unknown, channel: string): boolean {
     value.type === "push" &&
     "channel" in value &&
     value.channel === channel
+  );
+}
+
+function isErrorResponse(value: unknown, code: string): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "error" in value &&
+    typeof value.error === "object" &&
+    value.error !== null &&
+    "code" in value.error &&
+    value.error.code === code
   );
 }
 
