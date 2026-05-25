@@ -680,10 +680,10 @@ test("provider status cards show capability and compatibility details", async ({
     "data-method",
     "providers.checkAvailability"
   );
-  await expect(providerConfiguration.getByRole("button", { name: "Disable on next startup" })).toHaveAttribute(
-    "data-method",
-    "settings.update"
-  );
+  await expect(providerConfiguration).toContainText("always enabled");
+  await expect(providerConfiguration).toContainText("Built-in providers stay available");
+  await expect(providerConfiguration.getByRole("button", { name: "Disable on next startup" })).toHaveCount(0);
+  await expect(providerConfiguration.getByRole("region", { name: "Provider command override" })).toHaveCount(0);
   await expect(providerConfiguration.getByRole("button", { name: "Set as default provider" })).toHaveAttribute(
     "data-method",
     "settings.update"

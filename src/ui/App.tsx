@@ -1561,6 +1561,7 @@ function ProviderConfigurationPanel({
   }
 
   const configuredProvider = provider;
+  const builtInProvider = providerIsBuiltIn(configuredProvider);
   const command = providerAvailabilityCommand(configuredProvider.availability);
   const setupDetails = providerSetupDetails(configuredProvider.availability);
   const providerEnabled = providerEnabledForNextStartup(settings, providers, configuredProvider.providerId);
@@ -1626,7 +1627,7 @@ function ProviderConfigurationPanel({
         </div>
         <div>
           <dt>Startup</dt>
-          <dd>{providerEnabled ? "enabled" : "disabled"}</dd>
+          <dd>{builtInProvider ? "always enabled" : providerEnabled ? "enabled" : "disabled"}</dd>
         </div>
         <div>
           <dt>Default</dt>
@@ -1637,9 +1638,15 @@ function ProviderConfigurationPanel({
       {checkMessage ? <p>{checkMessage}</p> : null}
       {providerAvailabilityReason(configuredProvider.availability) ? <p>{providerAvailabilityReason(configuredProvider.availability)}</p> : null}
       <ul className="settingsList" aria-label="Provider setup">
-        <li>Registered providers are available to projects and agent runs that explicitly choose them.</li>
-        <li>Set any provider binary or environment overrides before startup.</li>
-        <li>Restart the local runtime after changing provider environment or command configuration.</li>
+        {builtInProvider ? (
+          <li>Built-in providers stay available for local workflows and tests.</li>
+        ) : (
+          <>
+            <li>Registered providers are available to projects and agent runs that explicitly choose them.</li>
+            <li>Set any provider binary or environment overrides before startup.</li>
+            <li>Restart the local runtime after changing provider environment or command configuration.</li>
+          </>
+        )}
       </ul>
       {setupDetails.steps.length > 0 ? (
         <section className="providerSetupBlock" aria-label="Provider setup checklist">
@@ -1679,48 +1686,52 @@ function ProviderConfigurationPanel({
           </ul>
         </section>
       ) : null}
-      <section className="providerSetupBlock" aria-label="Provider command override">
-        <h5>Command override</h5>
-        <label className="settingsField">
-          Command for next startup
-          <input
-            value={commandOverrideDraft}
-            onChange={(event) => setCommandOverrideDraft(event.target.value)}
-            placeholder={command ?? "provider command"}
-          />
-        </label>
-        <p>Save a command path here when the provider binary is not on PATH. Restart the local runtime after saving.</p>
-        {savedCommandOverride ? (
-          <p>
-            Saved override: <code>{savedCommandOverride}</code>
-          </p>
-        ) : null}
-        <div className="actionRow">
-          <button type="button" data-method="settings.update" onClick={saveCommandOverride} disabled={!commandOverrideChanged}>
-            Save command override
-          </button>
-          <button
-            type="button"
-            data-method="settings.update"
-            onClick={() => {
-              setCommandOverrideDraft("");
-              onUpdateSettings({
-                providerCommandOverrides: nextProviderCommandOverrides(settings.providerCommandOverrides, configuredProvider.providerId, "")
-              });
-            }}
-            disabled={!savedCommandOverride && commandOverrideDraft.trim().length === 0}
-          >
-            Clear command override
-          </button>
-        </div>
-      </section>
+      {!builtInProvider ? (
+        <section className="providerSetupBlock" aria-label="Provider command override">
+          <h5>Command override</h5>
+          <label className="settingsField">
+            Command for next startup
+            <input
+              value={commandOverrideDraft}
+              onChange={(event) => setCommandOverrideDraft(event.target.value)}
+              placeholder={command ?? "provider command"}
+            />
+          </label>
+          <p>Save a command path here when the provider binary is not on PATH. Restart the local runtime after saving.</p>
+          {savedCommandOverride ? (
+            <p>
+              Saved override: <code>{savedCommandOverride}</code>
+            </p>
+          ) : null}
+          <div className="actionRow">
+            <button type="button" data-method="settings.update" onClick={saveCommandOverride} disabled={!commandOverrideChanged}>
+              Save command override
+            </button>
+            <button
+              type="button"
+              data-method="settings.update"
+              onClick={() => {
+                setCommandOverrideDraft("");
+                onUpdateSettings({
+                  providerCommandOverrides: nextProviderCommandOverrides(settings.providerCommandOverrides, configuredProvider.providerId, "")
+                });
+              }}
+              disabled={!savedCommandOverride && commandOverrideDraft.trim().length === 0}
+            >
+              Clear command override
+            </button>
+          </div>
+        </section>
+      ) : null}
       <div className="actionRow">
         <button type="button" data-method="providers.checkAvailability" onClick={() => onCheckAvailability(configuredProvider.providerId)}>
           Check availability
         </button>
-        <button type="button" data-method="settings.update" onClick={toggleProviderEnabled}>
-          {providerEnabled ? "Disable on next startup" : "Enable on next startup"}
-        </button>
+        {!builtInProvider ? (
+          <button type="button" data-method="settings.update" onClick={toggleProviderEnabled}>
+            {providerEnabled ? "Disable on next startup" : "Enable on next startup"}
+          </button>
+        ) : null}
         {providerIsDefault ? (
           <button type="button" data-method="settings.update" onClick={() => onUpdateSettings({ defaultProviderId: undefined })}>
             Clear default provider
@@ -1754,6 +1765,10 @@ function providerAvailabilityCommand(availability: ProviderAvailability): string
 
 function providerAvailabilityReason(availability: ProviderAvailability): string | undefined {
   return "reason" in availability ? availability.reason : undefined;
+}
+
+function providerIsBuiltIn(provider: ProviderStatusViewModel): boolean {
+  return provider.providerId === "fake";
 }
 
 type ProviderSetupDetails = {
@@ -1812,6 +1827,7 @@ function providerEnabledForNextStartup(
   providers: ProviderStatusViewModel[],
   providerIdValue: string
 ): boolean {
+  if (providerIdValue === "fake") return true;
   if (settings.enabledProviderIds.length === 0) {
     return providers.some((provider) => provider.providerId === providerIdValue);
   }
@@ -1854,6 +1870,11 @@ function providerNextStep(
   commandOverride: string | undefined,
   runtimeCommand: string | undefined
 ): string {
+  if (providerIsBuiltIn(provider)) {
+    return isDefault
+      ? "Next: create or open a project work item and start an agent run with this provider."
+      : "Next: set this provider as a default or assign it to a specific project agent run.";
+  }
   if (!enabled) {
     return "Next: enable this provider for the next runtime startup, then restart the local runtime.";
   }
