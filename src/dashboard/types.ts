@@ -175,6 +175,7 @@ export type GlobalStatusViewModel = {
 
 export type DashboardProjection = {
   mode: DashboardMode;
+  focusedProjectId?: ProjectId;
   globalStatus: GlobalStatusViewModel;
   projectCards: ProjectCardViewModel[];
   approvals: ApprovalCardViewModel[];
@@ -191,6 +192,7 @@ export type DashboardProjection = {
 export type AppSnapshot = {
   projects: Record<ProjectId, ProjectSnapshot>;
   providers: Record<ProviderId, ProviderSnapshot>;
+  focusedProjectId?: ProjectId;
   approvals: ApprovalQueueSnapshot;
   activeTurns: AgentTurn[];
   events: DomainEvent[];

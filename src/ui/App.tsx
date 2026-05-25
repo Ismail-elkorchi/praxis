@@ -67,6 +67,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (dashboard.focusedProjectId && dashboard.focusedProjectId !== selectedProjectId) {
+      setSelectedProjectId(dashboard.focusedProjectId);
+    }
+  }, [dashboard.focusedProjectId, selectedProjectId]);
+
+  useEffect(() => {
     if (apiStatus !== "live") return undefined;
     return subscribeDashboard((snapshot) => {
       setLiveDashboard(snapshot);
@@ -106,6 +112,14 @@ export function App() {
 
   function requestDetailFocus(target: DetailFocusTarget) {
     setDetailFocusRequest((current) => ({ target, nonce: current.nonce + 1 }));
+  }
+
+  function focusProject(projectId: string) {
+    setSelectedProjectId(projectId);
+    if (apiStatus !== "live") return;
+    void callApi<DashboardProjection>("dashboard.focusProject", { projectId })
+      .then((snapshot) => setLiveDashboard(snapshot))
+      .catch(() => undefined);
   }
 
   function handleProjectAction(project: ProjectCardViewModel, action: DashboardAction) {
@@ -164,7 +178,7 @@ export function App() {
           <DashboardView
             dashboard={dashboard}
             selectedProjectId={selectedProjectId}
-            onSelectProject={setSelectedProjectId}
+            onSelectProject={focusProject}
             onProjectAction={handleProjectAction}
             onDecision={decideApproval}
           />
@@ -173,7 +187,7 @@ export function App() {
           <ProjectGrid
             dashboard={dashboard}
             selectedProjectId={selectedProjectId}
-            onSelectProject={setSelectedProjectId}
+            onSelectProject={focusProject}
             onProjectAction={handleProjectAction}
           />
         )}
@@ -1929,6 +1943,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
 
   return {
     mode,
+    focusedProjectId: undefined,
     projectCards,
     approvals,
     checkRuns: [

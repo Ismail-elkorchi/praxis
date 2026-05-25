@@ -53,3 +53,4 @@
 - Applied enabled-provider settings at startup so optional adapters can be disabled while fake-provider operation remains available.
 - Added git base-branch and upstream ahead/behind detection so review readiness and ready-to-merge state use real repository divergence data.
 - Added a confirmed git discard flow that reverts tracked changes, removes selected untracked files, refreshes git state, and records an audit event.
+- Added event-backed dashboard project focus so single-project focus and multi-turn active-work modes follow the specified priority order.

@@ -41,6 +41,66 @@ describe("provider-neutral application workflow", () => {
     expect(app.snapshot().projects[first.id]?.checkDefinitions.map((check) => check.name)).toContain("test");
   });
 
+  it("uses focused project state and multiple active turns for dashboard mode priority", async () => {
+    const app = await createPraxisApp();
+    const firstRoot = await createTempProject({ packageJson: false });
+    const secondRoot = await createTempProject({ packageJson: false });
+    const first = await app.projects.registerProject({ rootPath: firstRoot, name: "Focused project" });
+    const second = await app.projects.registerProject({ rootPath: secondRoot, name: "Parallel project" });
+    const firstSession = await app.providers.startSession({ providerId: providerId("fake"), projectId: first.id, cwd: firstRoot });
+    const secondSession = await app.providers.startSession({ providerId: providerId("fake"), projectId: second.id, cwd: secondRoot });
+
+    await app.events.append(
+      createDomainEvent({
+        type: "dashboard.projectFocused",
+        projectId: first.id,
+        source: "user",
+        payload: { projectId: first.id },
+        evidence: [{ type: "user", commandId: "dashboard.focusProject" }]
+      })
+    );
+
+    expect(app.snapshot().dashboard.mode).toBe("single_project_focus");
+    expect(app.snapshot().dashboard.focusedProjectId).toBe(first.id);
+
+    const firstTurnId = agentTurnId();
+    await app.events.append(
+      createDomainEvent({
+        type: "agent.turn.started",
+        projectId: first.id,
+        sessionId: firstSession,
+        turnId: firstTurnId,
+        providerId: providerId("fake"),
+        source: "provider",
+        payload: { inputSummary: "Keep one focused turn visible" },
+        evidence: []
+      })
+    );
+
+    expect(app.snapshot().activeTurns).toHaveLength(1);
+    expect(app.snapshot().dashboard.mode).toBe("single_project_focus");
+
+    await app.events.append(
+      createDomainEvent({
+        type: "agent.turn.started",
+        projectId: second.id,
+        sessionId: secondSession,
+        turnId: agentTurnId(),
+        providerId: providerId("fake"),
+        source: "provider",
+        payload: { inputSummary: "Run another active turn" },
+        evidence: []
+      })
+    );
+
+    expect(app.snapshot().activeTurns).toHaveLength(2);
+    expect(app.snapshot().dashboard.mode).toBe("active_work");
+    expect(app.snapshot().dashboard.explanation.propositions).toContainEqual(
+      expect.objectContaining({ predicate: "selected_mode", value: "true" })
+    );
+    await expect(app.replay()).resolves.toEqual(app.snapshot());
+  });
+
   it("runs the approval path and stores the decision before provider continuation events", async () => {
     const app = await createPraxisApp({ fakeScenario: "approval_path" });
     const rootPath = await createTempProject({ git: true });

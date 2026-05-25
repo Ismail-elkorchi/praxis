@@ -56,6 +56,8 @@ export const apiMethods = [
   "dashboard.getSnapshot",
   "dashboard.subscribe",
   "dashboard.explainMode",
+  "dashboard.focusProject",
+  "dashboard.clearFocus",
   "diagnostics.get",
   "settings.get",
   "settings.update",
@@ -174,6 +176,34 @@ export class PraxisApi {
       case "dashboard.subscribe":
       case "dashboard.explainMode":
         return this.app.snapshot().dashboard;
+      case "dashboard.focusProject": {
+        const input = params as { projectId: ProjectId };
+        const project = this.app.projects.getProject(input.projectId);
+        if (!project || project.archived) {
+          throw new PraxisError("not_found", "Project was not found.", { projectId: input.projectId });
+        }
+        await this.app.events.append(
+          createDomainEvent({
+            type: "dashboard.projectFocused",
+            projectId: input.projectId,
+            source: "user",
+            payload: { projectId: input.projectId },
+            evidence: [{ type: "user", commandId: "dashboard.focusProject" }]
+          })
+        );
+        return this.app.snapshot().dashboard;
+      }
+      case "dashboard.clearFocus": {
+        await this.app.events.append(
+          createDomainEvent({
+            type: "dashboard.focusCleared",
+            source: "user",
+            payload: {},
+            evidence: [{ type: "user", commandId: "dashboard.clearFocus" }]
+          })
+        );
+        return this.app.snapshot().dashboard;
+      }
       case "diagnostics.get":
         return this.app.observability.diagnostics();
       case "settings.get":

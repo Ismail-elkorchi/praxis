@@ -26,6 +26,8 @@ const pushChannelsByMethod: Record<string, string[]> = {
   "agents.interruptTurn": ["dashboard.snapshotChanged", "agent.turnUpdated"],
   "agents.respondToApproval": ["dashboard.snapshotChanged", "approval.resolved"],
   "agents.respondToUserInput": ["dashboard.snapshotChanged", "agent.turnUpdated"],
+  "dashboard.focusProject": ["dashboard.snapshotChanged", "project.stateChanged"],
+  "dashboard.clearFocus": ["dashboard.snapshotChanged"],
   "providers.checkAvailability": ["dashboard.snapshotChanged", "provider.statusChanged"],
   "settings.update": ["dashboard.snapshotChanged"],
   "checks.run": ["dashboard.snapshotChanged", "check.updated"],

@@ -49,6 +49,7 @@ export function emptySnapshot(): AppSnapshot {
   const snapshot: AppSnapshot = {
     projects: {},
     providers: {},
+    focusedProjectId: undefined,
     approvals: { pending: [], history: [] },
     activeTurns: [],
     events: [],
@@ -100,7 +101,21 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
       if (project) {
         project.project = normalizeProject(payload.project);
         project.lastActivityAt = event.timestamp;
+        if (payload.project.archived && next.focusedProjectId === payload.project.id) {
+          next.focusedProjectId = undefined;
+        }
       }
+      break;
+    }
+    case "dashboard.projectFocused": {
+      const payload = event.payload as { projectId?: Project["id"] };
+      if (payload.projectId && next.projects[payload.projectId] && !next.projects[payload.projectId].project.archived) {
+        next.focusedProjectId = payload.projectId;
+      }
+      break;
+    }
+    case "dashboard.focusCleared": {
+      next.focusedProjectId = undefined;
       break;
     }
     case "project.readyToMergeMarked": {
@@ -474,13 +489,14 @@ function buildDashboard(snapshot: AppSnapshot): DashboardProjection {
     (project) => !project.project.archived && project.project.settings.showInDashboard
   );
   const projectCards = visibleProjects.map((project) => projectCard(project, snapshot));
-  const mode = selectDashboardMode(visibleProjects, snapshot.activeTurns.length);
+  const mode = selectDashboardMode(visibleProjects, snapshot.activeTurns.length, snapshot.focusedProjectId);
   const propositions = [
     ...Object.values(snapshot.projects).flatMap((project) => project.propositions),
     dashboardModeProposition(mode, projectCards)
   ];
   return {
     mode,
+    focusedProjectId: snapshot.focusedProjectId,
     globalStatus: globalStatus(snapshot),
     projectCards,
     approvals: approvalCards(snapshot),
@@ -495,7 +511,11 @@ function buildDashboard(snapshot: AppSnapshot): DashboardProjection {
   };
 }
 
-function selectDashboardMode(projects: ProjectSnapshot[], activeTurnCount: number): DashboardMode {
+function selectDashboardMode(
+  projects: ProjectSnapshot[],
+  activeTurnCount: number,
+  focusedProjectId: Project["id"] | undefined
+): DashboardMode {
   if (projects.some((project) => project.runtimeState === "unsafe_mode")) return "unsafe_attention";
   if (projects.some((project) => project.approvals.some((approval) => approval.status === "pending"))) return "approval_center";
   if (projects.some((project) => project.runtimeState === "checks_failed")) return "failure_triage";
@@ -510,7 +530,9 @@ function selectDashboardMode(projects: ProjectSnapshot[], activeTurnCount: numbe
     return "diff_review";
   }
   if (projects.some((project) => project.runtimeState === "stale")) return "stale_sessions";
-  if (activeTurnCount > 0) return "active_work";
+  if (activeTurnCount > 1) return "active_work";
+  if (projects.some((project) => project.runtimeState === "agent_planning")) return "planning";
+  if (focusedProjectId && projects.some((project) => project.project.id === focusedProjectId)) return "single_project_focus";
   return "portfolio";
 }
 
@@ -1007,6 +1029,7 @@ function cloneSnapshot(snapshot: AppSnapshot): AppSnapshot {
 function emptyDashboard(): DashboardProjection {
   return {
     mode: "portfolio",
+    focusedProjectId: undefined,
     globalStatus: {
       activeProjectCount: 0,
       activeTurnCount: 0,

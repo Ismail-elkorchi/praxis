@@ -35,6 +35,8 @@ const requiredApiMethods = [
   "dashboard.getSnapshot",
   "dashboard.subscribe",
   "dashboard.explainMode",
+  "dashboard.focusProject",
+  "dashboard.clearFocus",
   "diagnostics.get",
   "settings.get",
   "settings.update",
@@ -255,6 +257,39 @@ describe("provider-neutral API surface", () => {
       }
     });
     expect(JSON.stringify(response)).not.toContain("secret-value");
+  });
+
+  it("focuses and clears dashboard project focus through event-producing API calls", async () => {
+    const app = await createPraxisApp();
+    const api = new PraxisApi(app);
+    const rootPath = await createTempProject({ packageJson: false });
+    const project = await app.projects.registerProject({ rootPath });
+
+    await expect(
+      api.handle({
+        id: "focus",
+        method: "dashboard.focusProject",
+        params: { projectId: project.id }
+      })
+    ).resolves.toMatchObject({
+      id: "focus",
+      result: {
+        mode: "single_project_focus",
+        focusedProjectId: project.id
+      }
+    });
+
+    expect(app.snapshot().dashboard.mode).toBe("single_project_focus");
+    expect((await app.events.queryEvents()).map((event) => event.type)).toContain("dashboard.projectFocused");
+
+    await expect(api.handle({ id: "clear-focus", method: "dashboard.clearFocus" })).resolves.toMatchObject({
+      id: "clear-focus",
+      result: {
+        mode: "portfolio",
+        focusedProjectId: undefined
+      }
+    });
+    expect((await app.events.queryEvents()).map((event) => event.type)).toContain("dashboard.focusCleared");
   });
 
   it("restores project settings from event history after restart", async () => {
