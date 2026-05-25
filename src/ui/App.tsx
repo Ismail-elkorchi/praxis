@@ -633,7 +633,7 @@ function WorkItemColumn({ title, items }: { title: string; items: ProjectWorkspa
   );
 }
 
-function AgentRunList({ runs, onAction }: { runs: AgentRunCardViewModel[]; onAction?: (action: PendingActionRequest) => void }) {
+function AgentRunList({ runs, onAction }: { runs: AgentRunCardViewModel[]; onAction(action: PendingActionRequest): void }) {
   if (runs.length === 0) return <p className="emptyText">No agent runs.</p>;
   return (
     <div className="agentRunList">
@@ -650,7 +650,7 @@ function AgentRunList({ runs, onAction }: { runs: AgentRunCardViewModel[]; onAct
             type="button"
             data-method={run.primaryAction.method}
             onClick={() =>
-              onAction?.({
+              onAction({
                 method: run.primaryAction.method,
                 label: run.primaryAction.label,
                 projectId: run.projectId,
@@ -708,59 +708,6 @@ function ArtifactHub({ dashboard }: { dashboard: DashboardProjection }) {
   );
 }
 
-function DashboardView({
-  dashboard,
-  selectedProjectId,
-  onSelectProject,
-  onProjectAction,
-  onDecision
-}: {
-  dashboard: DashboardProjection;
-  selectedProjectId: string;
-  onSelectProject(projectId: string): void;
-  onProjectAction(project: ProjectCardViewModel, action: DashboardAction): void;
-  onDecision(approvalId: string, decision: ApprovalDecision): void;
-}) {
-  if (dashboard.mode === "approval_center") {
-    return (
-      <div className="dashboardMode">
-        <ApprovalPanel approvals={dashboard.approvals} onDecision={onDecision} />
-        <ProjectGrid
-          dashboard={dashboard}
-          selectedProjectId={selectedProjectId}
-          onSelectProject={onSelectProject}
-          onProjectAction={onProjectAction}
-          compact
-        />
-      </div>
-    );
-  }
-
-  if (dashboard.mode === "failure_triage") {
-    return (
-      <div className="dashboardMode">
-        <FailureTriage />
-        <ProjectGrid
-          dashboard={dashboard}
-          selectedProjectId={selectedProjectId}
-          onSelectProject={onSelectProject}
-          onProjectAction={onProjectAction}
-          compact
-        />
-      </div>
-    );
-  }
-
-  return (
-    <ProjectGrid
-      dashboard={dashboard}
-      selectedProjectId={selectedProjectId}
-      onSelectProject={onSelectProject}
-      onProjectAction={onProjectAction}
-    />
-  );
-}
-
 function ProjectGrid({
   dashboard,
   selectedProjectId,
@@ -773,7 +720,7 @@ function ProjectGrid({
   selectedProjectId: string;
   onSelectProject(projectId: string): void;
   onProjectAction(project: ProjectCardViewModel, action: DashboardAction): void;
-  onAction?(action: PendingActionRequest): void;
+  onAction(action: PendingActionRequest): void;
   compact?: boolean;
 }) {
   const gridRef = useRef<HTMLElement>(null);
@@ -810,10 +757,10 @@ function ProjectGrid({
         <h2>No projects registered</h2>
         <p>Register a local project to start tracking sessions, approvals, file changes, checks, and review state.</p>
         <div className="actionRow">
-          <button type="button" data-method="projects.register" onClick={() => onAction?.({ method: "projects.register", label: "Register project" })}>
+          <button type="button" data-method="projects.register" onClick={() => onAction({ method: "projects.register", label: "Register project" })}>
             Register project
           </button>
-          <button type="button" data-method="providers.getStatus" onClick={() => onAction?.({ method: "providers.getStatus", label: "Provider setup" })}>
+          <button type="button" data-method="providers.getStatus" onClick={() => onAction({ method: "providers.getStatus", label: "Provider setup" })}>
             Provider setup
           </button>
         </div>
@@ -2359,7 +2306,7 @@ function requireValue(value: string, label: string): string {
   return trimmed;
 }
 
-function CheckRunPanel({ checkRuns, onAction }: { checkRuns: CheckRunViewModel[]; onAction?: (action: PendingActionRequest) => void }) {
+function CheckRunPanel({ checkRuns, onAction }: { checkRuns: CheckRunViewModel[]; onAction(action: PendingActionRequest): void }) {
   const activeRuns = checkRuns.filter((run) => run.status === "queued" || run.status === "running");
   const recentRuns = checkRuns.filter((run) => run.status !== "queued" && run.status !== "running");
 
@@ -2372,7 +2319,7 @@ function CheckRunPanel({ checkRuns, onAction }: { checkRuns: CheckRunViewModel[]
         <button
           type="button"
           data-method="checks.list"
-          onClick={() => onAction?.({ method: "checks.list", label: "Add check", projectId: checkRuns[0]?.projectId })}
+          onClick={() => onAction({ method: "checks.list", label: "Add check", projectId: checkRuns[0]?.projectId })}
         >
           Add check
         </button>
@@ -2397,7 +2344,7 @@ function CheckRunPanel({ checkRuns, onAction }: { checkRuns: CheckRunViewModel[]
         type="button"
         data-method="checks.run"
         onClick={() =>
-          onAction?.({
+          onAction({
             method: "checks.run",
             label: "Run checks",
             projectId: checkRuns[0]?.projectId,
@@ -2420,7 +2367,7 @@ function CheckRunGroup({
   title: string;
   runs: CheckRunViewModel[];
   emptyText: string;
-  onAction?: (action: PendingActionRequest) => void;
+  onAction(action: PendingActionRequest): void;
 }) {
   return (
     <section className="checkRunGroup" aria-label={`${title} check runs`}>
@@ -2441,7 +2388,7 @@ function CheckRunGroup({
                 type="button"
                 data-method={run.status === "running" ? "checks.cancel" : "checks.run"}
                 onClick={() =>
-                  onAction?.({
+                  onAction({
                     method: run.status === "running" ? "checks.cancel" : "checks.run",
                     label: run.status === "running" ? "Cancel" : "Rerun",
                     projectId: run.projectId,
@@ -2457,7 +2404,7 @@ function CheckRunGroup({
                   type="button"
                   data-method="checks.waive"
                   onClick={() =>
-                    onAction?.({
+                    onAction({
                       method: "checks.waive",
                       label: "Waive",
                       projectId: run.projectId,

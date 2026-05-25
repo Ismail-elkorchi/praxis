@@ -12,4 +12,11 @@ describe("UI action wiring", () => {
 
     expect(inert).toEqual([]);
   });
+
+  it("does not rely on optional action handlers for visible action buttons", async () => {
+    const source = await readFile("src/ui/App.tsx", "utf8");
+
+    expect(source).not.toContain("onAction?.");
+    expect(source).not.toContain("onAction?:");
+  });
 });
