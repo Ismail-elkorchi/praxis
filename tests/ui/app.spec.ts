@@ -341,7 +341,13 @@ test("provider status cards show capability and compatibility details", async ({
     "data-method",
     "providers.checkAvailability"
   );
-  await expect(fakeProvider.getByRole("button", { name: "Configure provider" })).toHaveAttribute("data-method", "providers.getStatus");
+  const configureFake = fakeProvider.getByRole("button", { name: "Configure provider" });
+  await expect(configureFake).toHaveAttribute("data-method", "providers.getStatus");
+  await configureFake.click();
+  const providerConfiguration = page.getByRole("region", { name: "Provider configuration" });
+  await expect(providerConfiguration).toBeFocused();
+  await expect(providerConfiguration).toContainText("Fake provider configuration");
+  await expect(providerConfiguration).toContainText("Provider id");
 
   const unavailableProvider = page.getByRole("article").filter({ hasText: "Unavailable provider" });
   await expect(unavailableProvider).toContainText("unavailable");
@@ -456,7 +462,10 @@ test("empty states expose provider-neutral next actions", async ({ page }) => {
   const providers = page.getByRole("region", { name: "Advanced provider status" });
   await expect(providers.getByRole("heading", { name: "No providers configured" })).toBeVisible();
   await expect(providers).toContainText("fake provider remains available");
-  await expect(providers.getByRole("button", { name: "Configure provider" })).toHaveAttribute("data-method", "providers.list");
+  const configureProvider = providers.getByRole("button", { name: "Configure provider" });
+  await expect(configureProvider).toHaveAttribute("data-method", "providers.list");
+  await configureProvider.click();
+  await expect(page.getByRole("region", { name: "Provider configuration" })).toContainText("No provider is selected");
 });
 
 function parseCssDurations(value: string): number[] {

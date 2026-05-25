@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { ApprovalDecision, ApprovalRequestId, CheckRunId, EventId, EvidenceRef } from "../core";
+import type { ApprovalDecision, ApprovalRequestId, CheckRunId, EventId, EvidenceRef, ProviderAvailability } from "../core";
 import type {
   ApprovalCardViewModel,
   AgentRunCardViewModel,
@@ -1079,14 +1079,22 @@ function DecisionConfirmationDialog({
   );
 }
 
-function ProviderGrid({ providers }: { providers: ProviderStatusViewModel[] }) {
+function ProviderGrid({
+  providers,
+  onConfigureProvider,
+  onCheckAvailability
+}: {
+  providers: ProviderStatusViewModel[];
+  onConfigureProvider(providerId: string): void;
+  onCheckAvailability(providerId: string): void;
+}) {
   if (providers.length === 0) {
     return (
       <section className="emptyPanel" aria-label="Provider status">
         <SlidersHorizontal size={26} aria-hidden="true" />
         <h2>No providers configured</h2>
         <p>The fake provider remains available for development and test workflows without requiring a real runtime provider.</p>
-        <button type="button" data-method="providers.list">
+        <button type="button" data-method="providers.list" onClick={() => onConfigureProvider("new-provider")}>
           Configure provider
         </button>
       </section>
@@ -1132,10 +1140,10 @@ function ProviderGrid({ providers }: { providers: ProviderStatusViewModel[] }) {
             ))}
           </ul>
           <div className="actionRow">
-            <button type="button" data-method="providers.checkAvailability">
+            <button type="button" data-method="providers.checkAvailability" onClick={() => onCheckAvailability(provider.providerId)}>
               Check availability
             </button>
-            <button type="button" data-method="providers.getStatus">
+            <button type="button" data-method="providers.getStatus" onClick={() => onConfigureProvider(provider.providerId)}>
               Configure provider
             </button>
           </div>
@@ -1156,6 +1164,85 @@ function providerCapabilityBadges(provider: ProviderStatusViewModel): Array<{ la
     { label: "Report file changes", enabled: provider.capabilities.canReportFileDiffs },
     { label: "Workspace permissions", enabled: provider.capabilities.supportsPermissionProfiles }
   ];
+}
+
+function ProviderConfigurationPanel({
+  provider,
+  selectedProviderId,
+  checkMessage
+}: {
+  provider?: ProviderStatusViewModel;
+  selectedProviderId?: string;
+  checkMessage?: string;
+}) {
+  const panelRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!selectedProviderId) return;
+    panelRef.current?.focus();
+  }, [selectedProviderId]);
+
+  if (!selectedProviderId) {
+    return <p className="emptyText">Select Configure provider to review setup, availability, and activation details.</p>;
+  }
+
+  if (!provider) {
+    return (
+      <section ref={panelRef} className="providerConfigPanel" aria-label="Provider configuration" tabIndex={-1}>
+        <h4>Provider configuration</h4>
+        <p>No provider is selected. Start the local runtime to inspect registered providers.</p>
+      </section>
+    );
+  }
+
+  const command = providerAvailabilityCommand(provider.availability);
+  return (
+    <section ref={panelRef} className="providerConfigPanel" aria-label="Provider configuration" tabIndex={-1}>
+      <div className="settingsHeaderRow">
+        <div>
+          <h4>{provider.name} configuration</h4>
+          <p>
+            This provider is registered for runtime use but is only used by projects or agent runs that explicitly choose it.
+          </p>
+        </div>
+        <span className={`stateBadge ${provider.availability.status === "available" ? "passed" : "failed"}`}>
+          {provider.availability.status}
+        </span>
+      </div>
+      <dl className="settingsGrid">
+        <div>
+          <dt>Provider id</dt>
+          <dd>{provider.providerId}</dd>
+        </div>
+        <div>
+          <dt>Adapter</dt>
+          <dd>{provider.adapterVersion}</dd>
+        </div>
+        <div>
+          <dt>Command</dt>
+          <dd>{command ?? "not reported"}</dd>
+        </div>
+      </dl>
+      {checkMessage ? <p>{checkMessage}</p> : null}
+      {providerAvailabilityReason(provider.availability) ? <p>{providerAvailabilityReason(provider.availability)}</p> : null}
+      <ul className="settingsList" aria-label="Provider setup">
+        <li>Registered providers are available to projects and agent runs that explicitly choose them.</li>
+        <li>Set any provider binary or environment overrides before startup.</li>
+        <li>Restart the local runtime after changing provider environment or command configuration.</li>
+      </ul>
+    </section>
+  );
+}
+
+function providerAvailabilityCommand(availability: ProviderAvailability): string | undefined {
+  const details = availability.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) return undefined;
+  const command = (details as { command?: unknown }).command;
+  return typeof command === "string" ? command : undefined;
+}
+
+function providerAvailabilityReason(availability: ProviderAvailability): string | undefined {
+  return "reason" in availability ? availability.reason : undefined;
 }
 
 function ActivityTimeline({ items }: { items: TimelineItemViewModel[] }) {
@@ -1620,7 +1707,10 @@ function SettingsPanel({
   const [diagnostics, setDiagnostics] = useState<ObservabilityDiagnostics>(demoDiagnostics());
   const [debugExportPreviewOpen, setDebugExportPreviewOpen] = useState(false);
   const [pendingRawLogChange, setPendingRawLogChange] = useState(false);
+  const [selectedProviderId, setSelectedProviderId] = useState<string | undefined>();
+  const [providerCheckMessage, setProviderCheckMessage] = useState<string | undefined>();
   const [message, setMessage] = useState("Settings are ready.");
+  const selectedProvider = providers.find((provider) => provider.providerId === selectedProviderId);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1661,6 +1751,23 @@ function SettingsPanel({
   async function confirmRawLogs() {
     setPendingRawLogChange(false);
     await updateSettings({ rawProviderLogsEnabled: true }, true);
+  }
+
+  async function checkProviderAvailability(providerIdValue: string) {
+    setSelectedProviderId(providerIdValue);
+    setProviderCheckMessage("Checking provider availability.");
+    const availability = await callApi<ProviderAvailability>("providers.checkAvailability", { providerId: providerIdValue }).catch(
+      (error: unknown) => undefined
+    );
+    if (!availability) {
+      setProviderCheckMessage("Availability check needs the local runtime API.");
+      return;
+    }
+    setProviderCheckMessage(
+      availability.status === "available"
+        ? `Availability check passed${availability.version ? ` with version ${availability.version}` : ""}.`
+        : `Availability check reported ${availability.status}: ${availability.reason ?? "no reason provided"}.`
+    );
   }
 
   return (
@@ -1738,13 +1845,25 @@ function SettingsPanel({
       <section className="settingsGroup" aria-label="Provider settings placement">
         <h3>Provider settings</h3>
         <p>Provider-specific configuration and status live under Settings advanced controls so projects remain provider-neutral.</p>
-        <button type="button" data-method="providers.getStatus" onClick={() => onRoute("Settings")}>
+        <button
+          type="button"
+          data-method="providers.getStatus"
+          onClick={() => {
+            onRoute("Settings");
+            setSelectedProviderId(providers[0]?.providerId ?? "new-provider");
+          }}
+        >
           Open provider status
         </button>
       </section>
       <section className="settingsGroup" aria-label="Advanced provider status">
         <h3>Advanced provider status</h3>
-        <ProviderGrid providers={providers} />
+        <ProviderGrid
+          providers={providers}
+          onConfigureProvider={setSelectedProviderId}
+          onCheckAvailability={(providerIdValue) => void checkProviderAvailability(providerIdValue)}
+        />
+        <ProviderConfigurationPanel provider={selectedProvider} selectedProviderId={selectedProviderId} checkMessage={providerCheckMessage} />
       </section>
       <section className="settingsGroup" aria-label="Plugin settings">
         <h3>Plugin settings</h3>
