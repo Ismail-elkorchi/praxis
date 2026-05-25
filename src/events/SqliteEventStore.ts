@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import { defaultProjectSettings } from "../core/types";
 import type {
   AgentProvider,
+  AgentRun,
   AgentSession,
   AgentSessionState,
   AgentTurnStatus,
@@ -14,7 +15,11 @@ import type {
   DomainEvent,
   EvidenceRef,
   GitSnapshot,
+  ProjectArtifact,
   Project,
+  ProjectProfile,
+  ProjectSource,
+  ProjectWorkItem,
   Proposition,
   ProviderAvailability,
   ProviderSessionRef
@@ -41,12 +46,19 @@ type EventRow = {
 type InspectableTable =
   | "agent_sessions"
   | "agent_turns"
+  | "agent_run_session_refs"
+  | "agent_runs"
+  | "artifact_evidence_refs"
   | "approvals"
   | "check_definitions"
   | "check_runs"
   | "event_payloads"
   | "events"
   | "git_snapshots"
+  | "project_artifacts"
+  | "project_profiles"
+  | "project_sources"
+  | "project_work_items"
   | "projects"
   | "provider_capabilities"
   | "provider_session_refs"
@@ -54,17 +66,26 @@ type InspectableTable =
   | "propositions"
   | "schema_versions"
   | "settings"
+  | "work_item_artifact_refs"
+  | "work_item_source_refs"
   | "worktrees";
 
 const inspectableTables = new Set<InspectableTable>([
   "agent_sessions",
   "agent_turns",
+  "agent_run_session_refs",
+  "agent_runs",
+  "artifact_evidence_refs",
   "approvals",
   "check_definitions",
   "check_runs",
   "event_payloads",
   "events",
   "git_snapshots",
+  "project_artifacts",
+  "project_profiles",
+  "project_sources",
+  "project_work_items",
   "projects",
   "provider_capabilities",
   "provider_session_refs",
@@ -72,6 +93,8 @@ const inspectableTables = new Set<InspectableTable>([
   "propositions",
   "schema_versions",
   "settings",
+  "work_item_artifact_refs",
+  "work_item_source_refs",
   "worktrees"
 ]);
 
@@ -268,6 +291,107 @@ export class SqliteEventStore implements EventStore {
         updated_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS project_profiles (
+        project_id TEXT PRIMARY KEY,
+        user_label TEXT,
+        work_modes_json TEXT NOT NULL,
+        source_types_json TEXT NOT NULL,
+        expected_artifact_types_json TEXT NOT NULL,
+        risk_profile_json TEXT,
+        custom_tags_json TEXT NOT NULL,
+        custom_metadata_json TEXT,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS project_sources (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        uri_or_path TEXT,
+        content_ref TEXT,
+        added_by TEXT NOT NULL,
+        metadata_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        removed_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS project_artifacts (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        work_item_id TEXT,
+        agent_run_id TEXT,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        status TEXT NOT NULL,
+        content_ref TEXT,
+        source_ids_json TEXT NOT NULL,
+        metadata_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS project_work_items (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        goal TEXT NOT NULL,
+        work_modes_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        priority INTEGER NOT NULL,
+        metadata_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS agent_runs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        work_item_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        session_id TEXT,
+        role_name TEXT NOT NULL,
+        role_preset TEXT,
+        goal TEXT NOT NULL,
+        status TEXT NOT NULL,
+        cwd TEXT,
+        worktree_path TEXT,
+        last_event_id TEXT,
+        produced_artifact_ids_json TEXT NOT NULL,
+        pending_approval_ids_json TEXT NOT NULL,
+        metadata_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS agent_run_session_refs (
+        agent_run_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        linked_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS artifact_evidence_refs (
+        artifact_id TEXT NOT NULL,
+        ref_index INTEGER NOT NULL,
+        evidence_json TEXT NOT NULL,
+        PRIMARY KEY (artifact_id, ref_index)
+      );
+
+      CREATE TABLE IF NOT EXISTS work_item_source_refs (
+        work_item_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        PRIMARY KEY (work_item_id, source_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS work_item_artifact_refs (
+        work_item_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        PRIMARY KEY (work_item_id, artifact_id)
+      );
+
       CREATE TABLE IF NOT EXISTS worktrees (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -397,7 +521,7 @@ export class SqliteEventStore implements EventStore {
     `);
 
     this.db
-      .prepare("INSERT OR REPLACE INTO schema_versions (id, version, updated_at) VALUES (1, 3, ?)")
+      .prepare("INSERT OR REPLACE INTO schema_versions (id, version, updated_at) VALUES (1, 4, ?)")
       .run(new Date().toISOString());
     this.addColumnIfMissing("projects", "package_manager", "TEXT");
     this.addColumnIfMissing("projects", "scripts_json", "TEXT NOT NULL DEFAULT '[]'");
@@ -437,6 +561,43 @@ export class SqliteEventStore implements EventStore {
       case "project.updated":
       case "project.archived":
         this.persistProjectEvent(event);
+        break;
+      case "project.profile.updated":
+        this.persistProjectProfile(event.projectId, readProfile(event.payload), event.timestamp);
+        break;
+      case "project.source.added":
+      case "project.source.removed":
+        this.persistSourceEvent(event);
+        break;
+      case "project.artifact.created":
+      case "project.artifact.updated":
+      case "project.artifact.reviewed":
+      case "project.artifact.accepted":
+      case "project.artifact.rejected":
+        this.persistArtifactEvent(event);
+        break;
+      case "project.workItem.created":
+      case "project.workItem.updated":
+      case "project.workItem.queued":
+      case "project.workItem.started":
+      case "project.workItem.blocked":
+      case "project.workItem.completed":
+      case "project.workItem.cancelled":
+      case "project.workItem.failed":
+        this.persistWorkItemEvent(event);
+        break;
+      case "agent.run.created":
+      case "agent.run.queued":
+      case "agent.run.started":
+      case "agent.run.linkedToSession":
+      case "agent.run.statusChanged":
+      case "agent.run.outputProduced":
+      case "agent.run.blocked":
+      case "agent.run.completed":
+      case "agent.run.failed":
+      case "agent.run.cancelled":
+      case "agent.run.stale":
+        this.persistAgentRunEvent(event);
         break;
       case "provider.registered":
       case "provider.available":
@@ -540,8 +701,234 @@ export class SqliteEventStore implements EventStore {
         project.updatedAt
       );
 
+    this.persistProjectProfile(project.id, project.profile, project.updatedAt);
     this.persistCheckDefinitions(readCheckDefinitions(event.payload));
     this.writeSetting(`project:${project.id}:settings`, { ...defaultProjectSettings, ...project.settings });
+  }
+
+  private persistProjectProfile(projectId: Project["id"] | undefined, profile: ProjectProfile | undefined, updatedAt: string): void {
+    if (!projectId || !profile) return;
+    this.db
+      .prepare(
+        `INSERT INTO project_profiles (
+          project_id, user_label, work_modes_json, source_types_json, expected_artifact_types_json,
+          risk_profile_json, custom_tags_json, custom_metadata_json, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id) DO UPDATE SET
+          user_label = excluded.user_label,
+          work_modes_json = excluded.work_modes_json,
+          source_types_json = excluded.source_types_json,
+          expected_artifact_types_json = excluded.expected_artifact_types_json,
+          risk_profile_json = excluded.risk_profile_json,
+          custom_tags_json = excluded.custom_tags_json,
+          custom_metadata_json = excluded.custom_metadata_json,
+          updated_at = excluded.updated_at`
+      )
+      .run(
+        projectId,
+        profile.userLabel ?? null,
+        JSON.stringify(profile.workModes ?? []),
+        JSON.stringify(profile.sourceTypes ?? []),
+        JSON.stringify(profile.expectedArtifactTypes ?? []),
+        profile.riskProfile ? JSON.stringify(profile.riskProfile) : null,
+        JSON.stringify(profile.customTags ?? []),
+        profile.customMetadata ? JSON.stringify(profile.customMetadata) : null,
+        updatedAt
+      );
+  }
+
+  private persistSourceEvent(event: DomainEvent): void {
+    if (event.type === "project.source.removed") {
+      const sourceId = readString(asRecord(event.payload), "sourceId");
+      if (sourceId) {
+        this.db.prepare("UPDATE project_sources SET removed_at = ?, updated_at = ? WHERE id = ?").run(event.timestamp, event.timestamp, sourceId);
+        this.db.prepare("DELETE FROM work_item_source_refs WHERE source_id = ?").run(sourceId);
+      }
+      return;
+    }
+
+    const source = readSource(event.payload);
+    if (!source) return;
+    this.db
+      .prepare(
+        `INSERT INTO project_sources (
+          id, project_id, type, title, uri_or_path, content_ref, added_by, metadata_json, created_at, updated_at, removed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        ON CONFLICT(id) DO UPDATE SET
+          type = excluded.type,
+          title = excluded.title,
+          uri_or_path = excluded.uri_or_path,
+          content_ref = excluded.content_ref,
+          added_by = excluded.added_by,
+          metadata_json = excluded.metadata_json,
+          updated_at = excluded.updated_at,
+          removed_at = NULL`
+      )
+      .run(
+        source.id,
+        source.projectId,
+        source.type,
+        source.title,
+        source.uriOrPath ?? null,
+        source.contentRef ?? null,
+        source.addedBy,
+        JSON.stringify(source.metadata ?? {}),
+        source.createdAt,
+        source.updatedAt
+      );
+  }
+
+  private persistArtifactEvent(event: DomainEvent): void {
+    const artifact = readArtifact(event.payload);
+    if (!artifact) return;
+    this.db
+      .prepare(
+        `INSERT INTO project_artifacts (
+          id, project_id, work_item_id, agent_run_id, type, title, summary, status, content_ref,
+          source_ids_json, metadata_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          work_item_id = excluded.work_item_id,
+          agent_run_id = excluded.agent_run_id,
+          type = excluded.type,
+          title = excluded.title,
+          summary = excluded.summary,
+          status = excluded.status,
+          content_ref = excluded.content_ref,
+          source_ids_json = excluded.source_ids_json,
+          metadata_json = excluded.metadata_json,
+          updated_at = excluded.updated_at`
+      )
+      .run(
+        artifact.id,
+        artifact.projectId,
+        artifact.workItemId ?? null,
+        artifact.agentRunId ?? null,
+        artifact.type,
+        artifact.title,
+        artifact.summary,
+        artifact.status,
+        artifact.contentRef ?? null,
+        JSON.stringify(artifact.sourceIds ?? []),
+        JSON.stringify(artifact.metadata ?? {}),
+        artifact.createdAt,
+        artifact.updatedAt
+      );
+
+    this.db.prepare("DELETE FROM artifact_evidence_refs WHERE artifact_id = ?").run(artifact.id);
+    artifact.evidence.forEach((evidence, index) => {
+      this.db
+        .prepare("INSERT INTO artifact_evidence_refs (artifact_id, ref_index, evidence_json) VALUES (?, ?, ?)")
+        .run(artifact.id, index, JSON.stringify(evidence));
+    });
+    if (artifact.workItemId) {
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO work_item_artifact_refs (work_item_id, artifact_id)
+           VALUES (?, ?)`
+        )
+        .run(artifact.workItemId, artifact.id);
+    }
+  }
+
+  private persistWorkItemEvent(event: DomainEvent): void {
+    const workItem = readWorkItem(event.payload);
+    if (!workItem) return;
+    this.db
+      .prepare(
+        `INSERT INTO project_work_items (
+          id, project_id, title, goal, work_modes_json, status, priority, metadata_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          title = excluded.title,
+          goal = excluded.goal,
+          work_modes_json = excluded.work_modes_json,
+          status = excluded.status,
+          priority = excluded.priority,
+          metadata_json = excluded.metadata_json,
+          updated_at = excluded.updated_at`
+      )
+      .run(
+        workItem.id,
+        workItem.projectId,
+        workItem.title,
+        workItem.goal,
+        JSON.stringify(workItem.workModes ?? []),
+        workItem.status,
+        workItem.priority,
+        JSON.stringify(workItem.metadata ?? {}),
+        workItem.createdAt,
+        workItem.updatedAt
+      );
+
+    this.db.prepare("DELETE FROM work_item_source_refs WHERE work_item_id = ?").run(workItem.id);
+    for (const sourceId of workItem.sourceIds) {
+      this.db.prepare("INSERT OR IGNORE INTO work_item_source_refs (work_item_id, source_id) VALUES (?, ?)").run(workItem.id, sourceId);
+    }
+    this.db.prepare("DELETE FROM work_item_artifact_refs WHERE work_item_id = ?").run(workItem.id);
+    for (const artifactId of workItem.artifactIds) {
+      this.db.prepare("INSERT OR IGNORE INTO work_item_artifact_refs (work_item_id, artifact_id) VALUES (?, ?)").run(workItem.id, artifactId);
+    }
+  }
+
+  private persistAgentRunEvent(event: DomainEvent): void {
+    const run = readAgentRun(event.payload);
+    if (!run) return;
+    this.db
+      .prepare(
+        `INSERT INTO agent_runs (
+          id, project_id, work_item_id, provider_id, session_id, role_name, role_preset, goal, status,
+          cwd, worktree_path, last_event_id, produced_artifact_ids_json, pending_approval_ids_json,
+          metadata_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          work_item_id = excluded.work_item_id,
+          provider_id = excluded.provider_id,
+          session_id = excluded.session_id,
+          role_name = excluded.role_name,
+          role_preset = excluded.role_preset,
+          goal = excluded.goal,
+          status = excluded.status,
+          cwd = excluded.cwd,
+          worktree_path = excluded.worktree_path,
+          last_event_id = excluded.last_event_id,
+          produced_artifact_ids_json = excluded.produced_artifact_ids_json,
+          pending_approval_ids_json = excluded.pending_approval_ids_json,
+          metadata_json = excluded.metadata_json,
+          updated_at = excluded.updated_at`
+      )
+      .run(
+        run.id,
+        run.projectId,
+        run.workItemId,
+        run.providerId,
+        run.sessionId ?? null,
+        run.roleName,
+        run.rolePreset ?? null,
+        run.goal,
+        run.status,
+        run.cwd ?? null,
+        run.worktreePath ?? null,
+        run.lastEventId ?? event.id,
+        JSON.stringify(run.producedArtifactIds ?? []),
+        JSON.stringify(run.pendingApprovalIds ?? []),
+        JSON.stringify(run.metadata ?? {}),
+        run.createdAt,
+        run.updatedAt
+      );
+
+    if (run.sessionId) {
+      this.db
+        .prepare(
+          `INSERT INTO agent_run_session_refs (agent_run_id, session_id, provider_id, linked_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(agent_run_id) DO UPDATE SET
+             session_id = excluded.session_id,
+             provider_id = excluded.provider_id,
+             linked_at = excluded.linked_at`
+        )
+        .run(run.id, run.sessionId, run.providerId, event.timestamp);
+    }
   }
 
   private persistProviderEvent(event: DomainEvent): void {
@@ -917,6 +1304,36 @@ function readPropositions(payload: unknown): Proposition[] {
   const record = asRecord(payload);
   const propositions = record?.propositions;
   return Array.isArray(propositions) ? (propositions as Proposition[]) : [];
+}
+
+function readProfile(payload: unknown): ProjectProfile | undefined {
+  const record = asRecord(payload);
+  return (asRecord(record?.profile) ?? record) as ProjectProfile | undefined;
+}
+
+function readSource(payload: unknown): ProjectSource | undefined {
+  const record = asRecord(payload);
+  return (asRecord(record?.source) ?? record) as ProjectSource | undefined;
+}
+
+function readArtifact(payload: unknown): ProjectArtifact | undefined {
+  const record = asRecord(payload);
+  return (asRecord(record?.artifact) ?? record) as ProjectArtifact | undefined;
+}
+
+function readWorkItem(payload: unknown): ProjectWorkItem | undefined {
+  const record = asRecord(payload);
+  return (asRecord(record?.workItem) ?? record) as ProjectWorkItem | undefined;
+}
+
+function readAgentRun(payload: unknown): AgentRun | undefined {
+  const record = asRecord(payload);
+  return (asRecord(record?.agentRun) ?? record) as AgentRun | undefined;
+}
+
+function readString(record: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = record?.[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 function sessionStateForEvent(type: string): AgentSessionState | undefined {

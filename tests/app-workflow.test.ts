@@ -279,10 +279,11 @@ describe("provider-neutral application workflow", () => {
     expect(app.snapshot().projects[project.id]?.git.dirty).toBe(true);
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("waiting_for_approval");
     expect(app.snapshot().dashboard.mode).toBe("approval_center");
-    expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)?.primaryAction).toMatchObject({
-      id: "open-approvals",
-      method: "agents.respondToApproval"
-    });
+    const approvalCard = app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id);
+    expect(approvalCard?.primaryAction).toMatchObject({ method: "projects.getWorkspace" });
+    expect(approvalCard?.secondaryActions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "open-approvals", method: "agents.respondToApproval" })])
+    );
   });
 
   it("makes git-backed fake file changes reviewable when checks are not required", async () => {
@@ -315,10 +316,11 @@ describe("provider-neutral application workflow", () => {
     expect(reviewState).toMatchObject({ acceptedOutOfDateBranch: false, statusHash: expect.any(String) });
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("ready_to_merge");
     expect(app.snapshot().dashboard.mode).toBe("diff_review");
-    expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)?.primaryAction).toMatchObject({
-      id: "review-diff",
-      method: "git.openDiff"
-    });
+    const reviewCard = app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id);
+    expect(reviewCard?.primaryAction).toMatchObject({ method: "projects.getWorkspace" });
+    expect(reviewCard?.secondaryActions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "review-diff", method: "git.openDiff" })])
+    );
     expect(app.snapshot().dashboard.explanation.propositions).toContainEqual(
       expect.objectContaining({ predicate: "ready_to_merge", value: "true" })
     );
@@ -360,10 +362,10 @@ describe("provider-neutral application workflow", () => {
 
     expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)).toMatchObject({
       providerLabel: "No-start provider",
-      primaryAction: {
+      secondaryActions: expect.arrayContaining([expect.objectContaining({
         method: "agents.startSession",
         disabled: true
-      }
+      })])
     });
   });
 
@@ -429,8 +431,11 @@ describe("provider-neutral application workflow", () => {
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("stale");
     expect(app.snapshot().dashboard.mode).toBe("stale_sessions");
     expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)).toMatchObject({
-      primaryAction: { id: "resume-session", method: "agents.resumeSession" },
-      secondaryActions: expect.arrayContaining([expect.objectContaining({ id: "stop-session", method: "agents.stopSession" })])
+      primaryAction: { method: "projects.getWorkspace" },
+      secondaryActions: expect.arrayContaining([
+        expect.objectContaining({ id: "resume-session", method: "agents.resumeSession" }),
+        expect.objectContaining({ id: "stop-session", method: "agents.stopSession" })
+      ])
     });
   });
 

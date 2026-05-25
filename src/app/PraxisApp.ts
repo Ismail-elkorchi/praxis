@@ -8,6 +8,7 @@ import type { PolicyService } from "../policies/PolicyService";
 import type { PluginRegistry } from "../plugins/PluginRegistry";
 import type { ProjectRegistryService } from "../projects/ProjectRegistryService";
 import type { SettingsService } from "../settings/SettingsService";
+import type { AgentRunService, ArtifactService, ProjectWorkspaceService, WorkItemService } from "./ProjectWorkspaceService";
 import type { ProviderRegistry } from "./ProviderRegistry";
 import type { ProviderService } from "./ProviderService";
 
@@ -16,6 +17,10 @@ export type PraxisRuntime = {
   eventStore: EventStore;
   providerRegistry: ProviderRegistry;
   providers: ProviderService;
+  workspace: ProjectWorkspaceService;
+  workItems: WorkItemService;
+  artifacts: ArtifactService;
+  agentRuns: AgentRunService;
   projects: ProjectRegistryService;
   git: GitService;
   checks: CheckService;

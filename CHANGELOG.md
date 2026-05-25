@@ -37,7 +37,7 @@
 - Hardened the activity timeline with turn grouping, lazy details expansion, event-kind coverage, and hidden raw provider payloads.
 - Expanded provider status cards with availability, compatibility, capability support details, and provider-neutral actions.
 - Wired project-card evidence actions to the detail panel with proposition and evidence-reference display.
-- Added provider-neutral settings API/UI coverage with raw-provider-log confirmation and provider settings kept under Providers.
+- Added provider-neutral settings API/UI coverage with raw-provider-log confirmation and provider settings kept under Settings advanced controls.
 - Changed compact and medium layouts to keep approvals visible while rendering Details as a responsive drawer.
 - Added provider-neutral diagnostics API and a Settings debug-export preview covering logs, inspectors, metrics, and replay health.
 - Added shipped public examples for fake-provider onboarding and release-hardening tests that execute the example surface.
@@ -67,3 +67,10 @@
 - Added provider-neutral client lifecycle events for the optional generic process adapter with diagnostics coverage.
 - Added app workflow coverage proving conflicted git files block project review state.
 - Added an optional Codex app-server provider adapter with stdio JSONL transport, availability and schema diagnostics, session and turn mapping, approval and user-input forwarding, redacted raw-event audit handling, fail-closed permission behavior, and fixture-backed tests that do not require Codex to be installed.
+- Redesigned Praxis around project workspaces, with Home, Projects, Decisions, Artifacts, Activity, and Settings as the top-level navigation and provider sessions kept as advanced runtime details.
+- Added extensible `ProjectProfile` facets, `ProjectSource`, `ProjectArtifact`, `ProjectWorkItem`, and `AgentRun` domain models without a single fixed project-kind enum.
+- Added project workspace, portfolio, work item, agent run, source, and artifact APIs with event-backed lifecycle transitions and replayable projections.
+- Added SQLite read models for project profiles, sources, artifacts, work items, agent runs, session refs, evidence refs, and work item source/artifact refs.
+- Added Home and Project Workspace projections covering work inbox, active projects, waiting decisions, running agents, blocked work, ready review, recent artifacts, work-item panels, agent boards, sources, artifacts, decisions, checks, and project-scoped timelines.
+- Fixed approval decision routing so UI decisions use the approval's provider id and added multi-provider coverage.
+- Added fake-provider-only broad-use coverage for code, writing, research, planning, and general projects with source-linked artifacts.

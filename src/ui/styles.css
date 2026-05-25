@@ -227,6 +227,108 @@ p {
   gap: 1rem;
 }
 
+.workspaceCockpit,
+.projectWorkspace {
+  display: grid;
+  gap: 1rem;
+}
+
+.cockpitBand {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 0;
+  border-top: 1px solid #d7e0e4;
+}
+
+.cockpitBand:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.inboxGrid,
+.artifactGrid,
+.agentRunList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.workspaceColumns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.workspaceHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+  padding: 0 0 1rem;
+  border-bottom: 1px solid #d7e0e4;
+}
+
+.facetRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.65rem 0;
+}
+
+.workspaceMiniCard {
+  min-width: 0;
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.8rem;
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.workspaceMiniCard h3,
+.workspaceMiniCard h4 {
+  margin: 0;
+}
+
+.workspaceMiniCard p,
+.workspaceMiniCard small {
+  margin: 0;
+}
+
+.workspaceListButton {
+  width: 100%;
+  display: grid;
+  gap: 0.25rem;
+  text-align: left;
+}
+
+.agentBoard {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(160px, 1fr));
+  gap: 0.75rem;
+  overflow-x: auto;
+}
+
+.agentBoard > section {
+  min-width: 160px;
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid #d7e0e4;
+}
+
+.agentBoard h3 {
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.workItemColumn {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
 .cardGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -1024,6 +1126,8 @@ pre {
   .approvalCard,
   .splitPanel,
   .checkRunGroups,
+  .workspaceHeader,
+  .workspaceColumns,
   .timelineFilters {
     grid-template-columns: 1fr;
     flex-direction: column;
@@ -1044,6 +1148,10 @@ pre {
 
   .approvalPanel .sectionHeader {
     margin-bottom: 0.25rem;
+  }
+
+  .workspaceCockpit > [aria-label="Waiting Decisions"] {
+    order: -1;
   }
 
   .approvalCard {

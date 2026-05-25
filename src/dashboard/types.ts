@@ -1,5 +1,7 @@
 import type {
   AgentProvider,
+  AgentRun,
+  AgentRunStatus,
   AgentSession,
   AgentSessionId,
   AgentTurnId,
@@ -16,9 +18,13 @@ import type {
   EvidenceRef,
   FileChange,
   GitSnapshot,
+  ProjectArtifact,
   Project,
   ProjectId,
+  ProjectProfile,
   ProjectRuntimeState,
+  ProjectSource,
+  ProjectWorkItem,
   Proposition,
   ProviderAvailability,
   ProviderCapabilities,
@@ -35,6 +41,11 @@ export type ProviderSnapshot = {
 
 export type ProjectSnapshot = {
   project: Project;
+  profile: ProjectProfile;
+  sources: ProjectSource[];
+  artifacts: ProjectArtifact[];
+  workItems: ProjectWorkItem[];
+  agentRuns: AgentRun[];
   runtimeState: ProjectRuntimeState;
   git: GitSnapshot;
   reviewState: {
@@ -51,6 +62,11 @@ export type ProjectSnapshot = {
   checkDefinitions: CheckDefinition[];
   checkRuns: CheckRun[];
   propositions: Proposition[];
+  timelineSummary: {
+    lastEventAt?: string;
+    eventCount: number;
+    latestEventTypes: string[];
+  };
   lastActivityAt?: string;
 };
 
@@ -88,6 +104,7 @@ export type ProjectCardViewModel = {
   projectId: ProjectId;
   title: string;
   subtitle: string;
+  profileFacets: string[];
   runtimeState: ProjectRuntimeState;
   urgency: 0 | 1 | 2 | 3 | 4 | 5;
   stateLabel: string;
@@ -98,6 +115,12 @@ export type ProjectCardViewModel = {
   pendingApprovalCount: number;
   failedCheckCount: number;
   activeTurnCount: number;
+  currentWorkItemTitle?: string;
+  activeAgentCount: number;
+  waitingAgentCount: number;
+  blockedAgentCount: number;
+  latestArtifactTitle?: string;
+  reviewCheckStatus?: string;
   lastActivityAt?: string;
   badges: DashboardBadge[];
   primaryAction: DashboardAction;
@@ -108,7 +131,10 @@ export type ProjectCardViewModel = {
 
 export type ApprovalCardViewModel = {
   approvalId: ApprovalRequestId;
+  providerId: ProviderId;
   sessionId: AgentSessionId;
+  workItemId?: string;
+  agentRunId?: string;
   projectTitle: string;
   providerLabel: string;
   kind: ApprovalKind;
@@ -119,6 +145,74 @@ export type ApprovalCardViewModel = {
   requestedAt: string;
   decisionOptions: { decision: ApprovalDecision; label: string; requiresConfirmation: boolean }[];
   evidence: EvidenceRef[];
+};
+
+export type AgentRunCardViewModel = {
+  runId: AgentRun["id"];
+  projectId: ProjectId;
+  workItemId: AgentRun["workItemId"];
+  roleName: string;
+  rolePreset?: AgentRun["rolePreset"];
+  providerLabel: string;
+  providerId: ProviderId;
+  linkedWorkItemTitle: string;
+  status: AgentRunStatus;
+  lastEvent?: string;
+  pendingDecisionCount: number;
+  pendingInput: boolean;
+  producedArtifactCount: number;
+  primaryAction: DashboardAction;
+  evidence: EvidenceRef[];
+  advanced: {
+    sessionId?: AgentSessionId;
+    providerSessionExternalKind?: string;
+  };
+};
+
+export type ProjectWorkspaceViewModel = {
+  projectId: ProjectId;
+  header: {
+    name: string;
+    profileFacets: string[];
+    state: ProjectRuntimeState;
+    activeWorkCount: number;
+    runningAgentCount: number;
+    pendingDecisionCount: number;
+    latestArtifact?: ProjectArtifact;
+    primaryAction: DashboardAction;
+  };
+  workItems: {
+    current: ProjectWorkItem[];
+    queued: ProjectWorkItem[];
+    blocked: ProjectWorkItem[];
+    completed: ProjectWorkItem[];
+  };
+  agentBoard: Record<"queued" | "running" | "waiting" | "blocked" | "review" | "done", AgentRunCardViewModel[]>;
+  sources: (ProjectSource & { usedByWorkItemIds: string[] })[];
+  artifacts: ProjectArtifact[];
+  decisions: ApprovalCardViewModel[];
+  timeline: TimelineItemViewModel[];
+};
+
+export type HomeSectionItem = {
+  id: string;
+  projectId?: ProjectId;
+  title: string;
+  summary: string;
+  action: DashboardAction;
+  timestamp?: string;
+};
+
+export type HomeViewModel = {
+  workInbox: HomeSectionItem[];
+  activeProjects: ProjectCardViewModel[];
+  waitingDecisions: ApprovalCardViewModel[];
+  runningAgents: AgentRunCardViewModel[];
+  blockedWork: HomeSectionItem[];
+  readyToReview: ProjectCardViewModel[];
+  recentArtifacts: ProjectArtifact[];
+  quickCreate: DashboardAction[];
+  questions: string[];
 };
 
 export type CheckRunViewModel = {
@@ -176,6 +270,8 @@ export type GlobalStatusViewModel = {
 export type DashboardProjection = {
   mode: DashboardMode;
   focusedProjectId?: ProjectId;
+  home: HomeViewModel;
+  selectedWorkspace?: ProjectWorkspaceViewModel;
   globalStatus: GlobalStatusViewModel;
   projectCards: ProjectCardViewModel[];
   approvals: ApprovalCardViewModel[];

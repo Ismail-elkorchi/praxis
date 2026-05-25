@@ -1,5 +1,7 @@
-import { defaultProjectSettings, fullAccessPermissionProfileId } from "../core";
+import { defaultProjectProfile, defaultProjectSettings, fullAccessPermissionProfileId } from "../core";
 import type {
+  AgentRun,
+  AgentRunStatus,
   AgentProvider,
   AgentSession,
   AgentTurn,
@@ -13,8 +15,12 @@ import type {
   EvidenceRef,
   FileChange,
   GitSnapshot,
+  ProjectArtifact,
   Project,
+  ProjectProfile,
   ProjectRuntimeState,
+  ProjectSource,
+  ProjectWorkItem,
   Proposition,
   ProviderAvailability,
   ProviderCapabilities
@@ -23,12 +29,15 @@ import { gitStatusHash } from "../git/statusHash";
 import type {
   AppSnapshot,
   ApprovalCardViewModel,
+  AgentRunCardViewModel,
   CheckRunViewModel,
   DashboardAction,
   DashboardBadge,
   DashboardProjection,
   GlobalStatusViewModel,
+  HomeViewModel,
   ProjectCardViewModel,
+  ProjectWorkspaceViewModel,
   ProjectSnapshot,
   ProviderStatusViewModel,
   TimelineItemViewModel
@@ -79,6 +88,11 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
       const project = normalizeProject(payload.project);
       next.projects[payload.project.id] = {
         project,
+        profile: project.profile,
+        sources: [],
+        artifacts: [],
+        workItems: [],
+        agentRuns: [],
         runtimeState: "idle",
         git: emptyGitSnapshot,
         reviewState: { acceptedOutOfDateBranch: false, evidence: [] },
@@ -90,8 +104,18 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
         checkDefinitions: payload.checkDefinitions ?? [],
         checkRuns: [],
         propositions: [],
+        timelineSummary: { eventCount: 0, latestEventTypes: [] },
         lastActivityAt: event.timestamp
       };
+      break;
+    }
+    case "project.profile.updated": {
+      const project = touchProject(next, event);
+      const profile = normalizeProjectProfile((event.payload as { profile?: Partial<ProjectProfile> }).profile);
+      if (project) {
+        project.profile = profile;
+        project.project.profile = profile;
+      }
       break;
     }
     case "project.updated":
@@ -100,10 +124,94 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
       const project = next.projects[payload.project.id];
       if (project) {
         project.project = normalizeProject(payload.project);
+        project.profile = project.project.profile;
         project.lastActivityAt = event.timestamp;
         if (payload.project.archived && next.focusedProjectId === payload.project.id) {
           next.focusedProjectId = undefined;
         }
+      }
+      break;
+    }
+    case "project.source.added": {
+      const project = touchProject(next, event);
+      const source = (event.payload as { source?: ProjectSource }).source;
+      if (project && source) {
+        project.sources = upsertById(project.sources, source);
+      }
+      break;
+    }
+    case "project.source.removed": {
+      const project = touchProject(next, event);
+      const payload = event.payload as { sourceId?: ProjectSource["id"] };
+      if (project && payload.sourceId) {
+        project.sources = project.sources.filter((source) => source.id !== payload.sourceId);
+        project.workItems = project.workItems.map((item) => ({
+          ...item,
+          sourceIds: item.sourceIds.filter((sourceId) => sourceId !== payload.sourceId)
+        }));
+        project.artifacts = project.artifacts.map((artifact) => ({
+          ...artifact,
+          sourceIds: artifact.sourceIds.filter((sourceId) => sourceId !== payload.sourceId)
+        }));
+      }
+      break;
+    }
+    case "project.artifact.created":
+    case "project.artifact.updated":
+    case "project.artifact.reviewed":
+    case "project.artifact.accepted":
+    case "project.artifact.rejected": {
+      const project = touchProject(next, event);
+      const artifact = artifactFromEvent(event);
+      if (project && artifact) {
+        project.artifacts = upsertById(project.artifacts, artifact);
+        if (artifact.workItemId) {
+          project.workItems = project.workItems.map((item) =>
+            item.id === artifact.workItemId && !item.artifactIds.includes(artifact.id)
+              ? { ...item, artifactIds: [...item.artifactIds, artifact.id], updatedAt: event.timestamp }
+              : item
+          );
+        }
+        if (artifact.agentRunId) {
+          project.agentRuns = project.agentRuns.map((run) =>
+            run.id === artifact.agentRunId && !run.producedArtifactIds.includes(artifact.id)
+              ? { ...run, producedArtifactIds: [...run.producedArtifactIds, artifact.id], updatedAt: event.timestamp }
+              : run
+          );
+        }
+      }
+      break;
+    }
+    case "project.workItem.created":
+    case "project.workItem.updated":
+    case "project.workItem.queued":
+    case "project.workItem.started":
+    case "project.workItem.blocked":
+    case "project.workItem.completed":
+    case "project.workItem.cancelled":
+    case "project.workItem.failed": {
+      const project = touchProject(next, event);
+      const workItem = workItemFromEvent(event);
+      if (project && workItem) {
+        project.workItems = upsertById(project.workItems, workItem);
+      }
+      break;
+    }
+    case "agent.run.created":
+    case "agent.run.queued":
+    case "agent.run.started":
+    case "agent.run.linkedToSession":
+    case "agent.run.statusChanged":
+    case "agent.run.outputProduced":
+    case "agent.run.blocked":
+    case "agent.run.completed":
+    case "agent.run.failed":
+    case "agent.run.cancelled":
+    case "agent.run.stale": {
+      const project = touchProject(next, event);
+      const run = agentRunFromEvent(project, event);
+      if (project && run) {
+        project.agentRuns = upsertById(project.agentRuns, run);
       }
       break;
     }
@@ -180,6 +288,7 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
         };
         project.sessions[event.sessionId] = session;
         project.lastActivityAt = event.timestamp;
+        updateAgentRunsBySession(project, event.sessionId, event, (run) => ({ ...run, status: "running" }));
       }
       break;
     }
@@ -190,6 +299,7 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
         session.state = "active";
         session.updatedAt = event.timestamp;
       }
+      updateAgentRunsBySession(project, event.sessionId, event, (run) => ({ ...run, status: "running" }));
       break;
     }
     case "agent.session.stale":
@@ -216,6 +326,17 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
           updatedAt: event.timestamp
         };
       }
+      updateAgentRunsBySession(project, event.sessionId, event, (run) => ({
+        ...run,
+        status:
+          event.type === "agent.session.stale"
+            ? "stale"
+            : event.type === "agent.session.failed"
+              ? "failed"
+              : run.status === "completed"
+                ? run.status
+                : "cancelled"
+      }));
       break;
     }
     case "agent.turn.started": {
@@ -237,6 +358,7 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
           session.activeTurnId = event.turnId;
           session.updatedAt = event.timestamp;
         }
+        updateAgentRunsBySession(project, event.sessionId, event, (run) => ({ ...run, status: "running" }));
       }
       break;
     }
@@ -256,6 +378,15 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
         session.activeTurnId = undefined;
         session.updatedAt = event.timestamp;
       }
+      updateAgentRunsBySession(project, event.sessionId, event, (run) => ({
+        ...run,
+        status:
+          event.type === "agent.turn.completed"
+            ? "completed"
+            : event.type === "agent.turn.failed"
+              ? "failed"
+              : "cancelled"
+      }));
       break;
     }
     case "agent.command.started":
@@ -276,6 +407,7 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
         session.state = "waiting_for_user_input";
         session.updatedAt = event.timestamp;
       }
+      updateAgentRunsBySession(project, event.sessionId, event, (run) => ({ ...run, status: "waiting_for_input" }));
       break;
     }
     case "agent.userInput.responded": {
@@ -285,6 +417,7 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
         session.state = "active";
         session.updatedAt = event.timestamp;
       }
+      updateAgentRunsBySession(project, event.sessionId, event, (run) => ({ ...run, status: "running" }));
       break;
     }
     case "approval.requested": {
@@ -297,6 +430,13 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
           session.state = "waiting_for_approval";
           session.updatedAt = event.timestamp;
         }
+        updateAgentRunsBySession(project, approval.sessionId, event, (run) => ({
+          ...run,
+          status: "waiting_for_approval",
+          pendingApprovalIds: run.pendingApprovalIds.includes(approval.id)
+            ? run.pendingApprovalIds
+            : [...run.pendingApprovalIds, approval.id]
+        }));
       }
       break;
     }
@@ -317,6 +457,11 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
               }
             : approval
         );
+        updateAgentRunsByApproval(project, payload.approvalId, event, (run) => ({
+          ...run,
+          status: run.status === "waiting_for_approval" ? "running" : run.status,
+          pendingApprovalIds: run.pendingApprovalIds.filter((approvalId) => approvalId !== payload.approvalId)
+        }));
       }
       break;
     }
@@ -378,6 +523,7 @@ export function reduceSnapshot(snapshot: AppSnapshot, event: DomainEvent): AppSn
 
 function rebuildDerived(snapshot: AppSnapshot): AppSnapshot {
   for (const project of Object.values(snapshot.projects)) {
+    project.timelineSummary = projectTimelineSummary(project, snapshot.events);
     project.runtimeState = deriveProjectRuntimeState(project);
     project.propositions = deriveProjectPropositions(project, snapshot.events);
   }
@@ -404,22 +550,43 @@ function deriveProjectRuntimeState(project: ProjectSnapshot): ProjectRuntimeStat
   if (Object.values(project.sessions).some((session) => session.state === "stale_or_disconnected")) {
     return "stale";
   }
+  if (project.agentRuns.some((run) => run.status === "stale")) {
+    return "stale";
+  }
   if (project.git.conflictedFiles.length > 0) {
+    return "blocked";
+  }
+  if (project.workItems.some((item) => item.status === "blocked") || project.agentRuns.some((run) => run.status === "blocked")) {
     return "blocked";
   }
   if (Object.values(project.sessions).some((session) => session.state === "failed")) {
     return "error";
   }
+  if (project.agentRuns.some((run) => run.status === "failed") || project.workItems.some((item) => item.status === "failed")) {
+    return "error";
+  }
   if (project.approvals.some((approval) => approval.status === "pending")) {
+    return "waiting_for_approval";
+  }
+  if (project.agentRuns.some((run) => run.status === "waiting_for_approval")) {
     return "waiting_for_approval";
   }
   if (Object.values(project.sessions).some((session) => session.state === "waiting_for_user_input")) {
     return "waiting_for_user_input";
   }
+  if (project.agentRuns.some((run) => run.status === "waiting_for_input")) {
+    return "waiting_for_user_input";
+  }
   if (hasFailedRequiredCheck(project)) {
     return "checks_failed";
   }
+  if (project.workItems.some((item) => item.status === "reviewing") || project.agentRuns.some((run) => run.status === "reviewing")) {
+    return "reviewing_diff";
+  }
   if (Object.values(project.turns).some((turn) => turn.status === "in_progress")) {
+    return "agent_running";
+  }
+  if (project.workItems.some((item) => item.status === "running") || project.agentRuns.some((run) => run.status === "running" || run.status === "starting")) {
     return "agent_running";
   }
   if (isReadyToMerge(project)) {
@@ -432,6 +599,9 @@ function deriveProjectRuntimeState(project: ProjectSnapshot): ProjectRuntimeStat
     return "dirty_worktree";
   }
   if (Object.values(project.sessions).some((session) => session.state === "idle" || session.state === "active")) {
+    return "agent_ready";
+  }
+  if (project.workItems.some((item) => item.status === "queued") || project.agentRuns.some((run) => run.status === "queued")) {
     return "agent_ready";
   }
   return "idle";
@@ -490,6 +660,7 @@ function buildDashboard(snapshot: AppSnapshot): DashboardProjection {
   );
   const projectCards = visibleProjects.map((project) => projectCard(project, snapshot));
   const mode = selectDashboardMode(visibleProjects, snapshot.activeTurns.length, snapshot.focusedProjectId);
+  const allTimeline = timeline(snapshot);
   const propositions = [
     ...Object.values(snapshot.projects).flatMap((project) => project.propositions),
     dashboardModeProposition(mode, projectCards)
@@ -497,12 +668,14 @@ function buildDashboard(snapshot: AppSnapshot): DashboardProjection {
   return {
     mode,
     focusedProjectId: snapshot.focusedProjectId,
+    home: homeView(snapshot, projectCards, allTimeline),
+    selectedWorkspace: snapshot.focusedProjectId ? projectWorkspace(snapshot, snapshot.focusedProjectId, projectCards, allTimeline) : undefined,
     globalStatus: globalStatus(snapshot),
     projectCards,
     approvals: approvalCards(snapshot),
     checkRuns: checkRunCards(snapshot),
     providerStatus: providerStatus(snapshot),
-    timeline: timeline(snapshot),
+    timeline: allTimeline,
     explanation: {
       mode,
       propositions,
@@ -540,6 +713,13 @@ function projectCard(project: ProjectSnapshot, snapshot: AppSnapshot): ProjectCa
   const pendingApprovalCount = project.approvals.filter((approval) => approval.status === "pending").length;
   const failedCheckCount = failedRequiredCheckCount(project);
   const activeTurnCount = Object.values(project.turns).filter((turn) => turn.status === "in_progress").length;
+  const currentWorkItem = currentProjectWorkItem(project);
+  const latestArtifact = latestProjectArtifact(project);
+  const activeAgentCount = project.agentRuns.filter((run) => run.status === "running" || run.status === "starting").length;
+  const waitingAgentCount = project.agentRuns.filter(
+    (run) => run.status === "waiting_for_approval" || run.status === "waiting_for_input"
+  ).length;
+  const blockedAgentCount = project.agentRuns.filter((run) => run.status === "blocked" || run.status === "stale" || run.status === "failed").length;
   const changedFileCount = new Set([
     ...project.fileChanges.map((change) => change.path),
     ...project.git.stagedFiles,
@@ -556,6 +736,7 @@ function projectCard(project: ProjectSnapshot, snapshot: AppSnapshot): ProjectCa
     projectId: project.project.id,
     title: project.project.name,
     subtitle: project.project.rootPath,
+    profileFacets: profileFacets(project.profile),
     runtimeState: project.runtimeState,
     urgency: urgency(project.runtimeState),
     stateLabel: stateLabel(project.runtimeState),
@@ -566,9 +747,15 @@ function projectCard(project: ProjectSnapshot, snapshot: AppSnapshot): ProjectCa
     pendingApprovalCount,
     failedCheckCount,
     activeTurnCount,
+    currentWorkItemTitle: currentWorkItem?.title,
+    activeAgentCount,
+    waitingAgentCount,
+    blockedAgentCount,
+    latestArtifactTitle: latestArtifact?.title,
+    reviewCheckStatus: reviewCheckStatus(project),
     lastActivityAt: project.lastActivityAt,
     badges: badges(project),
-    primaryAction: primaryAction(project, provider?.capabilities),
+    primaryAction: openWorkspaceAction(project.project.id),
     secondaryActions: secondaryActions(project, evidence, provider?.capabilities),
     diffFiles: diffFiles(project),
     evidence
@@ -585,7 +772,10 @@ function approvalCards(snapshot: AppSnapshot): ApprovalCardViewModel[] {
       approval.risk !== "critical";
     return {
       approvalId: approval.id,
+      providerId: approval.providerId,
       sessionId: approval.sessionId,
+      workItemId: project?.agentRuns.find((run) => run.pendingApprovalIds.includes(approval.id))?.workItemId,
+      agentRunId: project?.agentRuns.find((run) => run.pendingApprovalIds.includes(approval.id))?.id,
       projectTitle: project?.project.name ?? "Project",
       providerLabel: provider?.displayName ?? "Provider",
       kind: approval.kind,
@@ -642,6 +832,174 @@ function providerStatus(snapshot: AppSnapshot): ProviderStatusViewModel[] {
     capabilities: provider.capabilities,
     adapterVersion: provider.adapterVersion
   }));
+}
+
+function homeView(snapshot: AppSnapshot, projectCards: ProjectCardViewModel[], allTimeline: TimelineItemViewModel[]): HomeViewModel {
+  const projects = Object.values(snapshot.projects).filter((project) => !project.project.archived);
+  const runningAgents = projects.flatMap((project) => agentRunCards(project, snapshot)).filter((run) => run.status === "running" || run.status === "starting");
+  const blockedWork = projects.flatMap((project) => [
+    ...project.workItems
+      .filter((item) => item.status === "blocked" || item.status === "failed")
+      .map((item) => ({
+        id: item.id,
+        projectId: project.project.id,
+        title: item.title,
+        summary: item.status === "failed" ? "Work item failed." : "Work item is blocked.",
+        action: openWorkspaceAction(project.project.id),
+        timestamp: item.updatedAt
+      })),
+    ...project.agentRuns
+      .filter((run) => run.status === "blocked" || run.status === "failed" || run.status === "stale")
+      .map((run) => ({
+        id: run.id,
+        projectId: project.project.id,
+        title: run.roleName,
+        summary: run.status === "stale" ? "Agent run is stale." : run.status === "failed" ? "Agent run failed." : "Agent run is blocked.",
+        action: openWorkspaceAction(project.project.id),
+        timestamp: run.updatedAt
+      }))
+  ]);
+  const recentArtifacts = projects
+    .flatMap((project) => project.artifacts)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(0, 8);
+
+  return {
+    workInbox: [
+      ...snapshot.approvals.pending.map((approval) => ({
+        id: approval.id,
+        projectId: approval.projectId,
+        title: approval.title,
+        summary: approval.description,
+        action: { id: "open-decision-center", label: "Open decision center", method: "agents.respondToApproval" },
+        timestamp: approval.createdAt
+      })),
+      ...projects.flatMap((project) =>
+        project.workItems
+          .filter((item) => item.status === "planned" || item.status === "queued")
+          .map((item) => ({
+            id: item.id,
+            projectId: project.project.id,
+            title: item.title,
+            summary: item.goal,
+            action: openWorkspaceAction(project.project.id),
+            timestamp: item.updatedAt
+          }))
+      )
+    ].slice(0, 12),
+    activeProjects: projectCards.filter((card) => card.runtimeState !== "idle").slice(0, 8),
+    waitingDecisions: approvalCards(snapshot),
+    runningAgents,
+    blockedWork: blockedWork.slice(0, 8),
+    readyToReview: projectCards.filter((card) => card.runtimeState === "ready_for_review" || card.runtimeState === "ready_to_merge"),
+    recentArtifacts,
+    quickCreate: [
+      { id: "create-project", label: "Create project", method: "projects.register" },
+      { id: "add-source", label: "Add source", method: "projects.addSource" },
+      { id: "create-work-item", label: "Create work item", method: "workItems.create" },
+      { id: "start-agent-run", label: "Start agent run", method: "agentRuns.start" },
+      { id: "create-artifact", label: "Create artifact", method: "artifacts.create" },
+      { id: "open-decisions", label: "Open decision center", method: "agents.respondToApproval" }
+    ],
+    questions: [
+      "What needs my decision?",
+      "What is running?",
+      "What is blocked?",
+      "What produced something new?",
+      "Which project should I open next?",
+      "What can I start now?"
+    ]
+  };
+}
+
+function projectWorkspace(
+  snapshot: AppSnapshot,
+  projectId: Project["id"],
+  projectCards: ProjectCardViewModel[],
+  allTimeline: TimelineItemViewModel[]
+): ProjectWorkspaceViewModel | undefined {
+  const project = snapshot.projects[projectId];
+  if (!project) return undefined;
+  const card = projectCards.find((item) => item.projectId === projectId) ?? projectCard(project, snapshot);
+  const latestArtifact = latestProjectArtifact(project);
+  const runs = agentRunCards(project, snapshot);
+  return {
+    projectId,
+    header: {
+      name: project.project.name,
+      profileFacets: profileFacets(project.profile),
+      state: project.runtimeState,
+      activeWorkCount: project.workItems.filter((item) => ["queued", "running", "waiting_for_approval", "waiting_for_input", "blocked", "reviewing"].includes(item.status)).length,
+      runningAgentCount: project.agentRuns.filter((run) => run.status === "running" || run.status === "starting").length,
+      pendingDecisionCount: project.approvals.filter((approval) => approval.status === "pending").length,
+      latestArtifact,
+      primaryAction: card.primaryAction
+    },
+    workItems: {
+      current: project.workItems.filter((item) => item.status === "running" || item.status === "waiting_for_approval" || item.status === "waiting_for_input" || item.status === "reviewing"),
+      queued: project.workItems.filter((item) => item.status === "planned" || item.status === "queued"),
+      blocked: project.workItems.filter((item) => item.status === "blocked" || item.status === "failed"),
+      completed: project.workItems.filter((item) => item.status === "completed" || item.status === "cancelled")
+    },
+    agentBoard: {
+      queued: runs.filter((run) => run.status === "queued" || run.status === "starting"),
+      running: runs.filter((run) => run.status === "running"),
+      waiting: runs.filter((run) => run.status === "waiting_for_approval" || run.status === "waiting_for_input"),
+      blocked: runs.filter((run) => run.status === "blocked" || run.status === "failed" || run.status === "stale"),
+      review: runs.filter((run) => run.status === "reviewing"),
+      done: runs.filter((run) => run.status === "completed" || run.status === "cancelled")
+    },
+    sources: project.sources.map((source) => ({
+      ...source,
+      usedByWorkItemIds: project.workItems.filter((item) => item.sourceIds.includes(source.id)).map((item) => item.id)
+    })),
+    artifacts: [...project.artifacts].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+    decisions: approvalCards(snapshot).filter((approval) => project.approvals.some((item) => item.id === approval.approvalId)),
+    timeline: allTimeline.filter((item) => item.projectId === projectId)
+  };
+}
+
+function agentRunCards(project: ProjectSnapshot, snapshot: AppSnapshot): AgentRunCardViewModel[] {
+  return project.agentRuns.map((run) => {
+    const provider = snapshot.providers[run.providerId]?.provider;
+    const workItem = project.workItems.find((item) => item.id === run.workItemId);
+    const session = run.sessionId ? project.sessions[run.sessionId] : undefined;
+    const pendingDecisionCount = run.pendingApprovalIds.filter((approvalId) =>
+      project.approvals.some((approval) => approval.id === approvalId && approval.status === "pending")
+    ).length;
+    return {
+      runId: run.id,
+      projectId: run.projectId,
+      workItemId: run.workItemId,
+      roleName: run.roleName,
+      rolePreset: run.rolePreset,
+      providerLabel: provider?.displayName ?? "Provider",
+      providerId: run.providerId,
+      linkedWorkItemTitle: workItem?.title ?? "Work item",
+      status: run.status,
+      lastEvent: run.lastEventId,
+      pendingDecisionCount,
+      pendingInput: run.status === "waiting_for_input",
+      producedArtifactCount: run.producedArtifactIds.length,
+      primaryAction: agentRunPrimaryAction(run),
+      evidence: run.lastEventId ? [{ type: "event", eventId: run.lastEventId }] : [{ type: "provider", providerId: run.providerId }],
+      advanced: {
+        sessionId: run.sessionId,
+        providerSessionExternalKind: session?.providerSessionRef?.externalKind
+      }
+    };
+  });
+}
+
+function agentRunPrimaryAction(run: AgentRun): DashboardAction {
+  if (run.status === "queued") return { id: "start-agent-run", label: "Start agent run", method: "agentRuns.start" };
+  if (run.status === "running" || run.status === "waiting_for_approval" || run.status === "waiting_for_input") {
+    return { id: "send-instruction", label: "Send instruction", method: "agentRuns.sendInstruction" };
+  }
+  if (run.status === "blocked" || run.status === "stale" || run.status === "failed") {
+    return { id: "cancel-agent-run", label: "Cancel run", method: "agentRuns.cancel" };
+  }
+  return { id: "open-agent-run", label: "Open details", method: "agentRuns.listByProject" };
 }
 
 function durationMs(start: string, end: string | undefined): number | undefined {
@@ -723,6 +1081,143 @@ function upsertByPath<T extends { path: string }>(items: T[], item: T): T[] {
 
 function upsertApproval(items: ApprovalRequest[], item: ApprovalRequest): ApprovalRequest[] {
   return upsertById(items, item);
+}
+
+function updateAgentRunsBySession(
+  project: ProjectSnapshot | undefined,
+  sessionId: DomainEvent["sessionId"],
+  event: DomainEvent,
+  update: (run: AgentRun) => AgentRun
+): void {
+  if (!project || !sessionId) return;
+  project.agentRuns = project.agentRuns.map((run) =>
+    run.sessionId === sessionId ? withRunEventMetadata(update(run), event) : run
+  );
+}
+
+function updateAgentRunsByApproval(
+  project: ProjectSnapshot | undefined,
+  approvalId: ApprovalRequest["id"],
+  event: DomainEvent,
+  update: (run: AgentRun) => AgentRun
+): void {
+  if (!project) return;
+  project.agentRuns = project.agentRuns.map((run) =>
+    run.pendingApprovalIds.includes(approvalId) ? withRunEventMetadata(update(run), event) : run
+  );
+}
+
+function withRunEventMetadata(run: AgentRun, event: DomainEvent): AgentRun {
+  return {
+    ...run,
+    lastEventId: event.id,
+    updatedAt: event.timestamp
+  };
+}
+
+function artifactFromEvent(event: DomainEvent): ProjectArtifact | undefined {
+  const payload = objectPayload(event.payload);
+  const artifact = objectPayload(payload.artifact) as Partial<ProjectArtifact> | undefined;
+  const candidate = artifact?.id ? artifact : (payload as Partial<ProjectArtifact>);
+  if (!candidate?.id || !event.projectId) return undefined;
+  return {
+    id: candidate.id,
+    projectId: candidate.projectId ?? event.projectId,
+    workItemId: candidate.workItemId,
+    agentRunId: candidate.agentRunId,
+    type: candidate.type ?? "generic_file",
+    title: candidate.title ?? "Artifact",
+    summary: candidate.summary ?? "",
+    status: artifactStatusFromEvent(event.type, candidate.status),
+    contentRef: candidate.contentRef,
+    sourceIds: [...(candidate.sourceIds ?? [])],
+    evidence: candidate.evidence ?? event.evidence,
+    createdAt: candidate.createdAt ?? event.timestamp,
+    updatedAt: candidate.updatedAt ?? event.timestamp,
+    metadata: candidate.metadata ?? {}
+  };
+}
+
+function workItemFromEvent(event: DomainEvent): ProjectWorkItem | undefined {
+  const payload = objectPayload(event.payload);
+  const workItem = objectPayload(payload.workItem) as Partial<ProjectWorkItem> | undefined;
+  const candidate = workItem?.id ? workItem : (payload as Partial<ProjectWorkItem>);
+  if (!candidate?.id || !event.projectId) return undefined;
+  return {
+    id: candidate.id,
+    projectId: candidate.projectId ?? event.projectId,
+    title: candidate.title ?? "Work item",
+    goal: candidate.goal ?? "",
+    workModes: [...(candidate.workModes ?? ["custom"])],
+    status: workItemStatusFromEvent(event.type, candidate.status),
+    priority: candidate.priority ?? 3,
+    sourceIds: [...(candidate.sourceIds ?? [])],
+    artifactIds: [...(candidate.artifactIds ?? [])],
+    createdAt: candidate.createdAt ?? event.timestamp,
+    updatedAt: candidate.updatedAt ?? event.timestamp,
+    metadata: candidate.metadata ?? {}
+  };
+}
+
+function agentRunFromEvent(project: ProjectSnapshot | undefined, event: DomainEvent): AgentRun | undefined {
+  const payload = objectPayload(event.payload);
+  const agentRun = (objectPayload(payload.agentRun) as Partial<AgentRun>) ?? undefined;
+  const candidate = agentRun?.id ? agentRun : (payload as Partial<AgentRun>);
+  const existing = project?.agentRuns.find((run) => run.id === candidate.id);
+  if (!candidate?.id || !event.projectId || !event.providerId) return undefined;
+  const workItemId = candidate.workItemId ?? existing?.workItemId;
+  if (!workItemId) return undefined;
+  return {
+    id: candidate.id,
+    projectId: candidate.projectId ?? event.projectId,
+    workItemId,
+    providerId: candidate.providerId ?? event.providerId,
+    sessionId: candidate.sessionId ?? existing?.sessionId ?? event.sessionId,
+    roleName: candidate.roleName ?? existing?.roleName ?? "Agent",
+    rolePreset: candidate.rolePreset ?? existing?.rolePreset,
+    goal: candidate.goal ?? existing?.goal ?? "",
+    status: agentRunStatusFromEvent(event.type, candidate.status ?? existing?.status),
+    cwd: candidate.cwd ?? existing?.cwd,
+    worktreePath: candidate.worktreePath ?? existing?.worktreePath,
+    lastEventId: candidate.lastEventId ?? event.id,
+    producedArtifactIds: [...(candidate.producedArtifactIds ?? existing?.producedArtifactIds ?? [])],
+    pendingApprovalIds: [...(candidate.pendingApprovalIds ?? existing?.pendingApprovalIds ?? [])],
+    createdAt: candidate.createdAt ?? existing?.createdAt ?? event.timestamp,
+    updatedAt: candidate.updatedAt ?? event.timestamp,
+    metadata: candidate.metadata ?? existing?.metadata ?? {}
+  };
+}
+
+function artifactStatusFromEvent(type: string, fallback: ProjectArtifact["status"] | undefined): ProjectArtifact["status"] {
+  if (type === "project.artifact.reviewed") return "reviewed";
+  if (type === "project.artifact.accepted") return "accepted";
+  if (type === "project.artifact.rejected") return "rejected";
+  return fallback ?? "draft";
+}
+
+function workItemStatusFromEvent(type: string, fallback: ProjectWorkItem["status"] | undefined): ProjectWorkItem["status"] {
+  if (type === "project.workItem.queued") return "queued";
+  if (type === "project.workItem.started") return "running";
+  if (type === "project.workItem.blocked") return "blocked";
+  if (type === "project.workItem.completed") return "completed";
+  if (type === "project.workItem.cancelled") return "cancelled";
+  if (type === "project.workItem.failed") return "failed";
+  return fallback ?? "planned";
+}
+
+function agentRunStatusFromEvent(type: string, fallback: AgentRunStatus | undefined): AgentRunStatus {
+  if (type === "agent.run.queued") return "queued";
+  if (type === "agent.run.started") return "running";
+  if (type === "agent.run.blocked") return "blocked";
+  if (type === "agent.run.completed") return "completed";
+  if (type === "agent.run.failed") return "failed";
+  if (type === "agent.run.cancelled") return "cancelled";
+  if (type === "agent.run.stale") return "stale";
+  return fallback ?? "queued";
+}
+
+function objectPayload(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
 function reduceCommandRuns(project: ProjectSnapshot, event: DomainEvent): CommandRun[] {
@@ -848,6 +1343,88 @@ function projectEvidence(project: ProjectSnapshot, events: DomainEvent[] = []): 
   return [...eventEvidence, ...approvalEvidence, ...fileEvidence, ...checkEvidence].slice(0, 12);
 }
 
+function projectTimelineSummary(project: ProjectSnapshot, events: DomainEvent[]): ProjectSnapshot["timelineSummary"] {
+  const projectEvents = events.filter((event) => event.projectId === project.project.id);
+  return {
+    lastEventAt: projectEvents.at(-1)?.timestamp,
+    eventCount: projectEvents.length,
+    latestEventTypes: projectEvents
+      .slice(-8)
+      .reverse()
+      .map((event) => event.type)
+  };
+}
+
+function normalizeProjectProfile(profile: Partial<ProjectProfile> | undefined): ProjectProfile {
+  return {
+    userLabel: profile?.userLabel,
+    workModes: uniqueNonEmpty(profile?.workModes, defaultProjectProfile.workModes),
+    sourceTypes: uniqueNonEmpty(profile?.sourceTypes, defaultProjectProfile.sourceTypes),
+    expectedArtifactTypes: uniqueNonEmpty(profile?.expectedArtifactTypes, defaultProjectProfile.expectedArtifactTypes),
+    riskProfile: profile?.riskProfile
+      ? {
+          ...profile.riskProfile,
+          signals: [...(profile.riskProfile.signals ?? [])]
+        }
+      : undefined,
+    customTags: [...(profile?.customTags ?? [])],
+    customMetadata: profile?.customMetadata
+  };
+}
+
+function uniqueNonEmpty<T extends string>(values: readonly T[] | undefined, fallback: readonly T[]): T[] {
+  const normalized = [...new Set((values && values.length > 0 ? values : fallback).filter(Boolean))] as T[];
+  return normalized.length > 0 ? normalized : [...fallback];
+}
+
+function profileFacets(profile: ProjectProfile): string[] {
+  return [
+    ...(profile.userLabel ? [profile.userLabel] : []),
+    ...profile.workModes,
+    ...profile.sourceTypes,
+    ...profile.expectedArtifactTypes,
+    ...profile.customTags
+  ].slice(0, 10);
+}
+
+function currentProjectWorkItem(project: ProjectSnapshot): ProjectWorkItem | undefined {
+  return [...project.workItems]
+    .sort((left, right) => {
+      const statusDelta = workItemRank(left.status) - workItemRank(right.status);
+      if (statusDelta !== 0) return statusDelta;
+      const priorityDelta = left.priority - right.priority;
+      if (priorityDelta !== 0) return priorityDelta;
+      return right.updatedAt.localeCompare(left.updatedAt);
+    })[0];
+}
+
+function workItemRank(status: ProjectWorkItem["status"]): number {
+  if (status === "running" || status === "waiting_for_approval" || status === "waiting_for_input") return 0;
+  if (status === "blocked" || status === "failed") return 1;
+  if (status === "reviewing") return 2;
+  if (status === "queued") return 3;
+  if (status === "planned") return 4;
+  return 5;
+}
+
+function latestProjectArtifact(project: ProjectSnapshot): ProjectArtifact | undefined {
+  return [...project.artifacts].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+}
+
+function reviewCheckStatus(project: ProjectSnapshot): string | undefined {
+  if (project.checkDefinitions.length === 0 && !project.git.isRepo) return undefined;
+  if (hasFailedRequiredCheck(project)) return "Required check failed";
+  if (project.runtimeState === "ready_to_merge") return "Reviewed and ready";
+  if (project.runtimeState === "ready_for_review") return "Ready to review";
+  if (project.checkDefinitions.length > 0 && requiredChecksPassed(project)) return "Checks passed";
+  if (project.git.dirty) return "Changes pending";
+  return undefined;
+}
+
+function openWorkspaceAction(projectId: Project["id"]): DashboardAction {
+  return { id: `open-workspace-${projectId}`, label: "Open workspace", method: "projects.getWorkspace" };
+}
+
 function badges(project: ProjectSnapshot): DashboardBadge[] {
   const result: DashboardBadge[] = [{ label: stateLabel(project.runtimeState), tone: badgeTone(project.runtimeState) }];
   if (project.approvals.some((approval) => approval.status === "pending")) result.push({ label: "Approval pending", tone: "waiting" });
@@ -907,6 +1484,7 @@ function primaryAction(project: ProjectSnapshot, capabilities: ProviderCapabilit
 
 function secondaryActions(project: ProjectSnapshot, evidence: EvidenceRef[], capabilities: ProviderCapabilities | undefined): DashboardAction[] {
   return [
+    primaryAction(project, capabilities),
     ...(project.runtimeState === "stale" ? [{ id: "stop-session", label: "Stop session", method: "agents.stopSession" }] : []),
     ...(capabilities?.canImportExistingSessions
       ? [{ id: "import-sessions", label: "Import sessions", method: "agents.importSessions" }]
@@ -1030,6 +1608,8 @@ function emptyDashboard(): DashboardProjection {
   return {
     mode: "portfolio",
     focusedProjectId: undefined,
+    home: emptyHome(),
+    selectedWorkspace: undefined,
     globalStatus: {
       activeProjectCount: 0,
       activeTurnCount: 0,
@@ -1051,9 +1631,35 @@ function emptyDashboard(): DashboardProjection {
 function normalizeProject(project: Project): Project {
   return {
     ...project,
+    profile: normalizeProjectProfile(project.profile),
     scripts: [...(project.scripts ?? [])],
     metadataFiles: [...(project.metadataFiles ?? [])],
     worktrees: [...(project.worktrees ?? [])],
     settings: { ...defaultProjectSettings, ...project.settings }
+  };
+}
+
+function emptyHome(): HomeViewModel {
+  return {
+    workInbox: [],
+    activeProjects: [],
+    waitingDecisions: [],
+    runningAgents: [],
+    blockedWork: [],
+    readyToReview: [],
+    recentArtifacts: [],
+    quickCreate: [
+      { id: "create-project", label: "Create project", method: "projects.register" },
+      { id: "create-work-item", label: "Create work item", method: "workItems.create" },
+      { id: "open-decisions", label: "Open decision center", method: "agents.respondToApproval" }
+    ],
+    questions: [
+      "What needs my decision?",
+      "What is running?",
+      "What is blocked?",
+      "What produced something new?",
+      "Which project should I open next?",
+      "What can I start now?"
+    ]
   };
 }

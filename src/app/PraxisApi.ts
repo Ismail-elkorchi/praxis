@@ -2,11 +2,16 @@ import { performance } from "node:perf_hooks";
 import type {
   AgentSessionId,
   AgentTurnId,
+  AgentRunId,
+  ProjectArtifactId,
+  ProjectSourceId,
+  ProjectWorkItemId,
   CheckDefinitionId,
   ApprovalDecision,
   ApprovalRequestId,
   CheckRunId,
   ProjectId,
+  ProjectProfile,
   ProjectSettings,
   ProviderId
 } from "../core";
@@ -39,6 +44,34 @@ export const apiMethods = [
   "projects.archive",
   "projects.refresh",
   "projects.markReadyToMerge",
+  "projects.getWorkspace",
+  "projects.updateProfile",
+  "projects.addSource",
+  "projects.removeSource",
+  "projects.getHome",
+  "projects.getPortfolio",
+  "workItems.create",
+  "workItems.update",
+  "workItems.queue",
+  "workItems.cancel",
+  "workItems.complete",
+  "workItems.listByProject",
+  "agentRuns.create",
+  "agentRuns.start",
+  "agentRuns.stop",
+  "agentRuns.cancel",
+  "agentRuns.sendInstruction",
+  "agentRuns.assignProvider",
+  "agentRuns.linkSession",
+  "agentRuns.listByProject",
+  "agentRuns.listByWorkItem",
+  "artifacts.create",
+  "artifacts.update",
+  "artifacts.listByProject",
+  "artifacts.get",
+  "artifacts.markReviewed",
+  "artifacts.accept",
+  "artifacts.reject",
   "providers.list",
   "providers.getStatus",
   "providers.getCapabilities",
@@ -104,13 +137,13 @@ export class PraxisApi {
       case "projects.list":
         return this.app.projects.listProjects();
       case "projects.register": {
-        const input = params as { rootPath: string; name?: string; defaultProviderId?: ProviderId };
+        const input = params as { rootPath: string; name?: string; defaultProviderId?: ProviderId; profile?: Partial<ProjectProfile> };
         return this.app.projects.registerProject(input);
       }
       case "projects.update": {
         const input = params as {
           projectId: ProjectId;
-          patch: { name?: string; tags?: string[]; archived?: boolean; settings?: Partial<ProjectSettings> };
+          patch: { name?: string; tags?: string[]; archived?: boolean; settings?: Partial<ProjectSettings>; profile?: Partial<ProjectProfile> };
           confirmBroadPermissionProfile?: boolean;
         };
         return this.app.projects.updateProject(input.projectId, input.patch, {
@@ -134,6 +167,72 @@ export class PraxisApi {
           confirmOutOfDateBranch: input.confirmOutOfDateBranch
         });
       }
+      case "projects.getWorkspace": {
+        const input = params as { projectId: ProjectId };
+        return this.app.workspace.getWorkspace(input.projectId);
+      }
+      case "projects.updateProfile": {
+        const input = params as { projectId: ProjectId; profile: Partial<ProjectProfile> };
+        return this.app.projects.updateProfile(input.projectId, input.profile);
+      }
+      case "projects.addSource":
+        return this.app.workspace.addSource(params as Parameters<typeof this.app.workspace.addSource>[0]);
+      case "projects.removeSource":
+        return this.app.workspace.removeSource(params as Parameters<typeof this.app.workspace.removeSource>[0]);
+      case "projects.getHome":
+        return this.app.workspace.getHome();
+      case "projects.getPortfolio":
+        return this.app.workspace.getPortfolio();
+      case "workItems.create":
+        return this.app.workItems.create(params as Parameters<typeof this.app.workItems.create>[0]);
+      case "workItems.update":
+        return this.app.workItems.update(params as Parameters<typeof this.app.workItems.update>[0]);
+      case "workItems.queue":
+        return this.app.workItems.queue(params as { projectId: ProjectId; workItemId: ProjectWorkItemId });
+      case "workItems.cancel":
+        return this.app.workItems.cancel(params as { projectId: ProjectId; workItemId: ProjectWorkItemId });
+      case "workItems.complete":
+        return this.app.workItems.complete(params as { projectId: ProjectId; workItemId: ProjectWorkItemId });
+      case "workItems.listByProject": {
+        const input = params as { projectId: ProjectId };
+        return this.app.workItems.listByProject(input.projectId);
+      }
+      case "agentRuns.create":
+        return this.app.agentRuns.create(params as Parameters<typeof this.app.agentRuns.create>[0]);
+      case "agentRuns.start":
+        return this.app.agentRuns.start(params as { projectId: ProjectId; agentRunId: AgentRunId; instruction?: string });
+      case "agentRuns.stop":
+        return this.app.agentRuns.stop(params as { projectId: ProjectId; agentRunId: AgentRunId; reason?: string });
+      case "agentRuns.cancel":
+        return this.app.agentRuns.cancel(params as { projectId: ProjectId; agentRunId: AgentRunId });
+      case "agentRuns.sendInstruction":
+        return this.app.agentRuns.sendInstruction(params as { projectId: ProjectId; agentRunId: AgentRunId; instruction: string });
+      case "agentRuns.assignProvider":
+        return this.app.agentRuns.assignProvider(params as { projectId: ProjectId; agentRunId: AgentRunId; providerId: ProviderId });
+      case "agentRuns.linkSession":
+        return this.app.agentRuns.linkSession(params as { projectId: ProjectId; agentRunId: AgentRunId; sessionId: AgentSessionId });
+      case "agentRuns.listByProject": {
+        const input = params as { projectId: ProjectId };
+        return this.app.agentRuns.listByProject(input.projectId);
+      }
+      case "agentRuns.listByWorkItem":
+        return this.app.agentRuns.listByWorkItem(params as { projectId: ProjectId; workItemId: ProjectWorkItemId });
+      case "artifacts.create":
+        return this.app.artifacts.create(params as Parameters<typeof this.app.artifacts.create>[0]);
+      case "artifacts.update":
+        return this.app.artifacts.update(params as Parameters<typeof this.app.artifacts.update>[0]);
+      case "artifacts.listByProject": {
+        const input = params as { projectId: ProjectId };
+        return this.app.artifacts.listByProject(input.projectId);
+      }
+      case "artifacts.get":
+        return this.app.artifacts.get(params as { projectId: ProjectId; artifactId: ProjectArtifactId });
+      case "artifacts.markReviewed":
+        return this.app.artifacts.markReviewed(params as { projectId: ProjectId; artifactId: ProjectArtifactId });
+      case "artifacts.accept":
+        return this.app.artifacts.accept(params as { projectId: ProjectId; artifactId: ProjectArtifactId });
+      case "artifacts.reject":
+        return this.app.artifacts.reject(params as { projectId: ProjectId; artifactId: ProjectArtifactId });
       case "providers.list":
         return this.app.providers.listProviders();
       case "providers.getStatus": {

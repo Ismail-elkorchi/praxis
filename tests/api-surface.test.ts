@@ -17,6 +17,34 @@ const requiredApiMethods = [
   "projects.archive",
   "projects.refresh",
   "projects.markReadyToMerge",
+  "projects.getWorkspace",
+  "projects.updateProfile",
+  "projects.addSource",
+  "projects.removeSource",
+  "projects.getHome",
+  "projects.getPortfolio",
+  "workItems.create",
+  "workItems.update",
+  "workItems.queue",
+  "workItems.cancel",
+  "workItems.complete",
+  "workItems.listByProject",
+  "agentRuns.create",
+  "agentRuns.start",
+  "agentRuns.stop",
+  "agentRuns.cancel",
+  "agentRuns.sendInstruction",
+  "agentRuns.assignProvider",
+  "agentRuns.linkSession",
+  "agentRuns.listByProject",
+  "agentRuns.listByWorkItem",
+  "artifacts.create",
+  "artifacts.update",
+  "artifacts.listByProject",
+  "artifacts.get",
+  "artifacts.markReviewed",
+  "artifacts.accept",
+  "artifacts.reject",
   "providers.list",
   "providers.getStatus",
   "providers.getCapabilities",
@@ -216,10 +244,16 @@ describe("provider-neutral API surface", () => {
     });
 
     expect(first.snapshot().projects[project.id]?.runtimeState).toBe("ready_to_merge");
-    expect(first.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)?.primaryAction).toMatchObject({
-      id: "review-diff",
-      method: "git.openDiff"
+    const card = first.snapshot().dashboard.projectCards.find((item) => item.projectId === project.id);
+    expect(card?.primaryAction).toMatchObject({
+      method: "projects.getWorkspace"
     });
+    expect(card?.secondaryActions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "review-diff",
+        method: "git.openDiff"
+      })
+    ]));
     expect((await first.events.queryEvents()).map((event) => event.type)).toContain("project.readyToMergeMarked");
     first.eventStore.close?.();
 

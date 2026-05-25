@@ -12,6 +12,7 @@ import type { ProviderAdapter } from "../providers/interface";
 import { ProjectRegistryService } from "../projects/ProjectRegistryService";
 import { ProviderRegistry } from "../app/ProviderRegistry";
 import { ProviderService } from "../app/ProviderService";
+import { AgentRunService, ArtifactService, ProjectWorkspaceService, WorkItemService } from "../app/ProjectWorkspaceService";
 
 export type PraxisApp = Awaited<ReturnType<typeof createPraxisApp>>;
 
@@ -36,6 +37,10 @@ export async function createPraxisApp(
   const git = new GitService();
   const projects = new ProjectRegistryService(events, git, () => events.snapshot());
   const providers = new ProviderService(providerRegistry, events, () => events.snapshot(), git);
+  const workspace = new ProjectWorkspaceService(events, () => events.snapshot());
+  const workItems = new WorkItemService(events, () => events.snapshot());
+  const artifacts = new ArtifactService(events, () => events.snapshot());
+  const agentRuns = new AgentRunService(events, () => events.snapshot(), providers);
   const checks = new CheckService(events, () => events.snapshot());
   const policies = new PolicyService();
   const plugins = new PluginRegistry(events);
@@ -49,6 +54,10 @@ export async function createPraxisApp(
     providerRegistry,
     fakeProvider,
     providers,
+    workspace,
+    workItems,
+    artifacts,
+    agentRuns,
     projects,
     git,
     checks,

@@ -13,12 +13,19 @@ describe("SQLite migrations", () => {
       expect.arrayContaining([
         "agent_sessions",
         "agent_turns",
+        "agent_run_session_refs",
+        "agent_runs",
+        "artifact_evidence_refs",
         "approvals",
         "check_definitions",
         "check_runs",
         "event_payloads",
         "events",
         "git_snapshots",
+        "project_artifacts",
+        "project_profiles",
+        "project_sources",
+        "project_work_items",
         "projects",
         "provider_capabilities",
         "provider_session_refs",
@@ -26,6 +33,8 @@ describe("SQLite migrations", () => {
         "propositions",
         "schema_versions",
         "settings",
+        "work_item_artifact_refs",
+        "work_item_source_refs",
         "worktrees"
       ])
     );

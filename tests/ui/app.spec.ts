@@ -8,9 +8,10 @@ test("dashboard shell uses provider-neutral language and keyboard focus", async 
   await expect(page.getByText("What needs my decision?")).toBeVisible();
   await expect(page.getByRole("button", { name: "Accept once" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Decline" })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Primary" })).toContainText("Approvals");
-  await expect(page.getByText("fake provider", { exact: false })).toBeVisible();
-  const approval = page.getByRole("article").filter({ hasText: "Run project command" });
+  await expect(page.getByRole("navigation", { name: "Primary" })).toContainText("Decisions");
+  await expect(page.getByRole("navigation", { name: "Primary" })).not.toContainText("Threads");
+  await expect(page.getByRole("navigation", { name: "Primary" })).not.toContainText("Chats");
+  const approval = page.getByRole("article", { name: "Run project command, high risk" });
   await expect(approval).toContainText("Session");
   await expect(approval).toContainText("session-alpha");
   await expect(approval).toContainText("Evidence");
@@ -129,7 +130,7 @@ test("compact layout keeps approval decisions visible and renders details as a d
   await expect(acceptOnce).toBeVisible();
   await expect(acceptOnce).toBeInViewport();
 
-  const workspace = page.getByRole("region", { name: "Dashboard workspace" });
+  const workspace = page.getByRole("region", { name: "Home workspace" });
   const detailDrawer = page.getByRole("complementary", { name: "Details" });
   await expect(detailDrawer).toBeVisible();
   await expect(detailDrawer).toContainText("Selected project");
@@ -143,7 +144,7 @@ test("project card state remains understandable without color", async ({ page })
   await page.goto("/");
 
   const packageMetadata = page.getByRole("article").filter({ hasText: "Package Metadata" });
-  await expect(packageMetadata.getByText("Required check failed", { exact: true })).toBeVisible();
+  await expect(packageMetadata.locator(".stateBadge", { hasText: "Required check failed" })).toBeVisible();
   await expect(packageMetadata).toContainText("1 required check failed.");
   await expect(packageMetadata.getByRole("button", { name: "Rerun failed checks" })).toBeVisible();
 });
@@ -303,14 +304,15 @@ test("diff review supports file search, source links, renames, and binary metada
 test("check run panel shows active and recent runs with triage links", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: /^Checks/ }).click();
-  await expect(page.getByRole("region", { name: "Checks workspace" })).toBeVisible();
+  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: /^Projects/ }).click();
+  await expect(page.getByRole("region", { name: "Project Workspace", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Checks inside project workspace" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Check runs" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Active" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Recent" })).toBeVisible();
 
   const recentRuns = page.getByRole("region", { name: "Recent check runs" });
-  await expect(recentRuns.getByText("npm test")).toBeVisible();
+  await expect(recentRuns.getByRole("heading", { name: "npm test" })).toBeVisible();
   await expect(recentRuns.getByText("Exit code")).toBeVisible();
   await expect(recentRuns.getByText("1.2 s")).toBeVisible();
   await expect(recentRuns.getByText("src/example.ts: expected value to pass")).toBeVisible();
@@ -326,8 +328,8 @@ test("check run panel shows active and recent runs with triage links", async ({ 
 test("provider status cards show capability and compatibility details", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Providers" }).click();
-  await expect(page.getByRole("region", { name: "Providers workspace" })).toBeVisible();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("region", { name: "Advanced provider status" })).toBeVisible();
 
   const fakeProvider = page.getByRole("article").filter({ hasText: "Fake provider" });
   await expect(fakeProvider).toContainText("Adapter version 0.1.0");
@@ -372,7 +374,7 @@ test("settings panel confirms raw provider logs and keeps provider settings sepa
   await page.getByRole("button", { name: "Enable raw logs" }).click();
   await expect(settingsPanel.getByRole("region", { name: "Logging" })).toContainText("enabled");
   await expect(settingsPanel.getByRole("button", { name: "Disable raw provider logs" })).toHaveAttribute("data-method", "settings.update");
-  await expect(settingsPanel.getByRole("region", { name: "Provider settings placement" })).toContainText("under Providers");
+  await expect(settingsPanel.getByRole("region", { name: "Provider settings placement" })).toContainText("under Settings");
   await expect(settingsPanel.getByRole("button", { name: "Open provider status" })).toHaveAttribute("data-method", "providers.getStatus");
 
   const diagnostics = settingsPanel.getByRole("region", { name: "Diagnostics" });
@@ -405,7 +407,7 @@ test("command palette opens from global search and runs provider-neutral command
   await providerCommand.click();
 
   await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Providers" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("button", { name: "Settings" })).toHaveAttribute("aria-current", "page");
 
   await page.keyboard.press("Control+K");
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
@@ -428,31 +430,30 @@ test("empty states expose provider-neutral next actions", async ({ page }) => {
       return;
     }
     await route.fulfill({
-      status: 200,
+      status: 500,
       contentType: "application/json",
-      body: JSON.stringify({ id: request.id, result: {} })
+      body: JSON.stringify({ id: request.id, error: { message: "No mocked response." } })
     });
   });
   await page.goto("/");
 
+  await page.getByRole("button", { name: "Projects" }).click();
   const projects = page.getByRole("region", { name: "Projects" });
   await expect(projects.getByRole("heading", { name: "No projects registered" })).toBeVisible();
   await expect(projects.getByRole("button", { name: "Register project" })).toHaveAttribute("data-method", "projects.register");
   await expect(projects.getByRole("button", { name: "Provider setup" })).toHaveAttribute("data-method", "providers.getStatus");
 
-  await page.getByRole("button", { name: "Approvals" }).click();
+  await page.getByRole("button", { name: "Decisions" }).click();
   const approvals = page.getByRole("region", { name: "Approval center" });
   await expect(approvals.getByRole("heading", { name: "No pending approvals" })).toBeVisible();
   await expect(approvals.getByRole("button", { name: "Recent decisions" })).toHaveAttribute("data-method", "events.query");
 
-  await page.getByRole("button", { name: "Checks" }).click();
-  const checks = page.getByRole("region", { name: "Check runs" });
-  await expect(checks.getByRole("heading", { name: "No checks have run" })).toBeVisible();
-  await expect(checks).toContainText("detected project scripts");
-  await expect(checks.getByRole("button", { name: "Add check" })).toHaveAttribute("data-method", "checks.list");
+  await page.getByRole("button", { name: "Artifacts" }).click();
+  const artifacts = page.getByRole("region", { name: "Artifacts" });
+  await expect(artifacts.getByText("No artifacts yet")).toBeVisible();
 
-  await page.getByRole("button", { name: "Providers" }).click();
-  const providers = page.getByRole("region", { name: "Provider status" });
+  await page.getByRole("button", { name: "Settings" }).click();
+  const providers = page.getByRole("region", { name: "Advanced provider status" });
   await expect(providers.getByRole("heading", { name: "No providers configured" })).toBeVisible();
   await expect(providers).toContainText("fake provider remains available");
   await expect(providers.getByRole("button", { name: "Configure provider" })).toHaveAttribute("data-method", "providers.list");
@@ -471,6 +472,26 @@ function emptyDashboard(overrides: Partial<DashboardProjection> = {}): Dashboard
   const mode = overrides.mode ?? "portfolio";
   return {
     mode,
+    home: {
+      workInbox: [],
+      activeProjects: [],
+      waitingDecisions: [],
+      runningAgents: [],
+      blockedWork: [],
+      readyToReview: [],
+      recentArtifacts: [],
+      quickCreate: [],
+      questions: [
+        "What needs my decision?",
+        "What is running?",
+        "What is blocked?",
+        "What produced something new?",
+        "Which project should I open next?",
+        "What can I start now?"
+      ],
+      ...overrides.home
+    },
+    selectedWorkspace: overrides.selectedWorkspace,
     globalStatus: {
       activeProjectCount: 0,
       activeTurnCount: 0,
@@ -501,6 +522,7 @@ function disabledActionProjectCard(): ProjectCardViewModel {
     projectId: "project-disabled" as ProjectCardViewModel["projectId"],
     title: "Capability gated project",
     subtitle: "/workspace/capability-gated",
+    profileFacets: ["Project workspace", "custom", "local folder"],
     runtimeState: "idle",
     urgency: 0,
     stateLabel: "Idle",
@@ -511,6 +533,9 @@ function disabledActionProjectCard(): ProjectCardViewModel {
     pendingApprovalCount: 0,
     failedCheckCount: 0,
     activeTurnCount: 0,
+    activeAgentCount: 0,
+    waitingAgentCount: 0,
+    blockedAgentCount: 0,
     badges: [{ label: "Idle", tone: "idle" }],
     primaryAction: {
       id: "start-task",

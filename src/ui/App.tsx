@@ -24,10 +24,12 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ApprovalDecision, ApprovalRequestId, CheckRunId, EventId, EvidenceRef } from "../core";
 import type {
   ApprovalCardViewModel,
+  AgentRunCardViewModel,
   DashboardAction,
   CheckRunViewModel,
   DashboardProjection,
   ProjectCardViewModel,
+  ProjectWorkspaceViewModel,
   ProviderStatusViewModel,
   TimelineItemViewModel
 } from "../dashboard/types";
@@ -36,12 +38,12 @@ import { defaultAppSettings, type AppSettings } from "../settings/SettingsServic
 import { callApi, decideApprovalThroughApi, subscribeDashboard, type ApiStatus } from "./apiClient";
 import "./styles.css";
 
-type Route = "Dashboard" | "Projects" | "Approvals" | "Activity" | "Checks" | "Providers" | "Settings";
+type Route = "Home" | "Projects" | "Decisions" | "Artifacts" | "Activity" | "Settings";
 type DetailFocusTarget = "project" | "evidence" | "diff";
 type DetailFocusRequest = { target: DetailFocusTarget; nonce: number };
 
 export function App() {
-  const [route, setRoute] = useState<Route>("Dashboard");
+  const [route, setRoute] = useState<Route>("Home");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("project-alpha");
   const [resolvedApprovalIds, setResolvedApprovalIds] = useState<string[]>([]);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -98,9 +100,8 @@ export function App() {
 
   async function decideApproval(approvalId: string, decision: ApprovalDecision) {
     const approval = dashboard.approvals.find((item) => item.approvalId === approvalId);
-    const provider = dashboard.providerStatus[0];
-    if (apiStatus === "live" && approval && provider) {
-      await decideApprovalThroughApi({ providerId: provider.providerId, approvalId, decision }).catch(() => undefined);
+    if (apiStatus === "live" && approval) {
+      await decideApprovalThroughApi({ providerId: approval.providerId, approvalId, decision }).catch(() => undefined);
       const snapshot = await callApi<DashboardProjection>("dashboard.getSnapshot").catch(() => undefined);
       if (snapshot) {
         setLiveDashboard(snapshot);
@@ -116,6 +117,7 @@ export function App() {
 
   function focusProject(projectId: string) {
     setSelectedProjectId(projectId);
+    setRoute("Projects");
     if (apiStatus !== "live") return;
     void callApi<DashboardProjection>("dashboard.focusProject", { projectId })
       .then((snapshot) => setLiveDashboard(snapshot))
@@ -125,12 +127,16 @@ export function App() {
   function handleProjectAction(project: ProjectCardViewModel, action: DashboardAction) {
     if (action.disabled) return;
     setSelectedProjectId(project.projectId);
+    if (action.method === "projects.getWorkspace") {
+      setRoute("Projects");
+      return;
+    }
     if (action.id === "open-approvals") {
-      setRoute("Approvals");
+      setRoute("Decisions");
       return;
     }
     if (action.id === "run-checks" || action.id === "rerun-checks") {
-      setRoute("Checks");
+      setRoute("Projects");
       return;
     }
     if (action.id === "mark-reviewed") {
@@ -174,8 +180,17 @@ export function App() {
       <LeftNav route={route} dashboard={dashboard} onRoute={setRoute} />
       <section className="mainPanel" id="dashboard" aria-label={`${route} workspace`}>
         <TopBar dashboard={dashboard} apiStatus={apiStatus} onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
-        {route === "Dashboard" && (
-          <DashboardView
+        {route === "Home" && (
+          <HomeView
+            dashboard={dashboard}
+            selectedProjectId={selectedProjectId}
+            onRoute={setRoute}
+            onSelectProject={focusProject}
+            onDecision={decideApproval}
+          />
+        )}
+        {route === "Projects" && (
+          <ProjectsRoute
             dashboard={dashboard}
             selectedProjectId={selectedProjectId}
             onSelectProject={focusProject}
@@ -183,19 +198,10 @@ export function App() {
             onDecision={decideApproval}
           />
         )}
-        {route === "Projects" && (
-          <ProjectGrid
-            dashboard={dashboard}
-            selectedProjectId={selectedProjectId}
-            onSelectProject={focusProject}
-            onProjectAction={handleProjectAction}
-          />
-        )}
-        {route === "Approvals" && <ApprovalPanel approvals={dashboard.approvals} onDecision={decideApproval} />}
+        {route === "Decisions" && <ApprovalPanel approvals={dashboard.approvals} onDecision={decideApproval} />}
+        {route === "Artifacts" && <ArtifactHub dashboard={dashboard} />}
         {route === "Activity" && <ActivityTimeline items={dashboard.timeline} />}
-        {route === "Checks" && <CheckRunPanel checkRuns={dashboard.checkRuns} />}
-        {route === "Providers" && <ProviderGrid providers={dashboard.providerStatus} />}
-        {route === "Settings" && <SettingsPanel apiStatus={apiStatus} onRoute={setRoute} />}
+        {route === "Settings" && <SettingsPanel apiStatus={apiStatus} providers={dashboard.providerStatus} onRoute={setRoute} />}
       </section>
       <DetailPanel dashboard={dashboard} selectedProject={selectedProject} focusRequest={detailFocusRequest} />
       {commandPaletteOpen ? (
@@ -222,12 +228,11 @@ function LeftNav({
   onRoute(route: Route): void;
 }) {
   const routes: { label: Route; icon: typeof LayoutDashboard; badge?: number }[] = [
-    { label: "Dashboard", icon: LayoutDashboard },
+    { label: "Home", icon: LayoutDashboard },
     { label: "Projects", icon: GitBranch, badge: dashboard.projectCards.length },
-    { label: "Approvals", icon: ShieldCheck, badge: dashboard.globalStatus.pendingApprovalCount },
+    { label: "Decisions", icon: ShieldCheck, badge: dashboard.globalStatus.pendingApprovalCount },
+    { label: "Artifacts", icon: ClipboardCheck, badge: dashboard.home.recentArtifacts.length },
     { label: "Activity", icon: Activity, badge: dashboard.globalStatus.activeTurnCount },
-    { label: "Checks", icon: ListChecks, badge: dashboard.globalStatus.failedCheckCount },
-    { label: "Providers", icon: SlidersHorizontal, badge: dashboard.globalStatus.providerIssues.length },
     { label: "Settings", icon: Settings }
   ];
 
@@ -288,6 +293,314 @@ function TopBar({
         </span>
       </div>
     </header>
+  );
+}
+
+function HomeView({
+  dashboard,
+  selectedProjectId,
+  onRoute,
+  onSelectProject,
+  onDecision
+}: {
+  dashboard: DashboardProjection;
+  selectedProjectId: string;
+  onRoute(route: Route): void;
+  onSelectProject(projectId: string): void;
+  onDecision(approvalId: string, decision: ApprovalDecision): void;
+}) {
+  return (
+    <div className="workspaceCockpit" aria-label="Home">
+      <section className="cockpitBand" aria-label="Work inbox">
+        <div className="sectionHeader">
+          <ClipboardCheck size={22} aria-hidden="true" />
+          <div>
+            <h2>Work Inbox</h2>
+            <p>Decisions, blocked work, running agents, new artifacts, and the next project to open.</p>
+          </div>
+        </div>
+        <div className="inboxGrid">
+          {dashboard.home.workInbox.length > 0 ? (
+            dashboard.home.workInbox.map((item) => (
+              <article key={item.id} className="workspaceMiniCard">
+                <h3>{item.title}</h3>
+                <p>{item.summary}</p>
+                <button type="button" data-method={item.action.method} onClick={() => item.projectId && onSelectProject(item.projectId)}>
+                  {item.action.label}
+                </button>
+              </article>
+            ))
+          ) : (
+            <p className="emptyText">No immediate project work needs attention.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="cockpitBand" aria-label="Waiting Decisions">
+        <h2>Waiting Decisions</h2>
+        <ApprovalPanel approvals={dashboard.home.waitingDecisions} onDecision={onDecision} />
+      </section>
+
+      <section className="cockpitBand" aria-label="Active Projects">
+        <div className="sectionHeader">
+          <GitBranch size={22} aria-hidden="true" />
+          <div>
+            <h2>Active Projects</h2>
+            <p>Open the workspace that needs the next decision, review, or agent action.</p>
+          </div>
+        </div>
+        <ProjectGrid dashboard={dashboard} selectedProjectId={selectedProjectId} onSelectProject={onSelectProject} onProjectAction={(project) => onSelectProject(project.projectId)} compact />
+      </section>
+
+      <div className="workspaceColumns">
+        <section className="cockpitBand" aria-label="Running Agents">
+          <h2>Running Agents</h2>
+          <AgentRunList runs={dashboard.home.runningAgents} />
+        </section>
+      </div>
+
+      <div className="workspaceColumns">
+        <HomeList title="Blocked Work" items={dashboard.home.blockedWork} onSelectProject={onSelectProject} />
+        <section className="cockpitBand" aria-label="Ready to Review">
+          <h2>Ready to Review</h2>
+          {dashboard.home.readyToReview.map((project) => (
+            <button key={project.projectId} type="button" className="workspaceListButton" onClick={() => onSelectProject(project.projectId)}>
+              <strong>{project.title}</strong>
+              <span>{project.reviewCheckStatus ?? project.stateLabel}</span>
+            </button>
+          ))}
+          {dashboard.home.readyToReview.length === 0 ? <p className="emptyText">No projects are ready for review.</p> : null}
+        </section>
+      </div>
+
+      <section className="cockpitBand" aria-label="Recent Artifacts">
+        <h2>Recent Artifacts</h2>
+        <ArtifactList artifacts={dashboard.home.recentArtifacts} />
+      </section>
+
+      <section className="cockpitBand" aria-label="Universal composer">
+        <h2>Universal composer</h2>
+        <div className="actionRow">
+          {dashboard.home.quickCreate.map((action) => (
+            <button key={action.id} type="button" data-method={action.method} onClick={() => action.id === "open-decisions" && onRoute("Decisions")}>
+              {action.label}
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function HomeList({ title, items, onSelectProject }: { title: string; items: DashboardProjection["home"]["blockedWork"]; onSelectProject(projectId: string): void }) {
+  return (
+    <section className="cockpitBand" aria-label={title}>
+      <h2>{title}</h2>
+      {items.map((item) => (
+        <button key={item.id} type="button" className="workspaceListButton" onClick={() => item.projectId && onSelectProject(item.projectId)}>
+          <strong>{item.title}</strong>
+          <span>{item.summary}</span>
+        </button>
+      ))}
+      {items.length === 0 ? <p className="emptyText">Nothing blocked.</p> : null}
+    </section>
+  );
+}
+
+function ProjectsRoute({
+  dashboard,
+  selectedProjectId,
+  onSelectProject,
+  onProjectAction,
+  onDecision
+}: {
+  dashboard: DashboardProjection;
+  selectedProjectId: string;
+  onSelectProject(projectId: string): void;
+  onProjectAction(project: ProjectCardViewModel, action: DashboardAction): void;
+  onDecision(approvalId: string, decision: ApprovalDecision): void;
+}) {
+  const workspace = dashboard.selectedWorkspace?.projectId === selectedProjectId ? dashboard.selectedWorkspace : undefined;
+  if (workspace) {
+    return <ProjectWorkspace workspace={workspace} checkRuns={dashboard.checkRuns.filter((run) => run.projectId === workspace.projectId)} onDecision={onDecision} />;
+  }
+  return (
+    <ProjectGrid
+      dashboard={dashboard}
+      selectedProjectId={selectedProjectId}
+      onSelectProject={onSelectProject}
+      onProjectAction={onProjectAction}
+    />
+  );
+}
+
+function ProjectWorkspace({
+  workspace,
+  checkRuns,
+  onDecision
+}: {
+  workspace: ProjectWorkspaceViewModel;
+  checkRuns: CheckRunViewModel[];
+  onDecision(approvalId: string, decision: ApprovalDecision): void;
+}) {
+  return (
+    <div className="projectWorkspace" role="region" aria-label="Project Workspace">
+      <section className="workspaceHeader" aria-label="Project Header">
+        <div>
+          <p className="eyebrow">Project workspace</p>
+          <h2>{workspace.header.name}</h2>
+          <div className="facetRow">
+            {workspace.header.profileFacets.map((facet) => (
+              <span key={facet} className="stateBadge unknown">{facet.replaceAll("_", " ")}</span>
+            ))}
+          </div>
+        </div>
+        <dl className="metricGrid">
+          <div><dt>State</dt><dd>{workspace.header.state.replaceAll("_", " ")}</dd></div>
+          <div><dt>Active work</dt><dd>{workspace.header.activeWorkCount}</dd></div>
+          <div><dt>Running agents</dt><dd>{workspace.header.runningAgentCount}</dd></div>
+          <div><dt>Decisions</dt><dd>{workspace.header.pendingDecisionCount}</dd></div>
+          <div><dt>Latest artifact</dt><dd>{workspace.header.latestArtifact?.title ?? "None"}</dd></div>
+        </dl>
+        <button type="button" data-method={workspace.header.primaryAction.method}>{workspace.header.primaryAction.label}</button>
+      </section>
+
+      <div className="workspaceColumns">
+        <section className="cockpitBand" aria-label="Work Items panel">
+          <h2>Work Items</h2>
+          <WorkItemColumn title="Current work" items={workspace.workItems.current} />
+          <WorkItemColumn title="Queued work" items={workspace.workItems.queued} />
+          <WorkItemColumn title="Blocked work" items={workspace.workItems.blocked} />
+          <WorkItemColumn title="Completed work" items={workspace.workItems.completed} />
+          <div className="actionRow">
+            <button type="button" data-method="workItems.create">Create work item</button>
+            <button type="button" data-method="projects.addSource">Attach sources</button>
+            <button type="button" data-method="agentRuns.create">Assign agents</button>
+          </div>
+        </section>
+
+        <section className="cockpitBand" aria-label="Agent Board">
+          <h2>Agent Board</h2>
+          <div className="agentBoard">
+            {(["queued", "running", "waiting", "blocked", "review", "done"] as const).map((column) => (
+              <section key={column} aria-label={`${column} agents`}>
+                <h3>{column}</h3>
+                <AgentRunList runs={workspace.agentBoard[column]} />
+              </section>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="workspaceColumns">
+        <section className="cockpitBand" aria-label="Sources panel">
+          <h2>Sources</h2>
+          {workspace.sources.map((source) => (
+            <article key={source.id} className="workspaceMiniCard">
+              <h3>{source.title}</h3>
+              <p>{source.type.replaceAll("_", " ")}{source.uriOrPath ? ` · ${source.uriOrPath}` : ""}</p>
+              <small>{source.usedByWorkItemIds.length} work item(s)</small>
+            </article>
+          ))}
+        </section>
+        <section className="cockpitBand" aria-label="Artifacts panel">
+          <h2>Artifacts</h2>
+          <ArtifactList artifacts={workspace.artifacts} />
+        </section>
+      </div>
+
+      <div className="workspaceColumns">
+        <section className="cockpitBand" aria-label="Decisions panel">
+          <h2>Decisions</h2>
+          <ApprovalPanel approvals={workspace.decisions} onDecision={onDecision} />
+        </section>
+        <section className="cockpitBand" aria-label="Checks inside project workspace">
+          <h2>Checks</h2>
+          <CheckRunPanel checkRuns={checkRuns} />
+        </section>
+      </div>
+
+      <section className="cockpitBand" aria-label="Project Timeline">
+        <h2>Project Timeline</h2>
+        <ActivityTimeline items={workspace.timeline} />
+      </section>
+    </div>
+  );
+}
+
+function WorkItemColumn({ title, items }: { title: string; items: ProjectWorkspaceViewModel["workItems"]["current"] }) {
+  return (
+    <section className="workItemColumn" aria-label={title}>
+      <h3>{title}</h3>
+      {items.map((item) => (
+        <article key={item.id} className="workspaceMiniCard">
+          <h4>{item.title}</h4>
+          <p>{item.goal}</p>
+          <small>{item.status} · {item.workModes.join(", ")}</small>
+        </article>
+      ))}
+      {items.length === 0 ? <p className="emptyText">None.</p> : null}
+    </section>
+  );
+}
+
+function AgentRunList({ runs }: { runs: AgentRunCardViewModel[] }) {
+  if (runs.length === 0) return <p className="emptyText">No agent runs.</p>;
+  return (
+    <div className="agentRunList">
+      {runs.map((run) => (
+        <article key={run.runId} className={`workspaceMiniCard status-${run.status}`}>
+          <h4>{run.roleName}</h4>
+          <p>{run.providerLabel} · {run.linkedWorkItemTitle}</p>
+          <dl className="approvalMeta">
+            <div><dt>Status</dt><dd>{run.status.replaceAll("_", " ")}</dd></div>
+            <div><dt>Decisions</dt><dd>{run.pendingDecisionCount}</dd></div>
+            <div><dt>Artifacts</dt><dd>{run.producedArtifactCount}</dd></div>
+          </dl>
+          <button type="button" data-method={run.primaryAction.method}>{run.primaryAction.label}</button>
+          <details>
+            <summary>Advanced session details</summary>
+            <p>{run.advanced.sessionId ?? "No provider session linked"}</p>
+            <p>{run.advanced.providerSessionExternalKind ?? "Provider reference hidden"}</p>
+          </details>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ArtifactList({ artifacts }: { artifacts: DashboardProjection["home"]["recentArtifacts"] }) {
+  if (artifacts.length === 0) return <p className="emptyText">No artifacts yet.</p>;
+  return (
+    <div className="artifactGrid">
+      {artifacts.map((artifact) => (
+        <article key={artifact.id} className={`workspaceMiniCard artifact-${artifact.status}`}>
+          <span className="stateBadge review">{artifact.type.replaceAll("_", " ")}</span>
+          <h3>{artifact.title}</h3>
+          <p>{artifact.summary || artifact.status}</p>
+          <small>{artifact.sourceIds.length} source(s) · {artifact.evidence.length} evidence reference(s)</small>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ArtifactHub({ dashboard }: { dashboard: DashboardProjection }) {
+  const artifacts = Object.values(dashboard.selectedWorkspace ? { selected: dashboard.selectedWorkspace.artifacts } : {})
+    .flat()
+    .concat(dashboard.home.recentArtifacts)
+    .filter((artifact, index, items) => items.findIndex((candidate) => candidate.id === artifact.id) === index);
+  return (
+    <section className="cockpitBand" aria-label="Artifacts">
+      <div className="sectionHeader">
+        <ClipboardCheck size={22} aria-hidden="true" />
+        <div>
+          <h2>Artifacts</h2>
+          <p>Drafts, reports, plans, code patches, diagrams, logs, review findings, and custom outputs across projects.</p>
+        </div>
+      </div>
+      <ArtifactList artifacts={artifacts} />
+    </section>
   );
 }
 
@@ -448,10 +761,17 @@ function ProjectCard({
       >
         <span>
           <strong>{project.title}</strong>
-          <small>{project.branchLabel ?? "No branch"}</small>
+          <small>{project.profileFacets.slice(0, 3).map((facet) => facet.replaceAll("_", " ")).join(" · ")}</small>
         </span>
         <ChevronRight size={18} aria-hidden="true" />
       </button>
+      <div className="facetRow">
+        {project.profileFacets.slice(0, 5).map((facet) => (
+          <span key={`${project.projectId}-${facet}`} className="stateBadge unknown">
+            {facet.replaceAll("_", " ")}
+          </span>
+        ))}
+      </div>
       <div className="stateRow">
         {project.badges.map((badge) => (
           <span key={`${project.projectId}-${badge.label}`} className={`stateBadge ${badge.tone}`}>
@@ -462,16 +782,32 @@ function ProjectCard({
       <p>{project.stateReason}</p>
       <dl className="metricGrid">
         <div>
-          <dt>Files</dt>
-          <dd>{project.changedFileCount}</dd>
+          <dt>Current work</dt>
+          <dd>{project.currentWorkItemTitle ?? "None"}</dd>
         </div>
         <div>
-          <dt>Approvals</dt>
+          <dt>Active agents</dt>
+          <dd>{project.activeAgentCount}</dd>
+        </div>
+        <div>
+          <dt>Waiting agents</dt>
+          <dd>{project.waitingAgentCount}</dd>
+        </div>
+        <div>
+          <dt>Blocked agents</dt>
+          <dd>{project.blockedAgentCount}</dd>
+        </div>
+        <div>
+          <dt>Decisions</dt>
           <dd>{project.pendingApprovalCount}</dd>
         </div>
         <div>
-          <dt>Checks</dt>
-          <dd>{project.failedCheckCount}</dd>
+          <dt>Latest artifact</dt>
+          <dd>{project.latestArtifactTitle ?? "None"}</dd>
+        </div>
+        <div>
+          <dt>Review/checks</dt>
+          <dd>{project.reviewCheckStatus ?? `${project.failedCheckCount} failed`}</dd>
         </div>
       </dl>
       <div className="actionRow">
@@ -1026,19 +1362,22 @@ function CommandPalette({
   const dialogRef = useRef<HTMLElement>(null);
   const [query, setQuery] = useState("");
   const commands: CommandItem[] = [
-    { id: "register-project", label: "Register project", method: "projects.register", route: "Projects" },
+    { id: "create-project", label: "Create project", method: "projects.register", route: "Projects" },
+    { id: "add-source", label: "Add source", method: "projects.addSource", route: "Projects" },
+    { id: "create-work-item", label: "Create work item", method: "workItems.create", route: "Projects" },
     {
-      id: "start-agent-task",
-      label: "Start agent task",
-      method: "agents.startSession",
-      route: "Dashboard",
+      id: "start-agent-run",
+      label: "Start agent run",
+      method: "agentRuns.start",
+      route: "Projects",
       disabled: dashboard.providerStatus.every((provider) => !provider.capabilities.canStartSession)
     },
-    { id: "open-approvals", label: "Open approvals", method: "agents.respondToApproval", route: "Approvals" },
-    { id: "run-checks", label: "Run checks", method: "checks.run", route: "Checks" },
-    { id: "open-diff-review", label: "Open diff review", method: "git.openDiff", route: "Dashboard" },
-    { id: "explain-dashboard-mode", label: "Explain dashboard mode", method: "dashboard.explainMode", route: "Dashboard" },
-    { id: "show-provider-status", label: "Show provider status", method: "providers.getStatus", route: "Providers" },
+    { id: "ask-in-project", label: "Ask within selected project", method: "agentRuns.sendInstruction", route: "Projects" },
+    { id: "create-artifact", label: "Create artifact", method: "artifacts.create", route: "Artifacts" },
+    { id: "open-decisions", label: "Open decision center", method: "agents.respondToApproval", route: "Decisions" },
+    { id: "run-checks", label: "Run checks", method: "checks.run", route: "Projects" },
+    { id: "open-diff-review", label: "Open diff review", method: "git.openDiff", route: "Projects" },
+    { id: "show-provider-status", label: "Show provider status", method: "providers.getStatus", route: "Settings" },
     { id: "open-event-log", label: "Open event log", method: "events.query", route: "Activity" }
   ];
   const normalizedQuery = query.trim().toLowerCase();
@@ -1268,7 +1607,15 @@ function DiscardChangesDialog({ onCancel }: { onCancel(): void }) {
   );
 }
 
-function SettingsPanel({ apiStatus, onRoute }: { apiStatus: ApiStatus; onRoute(route: Route): void }) {
+function SettingsPanel({
+  apiStatus,
+  providers,
+  onRoute
+}: {
+  apiStatus: ApiStatus;
+  providers: ProviderStatusViewModel[];
+  onRoute(route: Route): void;
+}) {
   const [settings, setSettings] = useState<AppSettings>(defaultAppSettings);
   const [diagnostics, setDiagnostics] = useState<ObservabilityDiagnostics>(demoDiagnostics());
   const [debugExportPreviewOpen, setDebugExportPreviewOpen] = useState(false);
@@ -1390,10 +1737,14 @@ function SettingsPanel({ apiStatus, onRoute }: { apiStatus: ApiStatus; onRoute(r
       </section>
       <section className="settingsGroup" aria-label="Provider settings placement">
         <h3>Provider settings</h3>
-        <p>Provider-specific configuration lives under Providers so project settings remain provider-neutral.</p>
-        <button type="button" data-method="providers.getStatus" onClick={() => onRoute("Providers")}>
+        <p>Provider-specific configuration and status live under Settings advanced controls so projects remain provider-neutral.</p>
+        <button type="button" data-method="providers.getStatus" onClick={() => onRoute("Settings")}>
           Open provider status
         </button>
+      </section>
+      <section className="settingsGroup" aria-label="Advanced provider status">
+        <h3>Advanced provider status</h3>
+        <ProviderGrid providers={providers} />
       </section>
       <section className="settingsGroup" aria-label="Plugin settings">
         <h3>Plugin settings</h3>
@@ -1881,6 +2232,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
     : [
         {
           approvalId: "approval-alpha" as ApprovalCardViewModel["approvalId"],
+          providerId: "fake" as ApprovalCardViewModel["providerId"],
           sessionId: "session-alpha" as ApprovalCardViewModel["sessionId"],
           projectTitle: "Control Plane",
           providerLabel: "Fake provider",
@@ -1905,6 +2257,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       projectId: "project-alpha" as ProjectCardViewModel["projectId"],
       title: "Control Plane",
       subtitle: "Local project",
+      profileFacets: ["Software workspace", "build", "test", "repository", "code patch"],
       runtimeState: approvals.length > 0 ? "waiting_for_approval" : "ready_for_review",
       urgency: approvals.length > 0 ? 4 : 2,
       stateLabel: approvals.length > 0 ? "Waiting for approval" : "Ready for review",
@@ -1915,12 +2268,21 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       pendingApprovalCount: approvals.length,
       failedCheckCount: 0,
       activeTurnCount: 1,
+      currentWorkItemTitle: "Implement provider-neutral control",
+      activeAgentCount: 1,
+      waitingAgentCount: approvals.length > 0 ? 1 : 0,
+      blockedAgentCount: 0,
+      latestArtifactTitle: "Provider control patch",
+      reviewCheckStatus: approvals.length > 0 ? "Decision needed" : "Ready to review",
       lastActivityAt: now,
       badges: approvals.length > 0 ? [{ label: "Approval pending", tone: "waiting" }] : [{ label: "Review", tone: "review" }],
-      primaryAction: approvals.length > 0
-        ? { id: "open-approvals", label: "Open approvals", method: "agents.respondToApproval" }
-        : { id: "mark-reviewed", label: "Mark reviewed", method: "projects.markReadyToMerge" },
-      secondaryActions: [{ id: "open-evidence", label: "Open evidence", method: "dashboard.explainMode" }],
+      primaryAction: { id: "open-workspace", label: "Open workspace", method: "projects.getWorkspace" },
+      secondaryActions: [
+        approvals.length > 0
+          ? { id: "open-approvals", label: "Open approvals", method: "agents.respondToApproval" }
+          : { id: "mark-reviewed", label: "Mark reviewed", method: "projects.markReadyToMerge" },
+        { id: "open-evidence", label: "Open evidence", method: "dashboard.explainMode" }
+      ],
       diffFiles: [
         {
           path: "src/new-file.ts",
@@ -1958,6 +2320,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       projectId: "project-beta" as ProjectCardViewModel["projectId"],
       title: "Package Metadata",
       subtitle: "Local project",
+      profileFacets: ["Software workspace", "maintain", "repository", "check result"],
       runtimeState: "checks_failed",
       urgency: 3,
       stateLabel: "Checks failed",
@@ -1968,9 +2331,16 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       pendingApprovalCount: 0,
       failedCheckCount: 1,
       activeTurnCount: 0,
+      currentWorkItemTitle: "Repair package checks",
+      activeAgentCount: 0,
+      waitingAgentCount: 0,
+      blockedAgentCount: 1,
+      latestArtifactTitle: "Failed test output",
+      reviewCheckStatus: "Required check failed",
       badges: [{ label: "Required check failed", tone: "failed" }],
-      primaryAction: { id: "rerun-checks", label: "Rerun failed checks", method: "checks.run" },
+      primaryAction: { id: "open-workspace", label: "Open workspace", method: "projects.getWorkspace" },
       secondaryActions: [
+        { id: "rerun-checks", label: "Rerun failed checks", method: "checks.run" },
         { id: "open-evidence", label: "Open evidence", method: "dashboard.explainMode" },
         { id: "open-diff", label: "Open diff review", method: "git.openDiff" }
       ],
@@ -1987,10 +2357,229 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       evidence: betaEvidence
     }
   ];
+  const recentArtifacts = [
+    {
+      id: "artifact-alpha",
+      projectId: "project-alpha",
+      workItemId: "work-alpha",
+      agentRunId: "run-alpha",
+      type: "code_patch",
+      title: "Provider control patch",
+      summary: "A proposed implementation patch with linked review evidence.",
+      status: "proposed",
+      contentRef: "workspace://artifact/provider-control-patch",
+      sourceIds: ["source-alpha"],
+      evidence: alphaEvidence,
+      createdAt: now,
+      updatedAt: now,
+      metadata: {}
+    },
+    {
+      id: "artifact-beta",
+      projectId: "project-beta",
+      workItemId: "work-beta",
+      agentRunId: "run-beta",
+      type: "test_or_check_result",
+      title: "Failed test output",
+      summary: "Required check output linked to changed files.",
+      status: "reviewed",
+      contentRef: "workspace://artifact/failed-test-output",
+      sourceIds: ["source-beta"],
+      evidence: betaEvidence,
+      createdAt: now,
+      updatedAt: now,
+      metadata: {}
+    }
+  ] as DashboardProjection["home"]["recentArtifacts"];
+  const runningAgents = [
+    {
+      runId: "run-alpha",
+      projectId: "project-alpha",
+      workItemId: "work-alpha",
+      roleName: "Builder",
+      rolePreset: "builder",
+      providerLabel: "Fake provider",
+      providerId: "fake",
+      linkedWorkItemTitle: "Implement provider-neutral control",
+      status: approvals.length > 0 ? "waiting_for_approval" : "reviewing",
+      lastEvent: approvals.length > 0 ? "approval.requested" : "agent.fileChange.proposed",
+      pendingDecisionCount: approvals.length,
+      pendingInput: false,
+      producedArtifactCount: 1,
+      primaryAction: approvals.length > 0
+        ? { id: "open-decision-center", label: "Open decision center", method: "agents.respondToApproval" }
+        : { id: "review-output", label: "Review output", method: "artifacts.markReviewed" },
+      evidence: alphaEvidence,
+      advanced: {
+        sessionId: "session-alpha",
+        providerSessionExternalKind: "runtime session"
+      }
+    }
+  ] as AgentRunCardViewModel[];
+  const selectedWorkspace = {
+    projectId: "project-alpha",
+    header: {
+      name: "Control Plane",
+      profileFacets: projectCards[0]?.profileFacets ?? [],
+      state: projectCards[0]?.runtimeState ?? "idle",
+      activeWorkCount: 1,
+      runningAgentCount: 1,
+      pendingDecisionCount: approvals.length,
+      latestArtifact: recentArtifacts[0],
+      primaryAction: { id: "create-work-item", label: "Create work item", method: "workItems.create" }
+    },
+    workItems: {
+      current: [
+        {
+          id: "work-alpha",
+          projectId: "project-alpha",
+          title: "Implement provider-neutral control",
+          goal: "Build the control plane without provider-specific assumptions.",
+          workModes: ["build", "test", "review"],
+          status: approvals.length > 0 ? "waiting_for_approval" : "reviewing",
+          priority: 1,
+          sourceIds: ["source-alpha"],
+          artifactIds: ["artifact-alpha"],
+          createdAt: now,
+          updatedAt: now,
+          metadata: {}
+        }
+      ],
+      queued: [],
+      blocked: [],
+      completed: []
+    },
+    agentBoard: {
+      queued: [],
+      running: approvals.length > 0 ? [] : runningAgents,
+      waiting: approvals.length > 0 ? runningAgents : [],
+      blocked: [],
+      review: approvals.length > 0 ? [] : runningAgents,
+      done: []
+    },
+    sources: [
+      {
+        id: "source-alpha",
+        projectId: "project-alpha",
+        type: "repository",
+        title: "Workspace repository",
+        uriOrPath: "workspace/control-plane",
+        addedBy: "system",
+        createdAt: now,
+        updatedAt: now,
+        metadata: {},
+        usedByWorkItemIds: ["work-alpha"]
+      },
+      {
+        id: "source-alpha-note",
+        projectId: "project-alpha",
+        type: "note",
+        title: "Review notes",
+        contentRef: "workspace://source/review-notes",
+        addedBy: "user",
+        createdAt: now,
+        updatedAt: now,
+        metadata: {},
+        usedByWorkItemIds: ["work-alpha"]
+      }
+    ],
+    artifacts: [recentArtifacts[0]],
+    decisions: approvals,
+    timeline: [
+      {
+        id: "event-approval",
+        kind: "approval",
+        eventType: "approval.requested",
+        projectId: "project-alpha",
+        providerId: "fake",
+        sessionId: "session-alpha",
+        turnId: "turn-alpha",
+        title: "approval.requested",
+        summary: "Run project command",
+        timestamp: now,
+        status: "pending",
+        evidence: alphaEvidence,
+        expandable: true
+      },
+      {
+        id: "event-turn",
+        kind: "turn",
+        eventType: "agent.turn.started",
+        projectId: "project-alpha",
+        providerId: "fake",
+        sessionId: "session-alpha",
+        turnId: "turn-alpha",
+        title: "agent.turn.started",
+        summary: "Run the check",
+        timestamp: now,
+        status: "in_progress",
+        evidence: alphaEvidence,
+        expandable: true
+      },
+      {
+        id: "event-file",
+        kind: "file_change",
+        eventType: "agent.fileChange.proposed",
+        projectId: "project-alpha",
+        providerId: "fake",
+        sessionId: "session-alpha",
+        turnId: "turn-alpha",
+        title: "agent.fileChange.proposed",
+        summary: "src/new-file.ts",
+        timestamp: now,
+        status: "proposed",
+        evidence: alphaEvidence,
+        expandable: true
+      }
+    ]
+  } as unknown as NonNullable<DashboardProjection["selectedWorkspace"]>;
 
   return {
     mode,
     focusedProjectId: undefined,
+    home: {
+      workInbox: approvals.map((approval) => ({
+        id: approval.approvalId,
+        projectId: "project-alpha" as ProjectCardViewModel["projectId"],
+        title: approval.title,
+        summary: approval.summary,
+        action: { id: "open-decision-center", label: "Open decision center", method: "agents.respondToApproval" },
+        timestamp: approval.requestedAt
+      })),
+      activeProjects: projectCards,
+      waitingDecisions: approvals,
+      runningAgents,
+      blockedWork: [
+        {
+          id: "blocked-beta",
+          projectId: "project-beta" as ProjectCardViewModel["projectId"],
+          title: "Repair package checks",
+          summary: "A required check failed.",
+          action: { id: "open-workspace-project-beta", label: "Open workspace", method: "projects.getWorkspace" },
+          timestamp: now
+        }
+      ],
+      readyToReview: projectCards.filter((project) => project.runtimeState === "ready_for_review"),
+      recentArtifacts,
+      quickCreate: [
+        { id: "create-project", label: "Create project", method: "projects.register" },
+        { id: "add-source", label: "Add source", method: "projects.addSource" },
+        { id: "create-work-item", label: "Create work item", method: "workItems.create" },
+        { id: "start-agent-run", label: "Start agent run", method: "agentRuns.start" },
+        { id: "ask-in-project", label: "Ask within selected project", method: "agentRuns.sendInstruction" },
+        { id: "create-artifact", label: "Create artifact", method: "artifacts.create" },
+        { id: "open-decisions", label: "Open decision center", method: "agents.respondToApproval" }
+      ],
+      questions: [
+        "What needs my decision?",
+        "What is running?",
+        "What is blocked?",
+        "What produced something new?",
+        "Which project should I open next?",
+        "What can I start now?"
+      ]
+    },
+    selectedWorkspace,
     projectCards,
     approvals,
     checkRuns: [
@@ -2023,6 +2612,23 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
         startedAt: now,
         output: "",
         relatedFiles: [],
+        evidence: alphaEvidence
+      },
+      {
+        runId: "check-run-alpha-recent" as CheckRunViewModel["runId"],
+        checkId: "check-definition-alpha-recent" as CheckRunViewModel["checkId"],
+        projectId: "project-alpha" as CheckRunViewModel["projectId"],
+        projectTitle: "Control Plane",
+        name: "npm test",
+        command: ["npm", "test"],
+        status: "failed",
+        required: true,
+        startedAt: now,
+        completedAt: now,
+        durationMs: 1240,
+        exitCode: 1,
+        output: "src/example.ts: expected value to pass",
+        relatedFiles: ["src/example.ts", "package.json"],
         evidence: alphaEvidence
       }
     ],

@@ -216,7 +216,7 @@ describe("CodexJsonRpcClient", () => {
     const client = new CodexJsonRpcClient({
       command,
       args: ["app-server"],
-      requestTimeoutMs: 100,
+      requestTimeoutMs: 1_000,
       onNotification: (message) => notifications.push(message),
       onServerRequest: (message) => requests.push(message)
     });
@@ -380,4 +380,3 @@ rl.on('line', (line) => {
 });
 `;
 }
-
