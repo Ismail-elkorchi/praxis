@@ -147,6 +147,13 @@ test("project card state remains understandable without color", async ({ page })
   await expect(packageMetadata.locator(".stateBadge", { hasText: "Required check failed" })).toBeVisible();
   await expect(packageMetadata).toContainText("1 required check failed.");
   await expect(packageMetadata.getByRole("button", { name: "Rerun failed checks" })).toBeVisible();
+  await packageMetadata.getByRole("button", { name: "Rerun failed checks" }).click();
+
+  const rerunDialog = page.getByRole("dialog", { name: "Rerun failed checks" });
+  await expect(rerunDialog).toBeVisible();
+  await expect(rerunDialog.getByRole("combobox", { name: "Project", exact: true })).toContainText("Package Metadata");
+  await expect(rerunDialog.getByRole("combobox", { name: "Check", exact: true })).toContainText("test");
+  await expect(rerunDialog.getByRole("button", { name: "Run action" })).toHaveAttribute("data-method", "checks.run");
 });
 
 test("reduced motion disables non-essential animation", async ({ page }) => {

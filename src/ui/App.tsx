@@ -163,7 +163,14 @@ export function App() {
       return;
     }
     if (action.id === "run-checks" || action.id === "rerun-checks") {
-      setRoute("Projects");
+      const checkRun = dashboard.checkRuns.find((run) => run.projectId === project.projectId && run.status === "failed") ??
+        dashboard.checkRuns.find((run) => run.projectId === project.projectId);
+      openActionRequest({
+        method: "checks.run",
+        label: action.label,
+        projectId: project.projectId,
+        checkId: checkRun?.checkId
+      });
       return;
     }
     if (action.id === "mark-reviewed") {
@@ -352,6 +359,30 @@ function HomeView({
   onDecision(approvalId: string, decision: ApprovalDecision): void;
   onAction(action: PendingActionRequest): void;
 }) {
+  function handleHomeProjectAction(project: ProjectCardViewModel, action: DashboardAction) {
+    if (action.disabled) return;
+    if (action.method === "projects.getWorkspace") {
+      onSelectProject(project.projectId);
+      return;
+    }
+    if (action.id === "open-approvals") {
+      onRoute("Decisions");
+      return;
+    }
+    if (action.id === "run-checks" || action.id === "rerun-checks") {
+      const checkRun = dashboard.checkRuns.find((run) => run.projectId === project.projectId && run.status === "failed") ??
+        dashboard.checkRuns.find((run) => run.projectId === project.projectId);
+      onAction({
+        method: "checks.run",
+        label: action.label,
+        projectId: project.projectId,
+        checkId: checkRun?.checkId
+      });
+      return;
+    }
+    onSelectProject(project.projectId);
+  }
+
   return (
     <div className="workspaceCockpit" aria-label="Home">
       <section className="cockpitBand" aria-label="Work inbox">
@@ -396,7 +427,7 @@ function HomeView({
           dashboard={dashboard}
           selectedProjectId={selectedProjectId}
           onSelectProject={onSelectProject}
-          onProjectAction={(project) => onSelectProject(project.projectId)}
+          onProjectAction={handleHomeProjectAction}
           onAction={onAction}
           onRoute={onRoute}
           compact
