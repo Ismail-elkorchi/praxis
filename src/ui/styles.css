@@ -1086,6 +1086,16 @@ pre {
   padding: 0.52rem 0.62rem;
 }
 
+.actionForm .inlineChoice {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.actionForm .inlineChoice input {
+  width: auto;
+}
+
 .fieldHint {
   margin: -0.35rem 0 0.1rem;
   color: #61737b;

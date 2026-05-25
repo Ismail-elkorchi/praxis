@@ -173,15 +173,7 @@ export function App() {
       return;
     }
     if (action.id === "mark-reviewed") {
-      if (apiStatus === "live") {
-        void callApi<unknown>("projects.markReadyToMerge", { projectId: project.projectId })
-          .then(() => callApi<DashboardProjection>("dashboard.getSnapshot"))
-          .then((snapshot) => {
-            if (snapshot) setLiveDashboard(snapshot);
-          })
-          .catch(() => undefined);
-      }
-      requestDetailFocus("project");
+      openActionRequest({ method: action.method, label: action.label, projectId: project.projectId });
       return;
     }
     if (action.id === "import-sessions") {
@@ -1910,6 +1902,7 @@ function commandOpensAction(command: CommandItem): boolean {
 
 function projectActionOpensDialog(method: string): boolean {
   return [
+    "projects.markReadyToMerge",
     "agents.startSession",
     "agents.resumeSession",
     "agents.stopSession",
@@ -1946,7 +1939,11 @@ type ActionFormValues = {
   checkId: string;
   runId: string;
   reason: string;
+  confirmOutOfDateBranch: boolean;
 };
+type ActionFormTextField = {
+  [K in keyof ActionFormValues]: ActionFormValues[K] extends string ? K : never;
+}[keyof ActionFormValues];
 
 type FormOption = {
   value: string;
@@ -2005,7 +2002,8 @@ function ActionRequestDialog({
     sessionId: action.sessionId ?? "",
     checkId: action.checkId ?? "",
     runId: action.runId ?? "",
-    reason: ""
+    reason: "",
+    confirmOutOfDateBranch: false
   });
   const [status, setStatus] = useState<string | undefined>();
   const [resultPreview, setResultPreview] = useState<string | undefined>();
@@ -2128,7 +2126,7 @@ function ActionRequestDialog({
     setValues((current) => {
       const next = { ...current };
       let changed = false;
-      function setDefault(field: keyof ActionFormValues, options: FormOption[]) {
+      function setDefault(field: ActionFormTextField, options: FormOption[]) {
         if (next[field] || options.length === 0) return;
         next[field] = options.find((option) => !option.disabled)?.value ?? options[0]?.value ?? "";
         changed = true;
@@ -2161,7 +2159,11 @@ function ActionRequestDialog({
     });
   }, [action.method, agentRunOptions, artifactOptions, checkOptions, checkRunOptions, projectOptions, providerOptions, sessionOptions, workItemOptions]);
 
-  function updateField(field: keyof ActionFormValues, value: string) {
+  function updateField(field: ActionFormTextField, value: string) {
+    setValues((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateBooleanField(field: "confirmOutOfDateBranch", value: boolean) {
     setValues((current) => ({ ...current, [field]: value }));
   }
 
@@ -2188,7 +2190,7 @@ function ActionRequestDialog({
     hint
   }: {
     label: string;
-    field: keyof ActionFormValues;
+    field: ActionFormTextField;
     options: FormOption[];
     required?: boolean;
     fallbackLabel?: string;
@@ -2309,6 +2311,16 @@ function ActionRequestDialog({
                 <input value={values.name} onChange={(event) => updateField("name", event.target.value)} />
               </label>
             </>
+          ) : null}
+          {action.method === "projects.markReadyToMerge" ? (
+            <label className="inlineChoice">
+              <input
+                type="checkbox"
+                checked={values.confirmOutOfDateBranch}
+                onChange={(event) => updateBooleanField("confirmOutOfDateBranch", event.target.checked)}
+              />
+              Confirm if the project branch is out of date
+            </label>
           ) : null}
           {action.method === "projects.addSource" ? (
             <>
@@ -2556,6 +2568,11 @@ function actionParams(action: PendingActionRequest, values: ActionFormValues): u
   switch (action.method) {
     case "projects.register":
       return { rootPath: requireValue(values.rootPath, "Root path"), name: values.name || undefined };
+    case "projects.markReadyToMerge":
+      return {
+        projectId: requireValue(values.projectId, "Project id"),
+        confirmOutOfDateBranch: values.confirmOutOfDateBranch || undefined
+      };
     case "projects.addSource":
       return {
         projectId: requireValue(values.projectId, "Project id"),
@@ -2703,6 +2720,7 @@ function formatActionResult(method: string, result: unknown): string {
 
 function actionNeedsProject(method: string): boolean {
   return [
+    "projects.markReadyToMerge",
     "projects.addSource",
     "workItems.create",
     "agentRuns.create",
@@ -2738,6 +2756,7 @@ function defaultActionType(action: PendingActionRequest): string {
 
 function actionGuidance(method: string): string {
   if (method === "projects.register") return "Register a durable project workspace from a local root path.";
+  if (method === "projects.markReadyToMerge") return "Mark reviewed project output as ready after checking current project state.";
   if (method === "projects.addSource") return "Attach a source to the selected project so work items can reference it.";
   if (method === "workItems.create") return "Create a visible unit of project work before assigning an agent run.";
   if (method === "agentRuns.create") return "Create an agent run linked to a work item and provider.";

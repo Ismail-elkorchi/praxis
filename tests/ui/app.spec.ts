@@ -103,10 +103,17 @@ test("approval center can be resolved with keyboard", async ({ page }) => {
   await page.keyboard.press("Enter");
 
   await expect(page.getByRole("heading", { name: "Diff review" }).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "Mark reviewed" }).first()).toHaveAttribute(
+  const markReviewed = page.getByRole("button", { name: "Mark reviewed" }).first();
+  await expect(markReviewed).toHaveAttribute(
     "data-method",
     "projects.markReadyToMerge"
   );
+  await markReviewed.click();
+  const markReviewedDialog = page.getByRole("dialog", { name: "Mark reviewed" });
+  await expect(markReviewedDialog).toBeVisible();
+  await expect(markReviewedDialog.getByRole("checkbox", { name: "Confirm if the project branch is out of date" })).toBeVisible();
+  await expect(markReviewedDialog.getByRole("button", { name: "Run action" })).toHaveAttribute("data-method", "projects.markReadyToMerge");
+  await markReviewedDialog.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("button", { name: "Accept once" })).toHaveCount(0);
 });
 
