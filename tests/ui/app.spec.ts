@@ -662,6 +662,28 @@ test("project session actions open executable context dialogs", async ({ page })
   await expect(dialog.getByRole("button", { name: "Run action" })).toHaveAttribute("data-method", "agents.startSession");
 });
 
+test("project action dialogs use durable project provider ids instead of display labels", async ({ page }) => {
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result: request.method === "dashboard.getSnapshot" ? duplicateProviderLabelDashboard() : {}
+      })
+    });
+  });
+
+  await page.goto("/");
+  const project = page.getByRole("article").filter({ hasText: "Duplicate-label provider project" });
+  await project.getByRole("button", { name: "Start task" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Start task" });
+  const providerSelect = dialog.getByRole("combobox", { name: "Provider", exact: true });
+  await expect(providerSelect).toHaveValue("provider-target");
+});
+
 test("start dialogs keep unavailable providers visible but unselectable", async ({ page }) => {
   await page.route("**/api", async (route) => {
     const request = route.request().postDataJSON() as { id: string; method: string };
@@ -1377,6 +1399,43 @@ function unavailableStartProviderDashboard(): DashboardProjection {
     providerStatus: [
       providerStatusWithId("provider-unavailable", "Unavailable runner", "unavailable", { canStartSession: true }),
       providerStatusWithId("provider-available", "Available runner", "available", { canStartSession: true })
+    ]
+  });
+}
+
+function duplicateProviderLabelDashboard(): DashboardProjection {
+  const projectId = "project-duplicate-provider-label" as ProjectCardViewModel["projectId"];
+  const projectCard: ProjectCardViewModel = {
+    projectId,
+    title: "Duplicate-label provider project",
+    subtitle: "/workspace/duplicate-provider-label",
+    profileFacets: ["Project workspace", "operate", "local folder"],
+    runtimeState: "idle",
+    urgency: 0,
+    stateLabel: "Idle",
+    stateReason: "Ready to start project work.",
+    providerId: "provider-target" as ProjectCardViewModel["providerId"],
+    providerLabel: "Shared provider",
+    branchLabel: "main",
+    changedFileCount: 0,
+    pendingApprovalCount: 0,
+    failedCheckCount: 0,
+    activeTurnCount: 0,
+    activeAgentCount: 0,
+    waitingAgentCount: 0,
+    blockedAgentCount: 0,
+    badges: [{ label: "Idle", tone: "idle" }],
+    primaryAction: { id: "start-task", label: "Start task", method: "agents.startSession" },
+    secondaryActions: [],
+    diffFiles: [],
+    evidence: []
+  };
+  return emptyDashboard({
+    projectCards: [projectCard],
+    home: { activeProjects: [projectCard] },
+    providerStatus: [
+      providerStatusWithId("provider-first", "Shared provider", "available", { canStartSession: true }),
+      providerStatusWithId("provider-target", "Shared provider", "available", { canStartSession: true })
     ]
   });
 }

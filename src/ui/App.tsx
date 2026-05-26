@@ -203,7 +203,10 @@ export function App() {
       return;
     }
     if (projectActionOpensDialog(action.method)) {
-      const provider = dashboard.providerStatus.find((item) => item.name === project.providerLabel) ?? dashboard.providerStatus[0];
+      const provider =
+        dashboard.providerStatus.find((item) => item.providerId === project.providerId) ??
+        dashboard.providerStatus.find((item) => item.name === project.providerLabel) ??
+        dashboard.providerStatus[0];
       openActionRequest({
         method: action.method,
         label: action.label,
@@ -4383,6 +4386,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       urgency: approvals.length > 0 ? 4 : 2,
       stateLabel: approvals.length > 0 ? "Waiting for approval" : "Ready for review",
       stateReason: approvals.length > 0 ? "1 approval request needs a decision." : "2 changed files are ready for review.",
+      providerId: "fake" as ProjectCardViewModel["providerId"],
       providerLabel: "Fake provider",
       branchLabel: "feature/provider-neutral",
       changedFileCount: 2,
@@ -4446,6 +4450,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       urgency: 3,
       stateLabel: "Checks failed",
       stateReason: "1 required check failed.",
+      providerId: "fake" as ProjectCardViewModel["providerId"],
       providerLabel: "Fake provider",
       branchLabel: "main",
       changedFileCount: 1,
@@ -4486,6 +4491,7 @@ function demoDashboard(resolvedApprovalIds: string[]): DashboardProjection {
       urgency: 1,
       stateLabel: "Agent ready",
       stateReason: "Source notes are ready for the next research pass.",
+      providerId: "fake" as ProjectCardViewModel["providerId"],
       providerLabel: "Fake provider",
       changedFileCount: 0,
       pendingApprovalCount: 0,

@@ -361,6 +361,7 @@ describe("provider-neutral application workflow", () => {
     const project = await app.projects.registerProject({ rootPath, defaultProviderId: provider.id });
 
     expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)).toMatchObject({
+      providerId: provider.id,
       providerLabel: "No-start provider",
       secondaryActions: expect.arrayContaining([expect.objectContaining({
         method: "agents.startSession",

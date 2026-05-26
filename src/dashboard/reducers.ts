@@ -746,6 +746,7 @@ function projectCard(project: ProjectSnapshot, snapshot: AppSnapshot): ProjectCa
     urgency: urgency(project.runtimeState),
     stateLabel: stateLabel(project.runtimeState),
     stateReason: stateReason(project, changedFileCount, pendingApprovalCount, failedCheckCount),
+    providerId: provider?.id,
     providerLabel: provider?.displayName,
     branchLabel: project.git.branch,
     changedFileCount,

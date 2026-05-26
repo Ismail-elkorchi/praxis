@@ -109,6 +109,7 @@ export type ProjectCardViewModel = {
   urgency: 0 | 1 | 2 | 3 | 4 | 5;
   stateLabel: string;
   stateReason: string;
+  providerId?: ProviderId;
   providerLabel?: string;
   branchLabel?: string;
   changedFileCount: number;
