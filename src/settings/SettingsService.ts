@@ -4,6 +4,7 @@ export type AppSettings = {
   databasePath: string;
   projectRoots: string[];
   enabledProviderIds: ProviderId[];
+  providerCommandOverrides: Record<string, string>;
   defaultProviderId?: ProviderId;
   defaultPermissionProfileId: PermissionProfileId;
   telemetryMode: "off" | "local_only" | "opt_in_remote";
@@ -14,6 +15,7 @@ export const defaultAppSettings: AppSettings = {
   databasePath: ".praxis/praxis.sqlite",
   projectRoots: [],
   enabledProviderIds: [],
+  providerCommandOverrides: {},
   defaultPermissionProfileId: guardedPermissionProfileId,
   telemetryMode: "local_only",
   rawProviderLogsEnabled: false
@@ -42,7 +44,12 @@ export class SettingsService {
   }
 
   get(): AppSettings {
-    return { ...this.settings, enabledProviderIds: [...this.settings.enabledProviderIds], projectRoots: [...this.settings.projectRoots] };
+    return {
+      ...this.settings,
+      enabledProviderIds: [...this.settings.enabledProviderIds],
+      projectRoots: [...this.settings.projectRoots],
+      providerCommandOverrides: { ...this.settings.providerCommandOverrides }
+    };
   }
 
   update(patch: Partial<AppSettings>, options: SettingsUpdateOptions = {}): AppSettings {
@@ -60,6 +67,15 @@ function normalizeSettings(input: Partial<AppSettings> | undefined): AppSettings
     ...defaultAppSettings,
     ...input,
     enabledProviderIds: [...(input?.enabledProviderIds ?? defaultAppSettings.enabledProviderIds)],
-    projectRoots: [...(input?.projectRoots ?? defaultAppSettings.projectRoots)]
+    projectRoots: [...(input?.projectRoots ?? defaultAppSettings.projectRoots)],
+    providerCommandOverrides: normalizeProviderCommandOverrides(input?.providerCommandOverrides)
   };
+}
+
+function normalizeProviderCommandOverrides(input: Record<string, string> | undefined): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(input ?? {})
+      .map(([providerId, command]) => [providerId.trim(), command.trim()])
+      .filter(([providerId, command]) => providerId.length > 0 && command.length > 0)
+  );
 }

@@ -2,13 +2,16 @@ import { realpath, stat, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   checkDefinitionId,
+  defaultProjectProfile,
   defaultProjectSettings,
   projectId,
   type CheckDefinition,
   type PackageManager,
   type Project,
+  type ProjectProfile,
   type ProjectId,
   type ProjectMetadataFile,
+  type ProjectSourceId,
   type ProjectSettings,
   type ProjectScript,
   type ProjectWorktree,
@@ -29,7 +32,12 @@ export class ProjectRegistryService {
     private readonly getSnapshot: () => AppSnapshot
   ) {}
 
-  async registerProject(input: { rootPath: string; name?: string; defaultProviderId?: ProviderId }): Promise<Project> {
+  async registerProject(input: {
+    rootPath: string;
+    name?: string;
+    defaultProviderId?: ProviderId;
+    profile?: Partial<ProjectProfile>;
+  }): Promise<Project> {
     const stats = await stat(input.rootPath).catch(() => undefined);
     if (!stats) {
       throw new PraxisError("invalid_project_path", "Project path must be an existing directory.", { rootPath: input.rootPath });
@@ -52,6 +60,7 @@ export class ProjectRegistryService {
       name: input.name ?? path.basename(canonicalPath),
       rootPath: input.rootPath,
       canonicalPath,
+      profile: defaultProjectProfile,
       scripts: [],
       metadataFiles: [],
       worktrees: [],
@@ -70,11 +79,27 @@ export class ProjectRegistryService {
     project.scripts = discovery.scripts;
     project.metadataFiles = discovery.metadataFiles;
     project.worktrees = discovery.worktrees;
+    project.profile = normalizeProjectProfile({ ...inferredProfile(gitSnapshot.isRepo, discovery), ...input.profile });
 
     if (gitSnapshot.isRepo) {
       project.repo = { rootPath: canonicalPath };
       project.defaultBranch = gitSnapshot.baseBranch;
     }
+
+    const rootSource = {
+      id: sourceIdForProject(project.id, "root"),
+      projectId: project.id,
+      type: gitSnapshot.isRepo ? ("repository" as const) : ("local_folder" as const),
+      title: gitSnapshot.isRepo ? `${project.name} repository` : `${project.name} folder`,
+      uriOrPath: canonicalPath,
+      addedBy: "system" as const,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      metadata: {
+        discovered: true,
+        packageManager: discovery.packageManager
+      }
+    };
 
     await this.events.appendMany([
       createDomainEvent({
@@ -82,6 +107,13 @@ export class ProjectRegistryService {
         projectId: project.id,
         source: "user",
         payload: { project, checkDefinitions: discovery.checkDefinitions },
+        evidence: []
+      }),
+      createDomainEvent({
+        type: "project.source.added",
+        projectId: project.id,
+        source: "system",
+        payload: { source: rootSource },
         evidence: []
       }),
       createDomainEvent({
@@ -98,7 +130,13 @@ export class ProjectRegistryService {
 
   async updateProject(
     projectId: ProjectId,
-    patch: { name?: string; tags?: string[]; archived?: boolean; settings?: Partial<ProjectSettings> },
+    patch: {
+      name?: string;
+      tags?: string[];
+      archived?: boolean;
+      settings?: Partial<ProjectSettings>;
+      profile?: Partial<ProjectProfile>;
+    },
     options: { confirmBroadPermissionProfile?: boolean } = {}
   ): Promise<Project> {
     const existing = this.getProject(projectId);
@@ -121,6 +159,7 @@ export class ProjectRegistryService {
     const project: Project = {
       ...existing,
       name: patch.name ?? existing.name,
+      profile: patch.profile ? normalizeProjectProfile({ ...existing.profile, ...patch.profile }) : normalizeProjectProfile(existing.profile),
       tags: patch.tags ?? existing.tags,
       settings,
       archived: patch.archived ?? existing.archived,
@@ -138,6 +177,36 @@ export class ProjectRegistryService {
     );
 
     return project;
+  }
+
+  async updateProfile(projectId: ProjectId, profile: Partial<ProjectProfile>): Promise<ProjectProfile> {
+    const existing = this.getProject(projectId);
+    if (!existing) {
+      throw new PraxisError("not_found", "Project was not found.", { projectId });
+    }
+    const nextProfile = normalizeProjectProfile({ ...existing.profile, ...profile });
+    const project: Project = {
+      ...existing,
+      profile: nextProfile,
+      updatedAt: new Date().toISOString()
+    };
+    await this.events.appendMany([
+      createDomainEvent({
+        type: "project.profile.updated",
+        projectId,
+        source: "user",
+        payload: { profile: nextProfile },
+        evidence: [{ type: "user", commandId: "projects.updateProfile" }]
+      }),
+      createDomainEvent({
+        type: "project.updated",
+        projectId,
+        source: "user",
+        payload: { project },
+        evidence: []
+      })
+    ]);
+    return nextProfile;
   }
 
   async archiveProject(projectId: ProjectId): Promise<Project> {
@@ -290,6 +359,53 @@ function normalizeProjectSettings(settings: Partial<ProjectSettings> | undefined
     ...settings,
     defaultCheckIds: [...(settings?.defaultCheckIds ?? defaultProjectSettings.defaultCheckIds)]
   };
+}
+
+export function normalizeProjectProfile(profile: Partial<ProjectProfile> | undefined): ProjectProfile {
+  return {
+    userLabel: profile?.userLabel,
+    workModes: uniqueNonEmpty(profile?.workModes, defaultProjectProfile.workModes),
+    sourceTypes: uniqueNonEmpty(profile?.sourceTypes, defaultProjectProfile.sourceTypes),
+    expectedArtifactTypes: uniqueNonEmpty(profile?.expectedArtifactTypes, defaultProjectProfile.expectedArtifactTypes),
+    riskProfile: profile?.riskProfile
+      ? {
+          ...profile.riskProfile,
+          signals: [...(profile.riskProfile.signals ?? [])]
+        }
+      : undefined,
+    customTags: [...(profile?.customTags ?? [])],
+    customMetadata: profile?.customMetadata
+  };
+}
+
+function uniqueNonEmpty<T extends string>(values: readonly T[] | undefined, fallback: readonly T[]): T[] {
+  const normalized = [...new Set((values && values.length > 0 ? values : fallback).filter(Boolean))] as T[];
+  return normalized.length > 0 ? normalized : [...fallback];
+}
+
+function inferredProfile(isRepo: boolean, discovery: ProjectDiscovery): ProjectProfile {
+  if (isRepo || discovery.scripts.length > 0) {
+    const workModes = discovery.checkDefinitions.length > 0 ? ["build", "test", "maintain"] : ["build", "maintain"];
+    const expectedArtifactTypes = discovery.checkDefinitions.length > 0 ? ["code_patch", "test_or_check_result"] : ["code_patch"];
+    return normalizeProjectProfile({
+      userLabel: "Software workspace",
+      workModes,
+      sourceTypes: [isRepo ? "repository" : "local_folder"],
+      expectedArtifactTypes,
+      customTags: []
+    });
+  }
+  return normalizeProjectProfile({
+    userLabel: "Project workspace",
+    workModes: ["custom"],
+    sourceTypes: ["local_folder"],
+    expectedArtifactTypes: ["generic_file"],
+    customTags: []
+  });
+}
+
+function sourceIdForProject(projectId: ProjectId, suffix: string): ProjectSourceId {
+  return `source_${projectId}_${suffix}` as ProjectSourceId;
 }
 
 type ProjectDiscovery = {

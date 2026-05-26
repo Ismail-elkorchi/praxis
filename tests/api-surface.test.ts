@@ -17,6 +17,34 @@ const requiredApiMethods = [
   "projects.archive",
   "projects.refresh",
   "projects.markReadyToMerge",
+  "projects.getWorkspace",
+  "projects.updateProfile",
+  "projects.addSource",
+  "projects.removeSource",
+  "projects.getHome",
+  "projects.getPortfolio",
+  "workItems.create",
+  "workItems.update",
+  "workItems.queue",
+  "workItems.cancel",
+  "workItems.complete",
+  "workItems.listByProject",
+  "agentRuns.create",
+  "agentRuns.start",
+  "agentRuns.stop",
+  "agentRuns.cancel",
+  "agentRuns.sendInstruction",
+  "agentRuns.assignProvider",
+  "agentRuns.linkSession",
+  "agentRuns.listByProject",
+  "agentRuns.listByWorkItem",
+  "artifacts.create",
+  "artifacts.update",
+  "artifacts.listByProject",
+  "artifacts.get",
+  "artifacts.markReviewed",
+  "artifacts.accept",
+  "artifacts.reject",
   "providers.list",
   "providers.getStatus",
   "providers.getCapabilities",
@@ -174,7 +202,12 @@ describe("provider-neutral API surface", () => {
         id: "settings-update",
         method: "settings.update",
         params: {
-          patch: { rawProviderLogsEnabled: true, telemetryMode: "off", enabledProviderIds: [providerId("fake")] },
+          patch: {
+            rawProviderLogsEnabled: true,
+            telemetryMode: "off",
+            enabledProviderIds: [providerId("fake")],
+            providerCommandOverrides: { "provider-custom": "/usr/local/bin/provider-custom" }
+          },
           confirmRawProviderLogs: true
         }
       })
@@ -183,7 +216,8 @@ describe("provider-neutral API surface", () => {
       result: {
         rawProviderLogsEnabled: true,
         telemetryMode: "off",
-        enabledProviderIds: [providerId("fake")]
+        enabledProviderIds: [providerId("fake")],
+        providerCommandOverrides: { "provider-custom": "/usr/local/bin/provider-custom" }
       }
     });
 
@@ -216,10 +250,16 @@ describe("provider-neutral API surface", () => {
     });
 
     expect(first.snapshot().projects[project.id]?.runtimeState).toBe("ready_to_merge");
-    expect(first.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)?.primaryAction).toMatchObject({
-      id: "review-diff",
-      method: "git.openDiff"
+    const card = first.snapshot().dashboard.projectCards.find((item) => item.projectId === project.id);
+    expect(card?.primaryAction).toMatchObject({
+      method: "projects.getWorkspace"
     });
+    expect(card?.secondaryActions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "review-diff",
+        method: "git.openDiff"
+      })
+    ]));
     expect((await first.events.queryEvents()).map((event) => event.type)).toContain("project.readyToMergeMarked");
     first.eventStore.close?.();
 
@@ -232,11 +272,30 @@ describe("provider-neutral API surface", () => {
   it("waives failed required checks through event-producing API calls", async () => {
     const app = await createPraxisApp();
     const api = new PraxisApi(app);
-    const rootPath = await createTempProject({ git: true, failingTest: true });
+    const rootPath = await createTempProject({ failingTest: true });
     const project = await app.projects.registerProject({ rootPath });
 
-    await writeFile(path.join(rootPath, "reviewable.ts"), "export const value = 1;\n");
-    await app.projects.refreshProject(project.id);
+    await app.events.append(
+      createDomainEvent({
+        type: "git.statusChanged",
+        projectId: project.id,
+        source: "git",
+        payload: {
+          isRepo: true,
+          branch: "main",
+          headSha: "test-head",
+          baseBranch: "main",
+          dirty: true,
+          ahead: 0,
+          behind: 0,
+          stagedFiles: [],
+          unstagedFiles: [],
+          untrackedFiles: ["reviewable.ts"],
+          conflictedFiles: []
+        },
+        evidence: [{ type: "git", repoPath: rootPath, sha: "test-head" }]
+      })
+    );
     const testCheck = app.checks.listDefinitions(project.id).find((check) => check.name === "test");
     const typecheck = app.checks.listDefinitions(project.id).find((check) => check.name === "typecheck");
     expect(testCheck).toBeDefined();

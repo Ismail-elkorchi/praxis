@@ -279,10 +279,11 @@ describe("provider-neutral application workflow", () => {
     expect(app.snapshot().projects[project.id]?.git.dirty).toBe(true);
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("waiting_for_approval");
     expect(app.snapshot().dashboard.mode).toBe("approval_center");
-    expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)?.primaryAction).toMatchObject({
-      id: "open-approvals",
-      method: "agents.respondToApproval"
-    });
+    const approvalCard = app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id);
+    expect(approvalCard?.primaryAction).toMatchObject({ method: "projects.getWorkspace" });
+    expect(approvalCard?.secondaryActions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "open-approvals", method: "agents.respondToApproval" })])
+    );
   });
 
   it("makes git-backed fake file changes reviewable when checks are not required", async () => {
@@ -315,10 +316,11 @@ describe("provider-neutral application workflow", () => {
     expect(reviewState).toMatchObject({ acceptedOutOfDateBranch: false, statusHash: expect.any(String) });
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("ready_to_merge");
     expect(app.snapshot().dashboard.mode).toBe("diff_review");
-    expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)?.primaryAction).toMatchObject({
-      id: "review-diff",
-      method: "git.openDiff"
-    });
+    const reviewCard = app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id);
+    expect(reviewCard?.primaryAction).toMatchObject({ method: "projects.getWorkspace" });
+    expect(reviewCard?.secondaryActions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "review-diff", method: "git.openDiff" })])
+    );
     expect(app.snapshot().dashboard.explanation.propositions).toContainEqual(
       expect.objectContaining({ predicate: "ready_to_merge", value: "true" })
     );
@@ -359,12 +361,39 @@ describe("provider-neutral application workflow", () => {
     const project = await app.projects.registerProject({ rootPath, defaultProviderId: provider.id });
 
     expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)).toMatchObject({
+      providerId: provider.id,
       providerLabel: "No-start provider",
-      primaryAction: {
+      secondaryActions: expect.arrayContaining([expect.objectContaining({
         method: "agents.startSession",
         disabled: true
-      }
+      })])
     });
+
+    const workItem = await app.workItems.create({
+      projectId: project.id,
+      title: "Provider-gated work",
+      goal: "Do not create an unrunnable agent run."
+    });
+    await expect(app.agentRuns.create({
+      projectId: project.id,
+      workItemId: workItem.id,
+      providerId: provider.id,
+      roleName: "Operator",
+      goal: "Attempt to use an unrunnable provider."
+    })).rejects.toMatchObject({ code: "capability_unavailable" });
+
+    const runnableRun = await app.agentRuns.create({
+      projectId: project.id,
+      workItemId: workItem.id,
+      providerId: providerId("fake"),
+      roleName: "Fallback operator",
+      goal: "Use the fake provider."
+    });
+    await expect(app.agentRuns.assignProvider({
+      projectId: project.id,
+      agentRunId: runnableRun.id,
+      providerId: provider.id
+    })).rejects.toMatchObject({ code: "capability_unavailable" });
   });
 
   it("imports provider sessions only when the selected provider supports import", async () => {
@@ -429,8 +458,11 @@ describe("provider-neutral application workflow", () => {
     expect(app.snapshot().projects[project.id]?.runtimeState).toBe("stale");
     expect(app.snapshot().dashboard.mode).toBe("stale_sessions");
     expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)).toMatchObject({
-      primaryAction: { id: "resume-session", method: "agents.resumeSession" },
-      secondaryActions: expect.arrayContaining([expect.objectContaining({ id: "stop-session", method: "agents.stopSession" })])
+      primaryAction: { method: "projects.getWorkspace" },
+      secondaryActions: expect.arrayContaining([
+        expect.objectContaining({ id: "resume-session", method: "agents.resumeSession", sessionId }),
+        expect.objectContaining({ id: "stop-session", method: "agents.stopSession", sessionId })
+      ])
     });
   });
 

@@ -1,7 +1,7 @@
 {
   "name": "praxis",
   "version": "0.1.0",
-  "description": "Provider-neutral local control plane for coordinating agent work across software projects.",
+  "description": "Provider-neutral local control plane for coordinating agent work across durable project workspaces.",
   "type": "module",
   "private": false,
   "license": "MIT",

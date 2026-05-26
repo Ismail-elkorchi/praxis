@@ -1,14 +1,14 @@
 # Praxis
 
-Praxis is a local-first control plane for coordinating agent work across software projects. It treats projects, events, approvals, checks, diffs, and review readiness as durable product state while keeping runtime providers replaceable behind adapters.
+Praxis is a local-first control plane for coordinating agent work across durable project workspaces. It treats projects, profile facets, sources, work items, agent runs, artifacts, events, approvals, checks, diffs, and review readiness as durable product state while keeping runtime providers replaceable behind adapters.
 
 The core app runs with the built-in fake provider, so development and tests do not require any real provider account, binary, API key, or network service.
 
-Optional provider adapters are disabled unless they are explicitly configured. The Codex app-server adapter lives under `src/providers/codex-app-server/`, uses stdio JSONL, reports availability through `codex --version`, and keeps external thread and turn identifiers inside provider references, adapter-local state, redacted diagnostics, or raw provider events.
+The local runtime discovers bundled optional provider adapters at startup without importing provider-specific code from runtime modules. The optional Codex app-server adapter lives under `src/providers/codex-app-server/`, uses stdio JSONL, reports availability through `codex --version`, and keeps external thread and turn identifiers inside provider references, adapter-local state, redacted diagnostics, or raw provider events. Codex is not the default provider; if the binary is missing, Praxis still starts and reports the provider as unavailable. Set `CODEX_BIN` or save a provider command override in Settings to use a non-default binary path on the next runtime startup.
 
 ## Status
 
-Praxis is an early implementation. The current focus is the provider-neutral core, fake-provider workflow, replayable event state, approval safety, project checks, and a dashboard built from evidence-backed projections.
+Praxis is an early implementation. The current focus is the provider-neutral core, fake-provider workflow, replayable event state, approval safety, project workspaces for broad work modes, project checks where applicable, and a dashboard built from evidence-backed projections.
 
 ## Quickstart
 
@@ -18,7 +18,7 @@ npm run verify
 npm run dev
 ```
 
-The development server opens the provider-neutral dashboard with fake-provider data available for local workflows and tests.
+The development server opens the provider-neutral project cockpit with fake-provider data available for local workflows and tests.
 
 To run a provider-neutral workflow from the command line with the built-in fake provider:
 
@@ -40,18 +40,22 @@ The local server exposes:
 - `WS /ws`
 - static UI assets from `dist/`
 
-The API method names are provider-neutral and cover project registry, provider
-status, agent sessions and turns, approvals, dashboard snapshots, checks, git
-diff/worktree actions, and event replay/query.
+The API method names are provider-neutral and cover project registry, project
+workspace reads, project profile facets, sources, work items, agent runs,
+artifacts, provider status, provider runtime sessions and turns, approvals,
+dashboard snapshots, checks, git diff/worktree actions, and event replay/query.
 
 ## Core Guarantees
 
 - Core modules use provider-neutral domain types.
+- Project is the primary visible object; provider sessions and turns are runtime details.
+- Projects use extensible profile facets instead of a fixed project-kind enum.
 - Provider adapters live behind a stable interface.
 - The app starts and passes tests with the fake provider only.
-- Real provider adapters are optional and must not be imported by core-facing modules.
+- Real provider adapters are optional, must not be imported by core-facing modules, and must not become the default provider automatically.
 - Dashboard state is derived from domain events and can be replayed.
 - Approval decisions are persisted before they are forwarded to providers.
+- Approval decisions are routed by the approval's provider id, not by dashboard order.
 - Unsupported provider capabilities are hidden or blocked safely.
 
 ## Development Commands
@@ -70,7 +74,7 @@ npm run verify
 src/core        durable provider-neutral domain types
 src/providers   provider interface, fake provider, optional adapters
 src/events      append-only event storage and replay
-src/dashboard   reducers, projections, explanations, view models
+src/dashboard   reducers, Home and Project Workspace projections, explanations, view models
 src/projects    project registry and discovery
 src/policies    approval and risk policy
 src/git         git status and diff services

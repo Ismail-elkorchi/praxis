@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -30,7 +30,8 @@ describe("release hardening", () => {
     first.settings.update({
       telemetryMode: "off",
       projectRoots: ["/workspace/projects"],
-      enabledProviderIds: [providerId("fake")]
+      enabledProviderIds: [providerId("fake")],
+      providerCommandOverrides: { "provider-custom": "/usr/local/bin/provider-custom" }
     });
     first.eventStore.close?.();
 
@@ -40,7 +41,8 @@ describe("release hardening", () => {
     expect(second.settings.get()).toMatchObject({
       telemetryMode: "off",
       projectRoots: ["/workspace/projects"],
-      enabledProviderIds: [providerId("fake")]
+      enabledProviderIds: [providerId("fake")],
+      providerCommandOverrides: { "provider-custom": "/usr/local/bin/provider-custom" }
     });
     expect(secondStore.countRows("settings")).toBe(1);
     second.eventStore.close?.();
@@ -76,9 +78,14 @@ describe("release hardening", () => {
         "start_ui"
       ])
     );
-    expect(runtime.app.providerRegistry.listRealProviders()).toEqual([]);
+    expect(runtime.app.providerRegistry.listRealProviders().map((provider) => provider.id)).toContain(providerId("codex-app-server"));
     expect(runtime.app.projects.listProjects()).toEqual([]);
-    expect(runtime.app.snapshot().dashboard.providerStatus[0]?.availability.status).toBe("available");
+    expect(runtime.app.snapshot().dashboard.providerStatus.find((provider) => provider.providerId === providerId("fake"))?.availability.status).toBe(
+      "available"
+    );
+    expect(runtime.app.snapshot().dashboard.providerStatus.find((provider) => provider.providerId === providerId("codex-app-server"))).toMatchObject({
+      name: "Codex app-server"
+    });
 
     await expect(runtime.shutdown()).resolves.toEqual(
       expect.arrayContaining(["stop_check_runs", "preserve_agent_sessions", "flush_event_store", "stop_local_server", "close_database"])
@@ -97,6 +104,42 @@ describe("release hardening", () => {
     const second = await startPraxisRuntime({ databasePath, providerAdapters: [unavailableProviderAdapter()], listen: false });
     expect(second.app.snapshot().dashboard.projectCards.some((card) => card.projectId === project.id)).toBe(true);
     expect(second.app.snapshot().approvals.history).toEqual([]);
+    await second.shutdown();
+  });
+
+  it("can opt out of automatic optional provider discovery", async () => {
+    const databasePath = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-runtime-no-codex-")), "praxis.sqlite");
+    const runtime = await startPraxisRuntime({ databasePath, listen: false, autoDiscoverProviderAdapters: false });
+
+    expect(runtime.app.providerRegistry.listRealProviders()).toEqual([]);
+    expect(runtime.app.snapshot().dashboard.providerStatus.map((provider) => provider.name)).toEqual(["Fake provider"]);
+    await runtime.shutdown();
+  });
+
+  it("uses persisted provider command overrides when auto-registering optional providers", async () => {
+    const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "praxis-provider-command-"));
+    const providerCommand = path.join(runtimeDir, "provider-command");
+    await writeFile(providerCommand, "#!/usr/bin/env sh\nif [ \"$1\" = \"--version\" ]; then echo \"1.2.3\"; else exit 0; fi\n", "utf8");
+    await chmod(providerCommand, 0o755);
+    const databasePath = path.join(runtimeDir, "praxis.sqlite");
+    const first = await startPraxisRuntime({ databasePath, listen: false, autoDiscoverProviderAdapters: false });
+    first.app.settings.update({
+      providerCommandOverrides: { "codex-app-server": providerCommand }
+    });
+    await first.shutdown();
+
+    const second = await startPraxisRuntime({ databasePath, listen: false });
+    const codexProvider = second.app.snapshot().dashboard.providerStatus.find(
+      (provider) => provider.providerId === providerId("codex-app-server")
+    );
+
+    expect(codexProvider).toMatchObject({
+      name: "Codex app-server",
+      availability: expect.objectContaining({
+        status: "available",
+        details: expect.objectContaining({ command: providerCommand })
+      })
+    });
     await second.shutdown();
   });
 

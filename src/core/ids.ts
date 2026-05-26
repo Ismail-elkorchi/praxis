@@ -11,6 +11,10 @@ export type CheckRunId = Brand<string, "CheckRunId">;
 export type CheckDefinitionId = Brand<string, "CheckDefinitionId">;
 export type FileChangeId = Brand<string, "FileChangeId">;
 export type PermissionProfileId = Brand<string, "PermissionProfileId">;
+export type ProjectSourceId = Brand<string, "ProjectSourceId">;
+export type ProjectArtifactId = Brand<string, "ProjectArtifactId">;
+export type ProjectWorkItemId = Brand<string, "ProjectWorkItemId">;
+export type AgentRunId = Brand<string, "AgentRunId">;
 
 export function brandedId<TId extends Brand<string, string>>(prefix: string): TId {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}` as TId;
@@ -54,4 +58,20 @@ export function checkDefinitionId(): CheckDefinitionId {
 
 export function fileChangeId(): FileChangeId {
   return brandedId<FileChangeId>("file_change");
+}
+
+export function projectSourceId(): ProjectSourceId {
+  return brandedId<ProjectSourceId>("source");
+}
+
+export function projectArtifactId(): ProjectArtifactId {
+  return brandedId<ProjectArtifactId>("artifact");
+}
+
+export function projectWorkItemId(): ProjectWorkItemId {
+  return brandedId<ProjectWorkItemId>("work_item");
+}
+
+export function agentRunId(): AgentRunId {
+  return brandedId<AgentRunId>("agent_run");
 }

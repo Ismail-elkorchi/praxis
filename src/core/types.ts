@@ -1,4 +1,5 @@
 import type {
+  AgentRunId,
   AgentSessionId,
   AgentTurnId,
   ApprovalRequestId,
@@ -8,7 +9,10 @@ import type {
   EventId,
   FileChangeId,
   PermissionProfileId,
+  ProjectArtifactId,
   ProjectId,
+  ProjectSourceId,
+  ProjectWorkItemId,
   ProviderId
 } from "./ids";
 
@@ -58,6 +62,82 @@ export type ProjectWorktree = {
   headSha?: string;
 };
 
+export type WorkMode =
+  | "build"
+  | "write"
+  | "research"
+  | "analyze"
+  | "review"
+  | "test"
+  | "plan"
+  | "design"
+  | "communicate"
+  | "operate"
+  | "learn"
+  | "automate"
+  | "maintain"
+  | "custom"
+  | (string & {});
+
+export type SourceType =
+  | "local_file"
+  | "local_folder"
+  | "repository"
+  | "url"
+  | "note"
+  | "pasted_text"
+  | "screenshot"
+  | "dataset"
+  | "message"
+  | "generated_artifact"
+  | "custom"
+  | (string & {});
+
+export type ArtifactType =
+  | "text_document"
+  | "structured_note"
+  | "research_summary"
+  | "report"
+  | "plan"
+  | "checklist"
+  | "decision_record"
+  | "code_patch"
+  | "data_table"
+  | "slide_outline"
+  | "image_asset"
+  | "diagram"
+  | "test_or_check_result"
+  | "review_item"
+  | "browser_trace"
+  | "command_log"
+  | "generic_file"
+  | "custom"
+  | (string & {});
+
+export type ProjectRiskProfile = {
+  level?: RiskLevel;
+  signals: RiskSignal[];
+  notes?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ProjectProfile = {
+  userLabel?: string;
+  workModes: WorkMode[];
+  sourceTypes: SourceType[];
+  expectedArtifactTypes: ArtifactType[];
+  riskProfile?: ProjectRiskProfile;
+  customTags: string[];
+  customMetadata?: Record<string, unknown>;
+};
+
+export const defaultProjectProfile: ProjectProfile = {
+  workModes: ["custom"],
+  sourceTypes: ["local_folder"],
+  expectedArtifactTypes: ["generic_file"],
+  customTags: []
+};
+
 export type ProjectSettings = {
   defaultProviderId?: ProviderId;
   defaultPermissionProfileId?: PermissionProfileId;
@@ -83,6 +163,7 @@ export type Project = {
   name: string;
   rootPath: string;
   canonicalPath: string;
+  profile: ProjectProfile;
   repo?: GitRepositoryRef;
   defaultBranch?: string;
   packageManager?: PackageManager;
@@ -94,6 +175,107 @@ export type Project = {
   archived: boolean;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
+};
+
+export type ProjectSource = {
+  id: ProjectSourceId;
+  projectId: ProjectId;
+  type: SourceType;
+  title: string;
+  uriOrPath?: string;
+  contentRef?: string;
+  addedBy: "user" | "agent" | "system" | "provider";
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+  metadata: Record<string, unknown>;
+};
+
+export type ProjectArtifact = {
+  id: ProjectArtifactId;
+  projectId: ProjectId;
+  workItemId?: ProjectWorkItemId;
+  agentRunId?: AgentRunId;
+  type: ArtifactType;
+  title: string;
+  summary: string;
+  status: "draft" | "proposed" | "reviewed" | "accepted" | "rejected" | "archived";
+  contentRef?: string;
+  sourceIds: ProjectSourceId[];
+  evidence: EvidenceRef[];
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+  metadata: Record<string, unknown>;
+};
+
+export type WorkItemStatus =
+  | "planned"
+  | "queued"
+  | "running"
+  | "waiting_for_approval"
+  | "waiting_for_input"
+  | "blocked"
+  | "reviewing"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+export type ProjectWorkItem = {
+  id: ProjectWorkItemId;
+  projectId: ProjectId;
+  title: string;
+  goal: string;
+  workModes: WorkMode[];
+  status: WorkItemStatus;
+  priority: number;
+  sourceIds: ProjectSourceId[];
+  artifactIds: ProjectArtifactId[];
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+  metadata: Record<string, unknown>;
+};
+
+export type AgentRunRolePreset =
+  | "planner"
+  | "builder"
+  | "reviewer"
+  | "checker"
+  | "researcher"
+  | "writer"
+  | "analyst"
+  | "operator"
+  | "custom";
+
+export type AgentRunStatus =
+  | "queued"
+  | "starting"
+  | "running"
+  | "waiting_for_approval"
+  | "waiting_for_input"
+  | "blocked"
+  | "reviewing"
+  | "completed"
+  | "failed"
+  | "stale"
+  | "cancelled";
+
+export type AgentRun = {
+  id: AgentRunId;
+  projectId: ProjectId;
+  workItemId: ProjectWorkItemId;
+  providerId: ProviderId;
+  sessionId?: AgentSessionId;
+  roleName: string;
+  rolePreset?: AgentRunRolePreset;
+  goal: string;
+  status: AgentRunStatus;
+  cwd?: string;
+  worktreePath?: string;
+  lastEventId?: EventId;
+  producedArtifactIds: ProjectArtifactId[];
+  pendingApprovalIds: ApprovalRequestId[];
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+  metadata: Record<string, unknown>;
 };
 
 export type ProviderCapabilities = {

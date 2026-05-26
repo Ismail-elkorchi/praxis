@@ -37,7 +37,7 @@
 - Hardened the activity timeline with turn grouping, lazy details expansion, event-kind coverage, and hidden raw provider payloads.
 - Expanded provider status cards with availability, compatibility, capability support details, and provider-neutral actions.
 - Wired project-card evidence actions to the detail panel with proposition and evidence-reference display.
-- Added provider-neutral settings API/UI coverage with raw-provider-log confirmation and provider settings kept under Providers.
+- Added provider-neutral settings API/UI coverage with raw-provider-log confirmation and provider settings kept under Settings advanced controls.
 - Changed compact and medium layouts to keep approvals visible while rendering Details as a responsive drawer.
 - Added provider-neutral diagnostics API and a Settings debug-export preview covering logs, inspectors, metrics, and replay health.
 - Added shipped public examples for fake-provider onboarding and release-hardening tests that execute the example surface.
@@ -67,3 +67,18 @@
 - Added provider-neutral client lifecycle events for the optional generic process adapter with diagnostics coverage.
 - Added app workflow coverage proving conflicted git files block project review state.
 - Added an optional Codex app-server provider adapter with stdio JSONL transport, availability and schema diagnostics, session and turn mapping, approval and user-input forwarding, redacted raw-event audit handling, fail-closed permission behavior, and fixture-backed tests that do not require Codex to be installed.
+- Redesigned Praxis around project workspaces, with Home, Projects, Decisions, Artifacts, Activity, and Settings as the top-level navigation and provider sessions kept as advanced runtime details.
+- Added extensible `ProjectProfile` facets, `ProjectSource`, `ProjectArtifact`, `ProjectWorkItem`, and `AgentRun` domain models without a single fixed project-kind enum.
+- Added project workspace, portfolio, work item, agent run, source, and artifact APIs with event-backed lifecycle transitions and replayable projections.
+- Added SQLite read models for project profiles, sources, artifacts, work items, agent runs, session refs, evidence refs, and work item source/artifact refs.
+- Added Home and Project Workspace projections covering work inbox, active projects, waiting decisions, running agents, blocked work, ready review, recent artifacts, work-item panels, agent boards, sources, artifacts, decisions, checks, and project-scoped timelines.
+- Fixed approval decision routing so UI decisions use the approval's provider id and added multi-provider coverage.
+- Added fake-provider-only broad-use coverage for code, writing, research, planning, and general projects with source-linked artifacts.
+- Added provider-neutral bundled adapter discovery during local runtime startup, with the optional Codex app-server adapter self-registering from its provider folder while fake-provider-only app construction and explicit opt-out remain supported.
+- Hardened project workspace action wiring so Home and Projects share the same dispatcher, workspace header actions stay contextual, query actions show results, provider setup empty states are actionable, and agent details expand without dead API dialogs.
+- Wired workspace source removal, work-item lifecycle, artifact review decisions, agent-run stop/cancel, and provider session import through explicit action dialogs with project/provider context, and gated start/default-provider controls on provider availability.
+- Added provider-neutral command overrides in Settings so optional provider binaries can be configured from the provider setup panel and applied on the next runtime startup.
+- Routed provider-status entry points from empty states and the command palette directly into the focused provider setup panel so users land on the actionable checklist instead of a generic Settings page.
+- Fail closed when agent runs are created, assigned, or started with providers that are missing, unavailable, or unable to start sessions, with UI coverage for unavailable queued runs.
+- Added durable provider ids to project cards so project-level provider actions route by provider identity instead of display label text.
+- Added stale-session ids to resume and stop project actions so advanced session dialogs open with executable context instead of asking users to paste runtime ids.

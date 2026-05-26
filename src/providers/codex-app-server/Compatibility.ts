@@ -25,7 +25,11 @@ export async function checkCodexAppServerAvailability(
   const command = options.command ?? defaultCodexCommand;
   const minimumVersion = options.minimumVersion ?? defaultMinimumVersion;
   if (!(await executableIsAvailable(command))) {
-    return { status: "unavailable", reason: "Codex app-server command is not available.", details: { command } };
+    return {
+      status: "unavailable",
+      reason: "Codex app-server command is not available.",
+      details: codexSetupDetails(command)
+    };
   }
 
   try {
@@ -36,7 +40,7 @@ export async function checkCodexAppServerAvailability(
         status: "incompatible",
         reason: "Codex app-server version could not be detected.",
         supportedVersions: `>=${minimumVersion}`,
-        details: { command }
+        details: codexSetupDetails(command)
       };
     }
     if (compareVersions(version, minimumVersion) < 0) {
@@ -45,19 +49,19 @@ export async function checkCodexAppServerAvailability(
         version,
         reason: `Codex app-server ${version} is older than the supported minimum ${minimumVersion}.`,
         supportedVersions: `>=${minimumVersion}`,
-        details: { command }
+        details: codexSetupDetails(command)
       };
     }
     return {
       status: "available",
       version,
-      details: { command, schemaStrategy: schemaStrategy(command) }
+      details: codexSetupDetails(command)
     };
   } catch (error) {
     return {
       status: "unavailable",
       reason: error instanceof Error ? error.message : "Codex app-server version check failed.",
-      details: { command }
+      details: codexSetupDetails(command)
     };
   }
 }
@@ -66,6 +70,27 @@ export function schemaStrategy(command = defaultCodexCommand): CodexSchemaStrate
   return {
     typescriptCommand: [command, "app-server", "generate-ts"],
     jsonSchemaCommand: [command, "app-server", "generate-json-schema"]
+  };
+}
+
+function codexSetupDetails(command: string): Record<string, unknown> {
+  return {
+    command,
+    launchCommand: [command, "app-server", "--stdio"],
+    versionCommand: [command, "--version"],
+    environmentOverrides: [
+      {
+        name: "CODEX_BIN",
+        description: "Set before starting Praxis to point at a non-default Codex binary."
+      }
+    ],
+    setupSteps: [
+      "Install the Codex command or make it available on PATH.",
+      `Run ${command} --version to confirm the binary is reachable.`,
+      `Restart Praxis so it can launch ${command} app-server --stdio.`,
+      "Return to Settings and run Check availability."
+    ],
+    schemaStrategy: schemaStrategy(command)
   };
 }
 

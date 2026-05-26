@@ -227,6 +227,108 @@ p {
   gap: 1rem;
 }
 
+.workspaceCockpit,
+.projectWorkspace {
+  display: grid;
+  gap: 1rem;
+}
+
+.cockpitBand {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 0;
+  border-top: 1px solid #d7e0e4;
+}
+
+.cockpitBand:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.inboxGrid,
+.artifactGrid,
+.agentRunList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.workspaceColumns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.workspaceHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+  padding: 0 0 1rem;
+  border-bottom: 1px solid #d7e0e4;
+}
+
+.facetRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.65rem 0;
+}
+
+.workspaceMiniCard {
+  min-width: 0;
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.8rem;
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.workspaceMiniCard h3,
+.workspaceMiniCard h4 {
+  margin: 0;
+}
+
+.workspaceMiniCard p,
+.workspaceMiniCard small {
+  margin: 0;
+}
+
+.workspaceListButton {
+  width: 100%;
+  display: grid;
+  gap: 0.25rem;
+  text-align: left;
+}
+
+.agentBoard {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(160px, 1fr));
+  gap: 0.75rem;
+  overflow-x: auto;
+}
+
+.agentBoard > section {
+  min-width: 160px;
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid #d7e0e4;
+}
+
+.agentBoard h3 {
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.workItemColumn {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
 .cardGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -257,6 +359,39 @@ p {
 .providerStatusCard {
   display: grid;
   gap: 0.8rem;
+}
+
+.providerConfigPanel {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid #9dadb6;
+  border-radius: 8px;
+  background: #f8fafb;
+}
+
+.providerConfigPanel h4 {
+  margin: 0;
+}
+
+.providerSetupBlock {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.65rem;
+  border: 1px solid #d7e0e4;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.providerSetupBlock h5 {
+  margin: 0;
+  color: #21313a;
+  font-size: 0.9rem;
+}
+
+.providerSetupBlock ol {
+  margin: 0;
+  padding-left: 1.2rem;
 }
 
 .providerStatusGrid {
@@ -750,11 +885,32 @@ pre {
   align-items: flex-start;
 }
 
+.settingsField {
+  display: grid;
+  gap: 0.35rem;
+  color: #485961;
+  font-size: 0.9rem;
+}
+
+.settingsField textarea {
+  min-height: 5.5rem;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid #b7c3c9;
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  resize: vertical;
+}
+
 .settingsGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
   margin: 0;
+}
+
+.settingsGrid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .settingsGrid div {
@@ -895,6 +1051,62 @@ pre {
   box-shadow: 0 18px 48px rgba(23, 32, 42, 0.22);
 }
 
+.actionDialog {
+  width: min(680px, 100%);
+  max-height: min(760px, calc(100vh - 2rem));
+  overflow: auto;
+  display: grid;
+  gap: 0.9rem;
+  border: 1px solid #9dadb6;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 1rem;
+  box-shadow: 0 18px 48px rgba(23, 32, 42, 0.22);
+}
+
+.actionForm {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.actionForm label {
+  display: grid;
+  gap: 0.35rem;
+  color: #485961;
+  font-size: 0.86rem;
+}
+
+.actionForm input,
+.actionForm select,
+.actionForm textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #b7c3c9;
+  border-radius: 6px;
+  padding: 0.52rem 0.62rem;
+}
+
+.actionForm .inlineChoice {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.actionForm .inlineChoice input {
+  width: auto;
+}
+
+.fieldHint {
+  margin: -0.35rem 0 0.1rem;
+  color: #61737b;
+  font-size: 0.82rem;
+}
+
+.actionForm textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
 .confirmationDialog {
   display: grid;
   gap: 0.9rem;
@@ -1024,6 +1236,8 @@ pre {
   .approvalCard,
   .splitPanel,
   .checkRunGroups,
+  .workspaceHeader,
+  .workspaceColumns,
   .timelineFilters {
     grid-template-columns: 1fr;
     flex-direction: column;
@@ -1044,6 +1258,10 @@ pre {
 
   .approvalPanel .sectionHeader {
     margin-bottom: 0.25rem;
+  }
+
+  .workspaceCockpit > [aria-label="Waiting Decisions"] {
+    order: -1;
   }
 
   .approvalCard {

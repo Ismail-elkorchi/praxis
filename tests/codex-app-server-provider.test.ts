@@ -1,7 +1,7 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { providerId } from "../src/core";
 import { createPraxisApp } from "../src/composition/createPraxisApp";
 import { CodexAppServerProviderAdapter, codexFeatureMatrix } from "../src/providers/codex-app-server";
@@ -10,13 +10,22 @@ import { CodexJsonRpcClient } from "../src/providers/codex-app-server/JsonRpcCli
 import { validateProviderAdapterContract } from "../src/providers/interface";
 import { createTempProject } from "./helpers/tempProject";
 
+const trackedAdapters = new Set<CodexAppServerProviderAdapter>();
+
+afterEach(() => {
+  for (const adapter of trackedAdapters) {
+    adapter.shutdown();
+  }
+  trackedAdapters.clear();
+});
+
 describe("CodexAppServerProviderAdapter", () => {
   it("is disabled unless configured and reports unavailable without Codex installed", async () => {
     const app = await createPraxisApp();
     expect(app.providerRegistry.listRealProviders()).toEqual([]);
     expect(app.snapshot().dashboard.providerStatus.map((provider) => provider.name)).toEqual(["Fake provider"]);
 
-    const adapter = new CodexAppServerProviderAdapter({ command: "/not-installed/codex" });
+    const adapter = createCodexAdapter({ command: "/not-installed/codex" });
     await expect(adapter.checkAvailability()).resolves.toMatchObject({
       status: "unavailable",
       reason: "Codex app-server command is not available."
@@ -25,7 +34,7 @@ describe("CodexAppServerProviderAdapter", () => {
 
   it("passes the provider contract with a fake app-server fixture", async () => {
     const command = await createFakeCodexAppServer();
-    const adapter = new CodexAppServerProviderAdapter({
+    const adapter = createCodexAdapter({
       id: providerId("codex-app-server-test"),
       command,
       args: ["app-server", "--stdio"]
@@ -56,7 +65,7 @@ describe("CodexAppServerProviderAdapter", () => {
 
   it("starts, resumes, reads, lists, imports, steers, and interrupts sessions", async () => {
     const command = await createFakeCodexAppServer();
-    const adapter = new CodexAppServerProviderAdapter({ id: providerId("codex-app-server-flow"), command, args: ["app-server"] });
+    const adapter = createCodexAdapter({ id: providerId("codex-app-server-flow"), command, args: ["app-server"] });
     const app = await createPraxisApp({ providerAdapters: [adapter] });
     const rootPath = await createTempProject({ packageJson: false });
     const project = await app.projects.registerProject({ rootPath });
@@ -103,7 +112,7 @@ describe("CodexAppServerProviderAdapter", () => {
 
   it("persists approval decisions before forwarding command and file decisions", async () => {
     const command = await createFakeCodexAppServer({ scenario: "approval" });
-    const adapter = new CodexAppServerProviderAdapter({ id: providerId("codex-app-server-approval"), command, args: ["app-server"] });
+    const adapter = createCodexAdapter({ id: providerId("codex-app-server-approval"), command, args: ["app-server"] });
     const app = await createPraxisApp({ providerAdapters: [adapter] });
     const rootPath = await createTempProject({ packageJson: false });
     const project = await app.projects.registerProject({ rootPath });
@@ -122,7 +131,7 @@ describe("CodexAppServerProviderAdapter", () => {
     expect(app.snapshot().approvals.history[0]).toMatchObject({ id: approval.id, status: "accepted" });
 
     const fileCommand = await createFakeCodexAppServer({ scenario: "file_approval" });
-    const fileAdapter = new CodexAppServerProviderAdapter({ id: providerId("codex-app-server-file-approval"), command: fileCommand, args: ["app-server"] });
+    const fileAdapter = createCodexAdapter({ id: providerId("codex-app-server-file-approval"), command: fileCommand, args: ["app-server"] });
     const fileApp = await createPraxisApp({ providerAdapters: [fileAdapter] });
     const fileProject = await fileApp.projects.registerProject({ rootPath });
     const fileSessionId = await fileApp.providers.startSession({ providerId: fileAdapter.id, projectId: fileProject.id, cwd: rootPath });
@@ -132,7 +141,7 @@ describe("CodexAppServerProviderAdapter", () => {
 
   it("maps user-input requests and fails closed on unsafe unsupported approval scopes", async () => {
     const userInputCommand = await createFakeCodexAppServer({ scenario: "user_input" });
-    const userInputAdapter = new CodexAppServerProviderAdapter({ id: providerId("codex-app-server-user-input"), command: userInputCommand, args: ["app-server"] });
+    const userInputAdapter = createCodexAdapter({ id: providerId("codex-app-server-user-input"), command: userInputCommand, args: ["app-server"] });
     const app = await createPraxisApp({ providerAdapters: [userInputAdapter] });
     const rootPath = await createTempProject({ packageJson: false });
     const project = await app.projects.registerProject({ rootPath });
@@ -144,7 +153,7 @@ describe("CodexAppServerProviderAdapter", () => {
     expect(app.snapshot().projects[project.id]?.turns[turnId]?.status).toBe("completed");
 
     const unsafeCommand = await createFakeCodexAppServer({ scenario: "unsafe_scope" });
-    const unsafeAdapter = new CodexAppServerProviderAdapter({ id: providerId("codex-app-server-unsafe"), command: unsafeCommand, args: ["app-server"] });
+    const unsafeAdapter = createCodexAdapter({ id: providerId("codex-app-server-unsafe"), command: unsafeCommand, args: ["app-server"] });
     const unsafeApp = await createPraxisApp({ providerAdapters: [unsafeAdapter] });
     const unsafeProject = await unsafeApp.projects.registerProject({ rootPath });
     const unsafeSessionId = await unsafeApp.providers.startSession({ providerId: unsafeAdapter.id, projectId: unsafeProject.id, cwd: rootPath });
@@ -154,9 +163,9 @@ describe("CodexAppServerProviderAdapter", () => {
     expect((await unsafeApp.events.queryEvents({ providerId: unsafeAdapter.id })).some((event) => event.type === "provider.error")).toBe(true);
   });
 
-  it("maps protocol errors, crash recovery, bounded overload retry, and restart", async () => {
+  it("maps protocol errors into provider-neutral turn failures", async () => {
     const errorCommand = await createFakeCodexAppServer({ scenario: "error" });
-    const errorAdapter = new CodexAppServerProviderAdapter({ id: providerId("codex-app-server-error"), command: errorCommand, args: ["app-server"] });
+    const errorAdapter = createCodexAdapter({ id: providerId("codex-app-server-error"), command: errorCommand, args: ["app-server"] });
     const errorApp = await createPraxisApp({ providerAdapters: [errorAdapter] });
     const rootPath = await createTempProject({ packageJson: false });
     const project = await errorApp.projects.registerProject({ rootPath });
@@ -165,29 +174,35 @@ describe("CodexAppServerProviderAdapter", () => {
 
     expect(errorApp.snapshot().projects[project.id]?.turns[turnId]?.status).toBe("failed");
     expect((await errorApp.events.queryEvents({ providerId: errorAdapter.id })).some((event) => JSON.stringify(event.payload).includes("ContextWindowExceeded"))).toBe(true);
+  });
 
+  it("retries bounded overload errors", async () => {
     const overloadCommand = await createFakeCodexAppServer({ scenario: "overload" });
-    const overloadAdapter = new CodexAppServerProviderAdapter({
+    const overloadAdapter = createCodexAdapter({
       id: providerId("codex-app-server-overload"),
       command: overloadCommand,
       args: ["app-server"],
       maxOverloadRetries: 1
     });
     const overloadApp = await createPraxisApp({ providerAdapters: [overloadAdapter] });
+    const rootPath = await createTempProject({ packageJson: false });
     const overloadProject = await overloadApp.projects.registerProject({ rootPath });
     const overloadSession = await overloadApp.providers.startSession({ providerId: overloadAdapter.id, projectId: overloadProject.id, cwd: rootPath });
     const overloadTurn = await overloadApp.providers.sendTurn({ providerId: overloadAdapter.id, projectId: overloadProject.id, sessionId: overloadSession, instruction: "Retry" });
     expect(overloadApp.snapshot().projects[overloadProject.id]?.turns[overloadTurn]?.status).toBe("completed");
+  });
 
+  it("recovers after provider crash and restart", async () => {
     const crashMarker = path.join(await mkdtemp(path.join(os.tmpdir(), "praxis-codex-crash-marker-")), "crashed");
     const crashCommand = await createFakeCodexAppServer({ scenario: "crash_once" });
-    const crashAdapter = new CodexAppServerProviderAdapter({
+    const crashAdapter = createCodexAdapter({
       id: providerId("codex-app-server-crash"),
       command: crashCommand,
       args: ["app-server"],
       env: { PRAXIS_FAKE_CODEX_CRASH_MARKER: crashMarker }
     });
     const crashApp = await createPraxisApp({ providerAdapters: [crashAdapter] });
+    const rootPath = await createTempProject({ packageJson: false });
     const crashProject = await crashApp.projects.registerProject({ rootPath });
     const crashSession = await crashApp.providers.startSession({ providerId: crashAdapter.id, projectId: crashProject.id, cwd: rootPath });
     const failedTurn = await crashApp.providers.sendTurn({ providerId: crashAdapter.id, projectId: crashProject.id, sessionId: crashSession, instruction: "Crash" });
@@ -216,7 +231,7 @@ describe("CodexJsonRpcClient", () => {
     const client = new CodexJsonRpcClient({
       command,
       args: ["app-server"],
-      requestTimeoutMs: 100,
+      requestTimeoutMs: 1_000,
       onNotification: (message) => notifications.push(message),
       onServerRequest: (message) => requests.push(message)
     });
@@ -233,6 +248,12 @@ type FakeServerOptions = {
   version?: string;
   scenario?: "default" | "approval" | "file_approval" | "user_input" | "unsafe_scope" | "error" | "overload" | "crash_once" | "raw_and_timeout";
 };
+
+function createCodexAdapter(options: ConstructorParameters<typeof CodexAppServerProviderAdapter>[0]): CodexAppServerProviderAdapter {
+  const adapter = new CodexAppServerProviderAdapter(options);
+  trackedAdapters.add(adapter);
+  return adapter;
+}
 
 async function createFakeCodexAppServer(options: FakeServerOptions = {}): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "praxis-codex-app-server-"));
@@ -380,4 +401,3 @@ rl.on('line', (line) => {
 });
 `;
 }
-

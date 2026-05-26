@@ -3,11 +3,11 @@ import { AddressInfo } from "node:net";
 import path from "node:path";
 import type { AgentSession, AgentTurn } from "../core";
 import { createDomainEvent } from "../events/eventFactory";
-import type { FakeProviderScenarioName } from "../providers/fake/FakeProviderScenarios";
 import type { ProviderAdapter } from "../providers/interface";
+import { discoverBundledProviderAdapters } from "../providers/discovery";
 import { createPraxisApp, type PraxisApp } from "../composition/createPraxisApp";
 import { SqliteEventStore } from "../events/SqliteEventStore";
-import { defaultAppSettings } from "../settings/SettingsService";
+import { defaultAppSettings, SettingsService } from "../settings/SettingsService";
 import { createLocalServer } from "../server/createLocalServer";
 
 export type RuntimeStartupStep =
@@ -36,7 +36,8 @@ export type RuntimeDeploymentMode = "local_desktop" | "local_browser";
 export type StartPraxisRuntimeOptions = {
   databasePath?: string;
   providerAdapters?: ProviderAdapter[];
-  fakeScenario?: FakeProviderScenarioName;
+  autoDiscoverProviderAdapters?: boolean;
+  fakeScenario?: NonNullable<Parameters<typeof createPraxisApp>[0]>["fakeScenario"];
   host?: string;
   port?: number;
   staticRoot?: string;
@@ -79,7 +80,7 @@ export async function startPraxisRuntime(options: StartPraxisRuntimeOptions = {}
   const app = await createPraxisApp({
     eventStore,
     fakeScenario: options.fakeScenario,
-    providerAdapters: options.providerAdapters
+    providerAdapters: await runtimeProviderAdapters(options, eventStore)
   });
   startupSteps.push(
     "load_settings",
@@ -119,6 +120,7 @@ export async function startPraxisRuntime(options: StartPraxisRuntimeOptions = {}
     url,
     shutdown: async () => {
       shutdownSteps.push("stop_check_runs", "preserve_agent_sessions", "flush_event_store", "close_provider_clients");
+      await Promise.all(app.providerRegistry.listAdapters().map((adapter) => Promise.resolve(adapter.shutdown?.())));
       if (serverBundle) {
         serverBundle.sockets.close();
         await new Promise<void>((resolve) => serverBundle.server.close(() => resolve()));
@@ -130,6 +132,20 @@ export async function startPraxisRuntime(options: StartPraxisRuntimeOptions = {}
       return [...shutdownSteps];
     }
   };
+}
+
+async function runtimeProviderAdapters(options: StartPraxisRuntimeOptions, eventStore: SqliteEventStore): Promise<ProviderAdapter[]> {
+  const adapters: ProviderAdapter[] = [];
+  const settings = new SettingsService(eventStore).get();
+  if (options.autoDiscoverProviderAdapters !== false) {
+    adapters.push(
+      ...(await discoverBundledProviderAdapters({
+        commandOverrides: settings.providerCommandOverrides
+      }))
+    );
+  }
+  adapters.push(...(options.providerAdapters ?? []));
+  return adapters;
 }
 
 function writeRuntimeLifecycle(

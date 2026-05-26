@@ -110,6 +110,15 @@ export type WatchProviderEventsInput = {
 
 export type ProviderRuntimeEvent = DomainEvent;
 
+export type ProviderDiscoveryContext = {
+  commandOverrides: Record<string, string>;
+  env: NodeJS.ProcessEnv;
+};
+
+export type ProviderAdapterFactory = (
+  context: ProviderDiscoveryContext
+) => ProviderAdapter | undefined | Promise<ProviderAdapter | undefined>;
+
 export interface ProviderAdapter {
   id: ProviderId;
   kind: string;
@@ -130,4 +139,5 @@ export interface ProviderAdapter {
   listSessions?(input: ListSessionsInput): Promise<AgentSessionListPage>;
   importSessions?(input: ImportSessionsInput): AsyncIterable<ImportedProviderSession>;
   watchEvents(input: WatchProviderEventsInput): AsyncIterable<ProviderRuntimeEvent>;
+  shutdown?(): Promise<void> | void;
 }
