@@ -948,6 +948,9 @@ test("command palette opens from global search and runs provider-neutral command
 
   await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+  const providerConfiguration = page.getByRole("region", { name: "Provider configuration" });
+  await expect(providerConfiguration).toBeFocused();
+  await expect(providerConfiguration).toContainText("Fake provider configuration");
 
   await page.keyboard.press("Control+K");
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
@@ -1155,6 +1158,10 @@ test("empty states expose provider-neutral next actions", async ({ page }) => {
   await expect(projects.getByRole("button", { name: "Provider setup" })).toHaveAttribute("data-method", "providers.getStatus");
   await projects.getByRole("button", { name: "Provider setup" }).click();
   await expect(page.getByRole("button", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+  const providerConfiguration = page.getByRole("region", { name: "Provider configuration" });
+  await expect(providerConfiguration).toBeFocused();
+  await expect(providerConfiguration).toContainText("No optional provider is registered");
+  await expect(providerConfiguration.getByRole("list", { name: "Provider discovery checklist" })).toContainText("Restart the local runtime");
 
   await page.getByRole("button", { name: "Decisions" }).click();
   const approvals = page.getByRole("region", { name: "Approval center" });
@@ -1174,7 +1181,6 @@ test("empty states expose provider-neutral next actions", async ({ page }) => {
   const configureProvider = providers.getByRole("button", { name: "Configure provider" });
   await expect(configureProvider).toHaveAttribute("data-method", "providers.list");
   await configureProvider.click();
-  const providerConfiguration = page.getByRole("region", { name: "Provider configuration" });
   await expect(providerConfiguration).toContainText("No optional provider is registered");
   await expect(providerConfiguration.getByRole("list", { name: "Provider discovery checklist" })).toContainText("Restart the local runtime");
   await expect(providerConfiguration.getByRole("button", { name: "Reload provider status" })).toHaveAttribute(

@@ -59,6 +59,7 @@ export function App() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingActionRequest | undefined>();
   const [detailFocusRequest, setDetailFocusRequest] = useState<DetailFocusRequest>({ target: "project", nonce: 0 });
+  const [providerStatusRequest, setProviderStatusRequest] = useState(0);
   const [liveDashboard, setLiveDashboard] = useState<DashboardProjection | undefined>();
   const [apiStatus, setApiStatus] = useState<ApiStatus>("connecting");
   const fallbackDashboard = useMemo(() => demoDashboard(resolvedApprovalIds), [resolvedApprovalIds]);
@@ -162,6 +163,11 @@ export function App() {
     setPendingAction(action);
   }
 
+  function openProviderStatus() {
+    setRoute("Settings");
+    setProviderStatusRequest((current) => current + 1);
+  }
+
   function handleProjectAction(project: ProjectCardViewModel, action: DashboardAction) {
     if (action.disabled) return;
     setSelectedProjectId(project.projectId);
@@ -223,6 +229,7 @@ export function App() {
             onProjectAction={handleProjectAction}
             onDecision={decideApproval}
             onAction={openActionRequest}
+            onOpenProviderStatus={openProviderStatus}
           />
         )}
         {route === "Projects" && (
@@ -234,13 +241,22 @@ export function App() {
             onProjectAction={handleProjectAction}
             onDecision={decideApproval}
             onAction={openActionRequest}
+            onOpenProviderStatus={openProviderStatus}
             onOpenDiff={() => requestDetailFocus("diff")}
           />
         )}
         {route === "Decisions" && <ApprovalPanel approvals={dashboard.approvals} onDecision={decideApproval} onRoute={setRoute} />}
         {route === "Artifacts" && <ArtifactHub dashboard={dashboard} />}
         {route === "Activity" && <ActivityTimeline items={dashboard.timeline} />}
-        {route === "Settings" && <SettingsPanel apiStatus={apiStatus} providers={dashboard.providerStatus} onRoute={setRoute} />}
+        {route === "Settings" && (
+          <SettingsPanel
+            apiStatus={apiStatus}
+            providers={dashboard.providerStatus}
+            providerStatusRequest={providerStatusRequest}
+            onProviderStatusRequestHandled={() => setProviderStatusRequest(0)}
+            onRoute={setRoute}
+          />
+        )}
       </section>
       <DetailPanel dashboard={dashboard} selectedProject={selectedProject} focusRequest={detailFocusRequest} />
       {commandPaletteOpen ? (
@@ -250,6 +266,7 @@ export function App() {
           onClose={() => setCommandPaletteOpen(false)}
           onAction={openActionRequest}
           onOpenDiff={() => requestDetailFocus("diff")}
+          onOpenProviderStatus={openProviderStatus}
           onRoute={(nextRoute) => {
             setRoute(nextRoute);
             setCommandPaletteOpen(false);
@@ -356,7 +373,8 @@ function HomeView({
   onSelectProject,
   onProjectAction,
   onDecision,
-  onAction
+  onAction,
+  onOpenProviderStatus
 }: {
   dashboard: DashboardProjection;
   selectedProjectId: string;
@@ -365,6 +383,7 @@ function HomeView({
   onProjectAction(project: ProjectCardViewModel, action: DashboardAction): void;
   onDecision(approvalId: string, decision: ApprovalDecision): void;
   onAction(action: PendingActionRequest): void;
+  onOpenProviderStatus(): void;
 }) {
   function handleHomeProjectAction(project: ProjectCardViewModel, action: DashboardAction) {
     onProjectAction(project, action);
@@ -437,6 +456,7 @@ function HomeView({
           onProjectAction={handleHomeProjectAction}
           onAction={onAction}
           onRoute={onRoute}
+          onOpenProviderStatus={onOpenProviderStatus}
           compact
         />
       </section>
@@ -530,6 +550,7 @@ function ProjectsRoute({
   onProjectAction,
   onDecision,
   onAction,
+  onOpenProviderStatus,
   onOpenDiff
 }: {
   dashboard: DashboardProjection;
@@ -539,6 +560,7 @@ function ProjectsRoute({
   onProjectAction(project: ProjectCardViewModel, action: DashboardAction): void;
   onDecision(approvalId: string, decision: ApprovalDecision): void;
   onAction(action: PendingActionRequest): void;
+  onOpenProviderStatus(): void;
   onOpenDiff(): void;
 }) {
   const workspace = dashboard.selectedWorkspace?.projectId === selectedProjectId ? dashboard.selectedWorkspace : undefined;
@@ -562,6 +584,7 @@ function ProjectsRoute({
       onProjectAction={onProjectAction}
       onAction={onAction}
       onRoute={onRoute}
+      onOpenProviderStatus={onOpenProviderStatus}
     />
   );
 }
@@ -1019,6 +1042,7 @@ function ProjectGrid({
   onProjectAction,
   onAction,
   onRoute,
+  onOpenProviderStatus,
   compact = false
 }: {
   dashboard: DashboardProjection;
@@ -1027,6 +1051,7 @@ function ProjectGrid({
   onProjectAction(project: ProjectCardViewModel, action: DashboardAction): void;
   onAction(action: PendingActionRequest): void;
   onRoute(route: Route): void;
+  onOpenProviderStatus(): void;
   compact?: boolean;
 }) {
   const gridRef = useRef<HTMLElement>(null);
@@ -1066,7 +1091,7 @@ function ProjectGrid({
           <button type="button" data-method="projects.register" onClick={() => onAction({ method: "projects.register", label: "Register project" })}>
             Register project
           </button>
-          <button type="button" data-method="providers.getStatus" onClick={() => onRoute("Settings")}>
+          <button type="button" data-method="providers.getStatus" onClick={onOpenProviderStatus}>
             Provider setup
           </button>
         </div>
@@ -2136,6 +2161,7 @@ function CommandPalette({
   onClose,
   onAction,
   onOpenDiff,
+  onOpenProviderStatus,
   onRoute
 }: {
   dashboard: DashboardProjection;
@@ -2143,6 +2169,7 @@ function CommandPalette({
   onClose(): void;
   onAction(action: PendingActionRequest): void;
   onOpenDiff(): void;
+  onOpenProviderStatus(): void;
   onRoute(route: Route): void;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
@@ -2180,6 +2207,11 @@ function CommandPalette({
     if (command.id === "open-diff-review") {
       onRoute("Projects");
       onOpenDiff();
+      return;
+    }
+    if (command.id === "show-provider-status") {
+      onOpenProviderStatus();
+      onClose();
       return;
     }
     if (commandOpensAction(command)) {
@@ -3575,10 +3607,14 @@ function formatDuration(durationMs: number | undefined): string {
 function SettingsPanel({
   apiStatus,
   providers,
+  providerStatusRequest,
+  onProviderStatusRequestHandled,
   onRoute
 }: {
   apiStatus: ApiStatus;
   providers: ProviderStatusViewModel[];
+  providerStatusRequest: number;
+  onProviderStatusRequestHandled(): void;
   onRoute(route: Route): void;
 }) {
   const [settings, setSettings] = useState<AppSettings>(defaultAppSettings);
@@ -3595,6 +3631,13 @@ function SettingsPanel({
     availability: checkedAvailabilityByProviderId[provider.providerId] ?? provider.availability
   }));
   const selectedProvider = providersForDisplay.find((provider) => provider.providerId === selectedProviderId);
+
+  useEffect(() => {
+    if (providerStatusRequest === 0) return;
+    setSelectedProviderId(providers[0]?.providerId ?? "new-provider");
+    setProviderCheckMessage(undefined);
+    onProviderStatusRequestHandled();
+  }, [providerStatusRequest, providers, onProviderStatusRequestHandled]);
 
   useEffect(() => {
     const controller = new AbortController();
