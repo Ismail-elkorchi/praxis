@@ -684,6 +684,28 @@ test("project action dialogs use durable project provider ids instead of display
   await expect(providerSelect).toHaveValue("provider-target");
 });
 
+test("stale project session actions carry session context into dialogs", async ({ page }) => {
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result: request.method === "dashboard.getSnapshot" ? staleSessionActionDashboard() : {}
+      })
+    });
+  });
+
+  await page.goto("/");
+  const project = page.getByRole("article").filter({ hasText: "Stale session project" });
+  await project.getByRole("button", { name: "Stop session" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Stop session" });
+  await expect(dialog.getByRole("combobox", { name: "Session", exact: true })).toHaveValue("session-stale");
+  await expect(dialog).not.toContainText("Start a session first");
+});
+
 test("start dialogs keep unavailable providers visible but unselectable", async ({ page }) => {
   await page.route("**/api", async (route) => {
     const request = route.request().postDataJSON() as { id: string; method: string };
@@ -1437,6 +1459,47 @@ function duplicateProviderLabelDashboard(): DashboardProjection {
       providerStatusWithId("provider-first", "Shared provider", "available", { canStartSession: true }),
       providerStatusWithId("provider-target", "Shared provider", "available", { canStartSession: true })
     ]
+  });
+}
+
+function staleSessionActionDashboard(): DashboardProjection {
+  const projectId = "project-stale-session-action" as ProjectCardViewModel["projectId"];
+  const projectCard: ProjectCardViewModel = {
+    projectId,
+    title: "Stale session project",
+    subtitle: "/workspace/stale-session-action",
+    profileFacets: ["Project workspace", "operate", "local folder"],
+    runtimeState: "stale",
+    urgency: 3,
+    stateLabel: "Stale",
+    stateReason: "A provider session needs recovery.",
+    providerId: "provider-stale" as ProjectCardViewModel["providerId"],
+    providerLabel: "Stale provider",
+    branchLabel: "main",
+    changedFileCount: 0,
+    pendingApprovalCount: 0,
+    failedCheckCount: 0,
+    activeTurnCount: 0,
+    activeAgentCount: 0,
+    waitingAgentCount: 0,
+    blockedAgentCount: 1,
+    badges: [{ label: "Stale", tone: "stale" }],
+    primaryAction: { id: "open-workspace", label: "Open workspace", method: "projects.getWorkspace" },
+    secondaryActions: [
+      {
+        id: "stop-session",
+        label: "Stop session",
+        method: "agents.stopSession",
+        sessionId: "session-stale" as NonNullable<ProjectCardViewModel["secondaryActions"][number]["sessionId"]>
+      }
+    ],
+    diffFiles: [],
+    evidence: []
+  };
+  return emptyDashboard({
+    projectCards: [projectCard],
+    home: { activeProjects: [projectCard] },
+    providerStatus: [providerStatusWithId("provider-stale", "Stale provider", "available", { canStartSession: true })]
   });
 }
 

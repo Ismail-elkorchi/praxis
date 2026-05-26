@@ -81,3 +81,4 @@
 - Routed provider-status entry points from empty states and the command palette directly into the focused provider setup panel so users land on the actionable checklist instead of a generic Settings page.
 - Fail closed when agent runs are created, assigned, or started with providers that are missing, unavailable, or unable to start sessions, with UI coverage for unavailable queued runs.
 - Added durable provider ids to project cards so project-level provider actions route by provider identity instead of display label text.
+- Added stale-session ids to resume and stop project actions so advanced session dialogs open with executable context instead of asking users to paste runtime ids.

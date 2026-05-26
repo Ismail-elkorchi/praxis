@@ -79,6 +79,7 @@ export type DashboardAction = {
   id: string;
   label: string;
   method: string;
+  sessionId?: AgentSessionId;
   disabled?: boolean;
   disabledReason?: string;
 };

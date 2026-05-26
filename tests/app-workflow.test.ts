@@ -460,8 +460,8 @@ describe("provider-neutral application workflow", () => {
     expect(app.snapshot().dashboard.projectCards.find((card) => card.projectId === project.id)).toMatchObject({
       primaryAction: { method: "projects.getWorkspace" },
       secondaryActions: expect.arrayContaining([
-        expect.objectContaining({ id: "resume-session", method: "agents.resumeSession" }),
-        expect.objectContaining({ id: "stop-session", method: "agents.stopSession" })
+        expect.objectContaining({ id: "resume-session", method: "agents.resumeSession", sessionId }),
+        expect.objectContaining({ id: "stop-session", method: "agents.stopSession", sessionId })
       ])
     });
   });

@@ -211,7 +211,8 @@ export function App() {
         method: action.method,
         label: action.label,
         projectId: project.projectId,
-        providerId: provider?.providerId
+        providerId: provider?.providerId,
+        sessionId: action.sessionId
       });
       return;
     }
@@ -2491,6 +2492,13 @@ function ActionRequestDialog({
       .filter((item) => item.projectId === values.projectId && item.sessionId)
       .map((item) => item.sessionId!);
     return uniqueOptions([
+      ...(action.sessionId
+        ? [{
+            value: action.sessionId,
+            label: action.sessionId,
+            detail: "project action"
+          }]
+        : []),
       ...workspaceRuns
         .filter((run) => run.advanced.sessionId)
         .map((run) => ({
@@ -2504,7 +2512,7 @@ function ActionRequestDialog({
         detail: "project timeline"
       }))
     ]);
-  }, [dashboard.timeline, selectedWorkspace, values.projectId]);
+  }, [action.sessionId, dashboard.timeline, selectedWorkspace, values.projectId]);
   const artifactOptions = useMemo<FormOption[]>(() => {
     const workspaceArtifacts = selectedWorkspace?.artifacts ?? [];
     const recentArtifacts = dashboard.home.recentArtifacts.filter((artifact) => artifact.projectId === values.projectId);

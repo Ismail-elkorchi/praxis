@@ -4,6 +4,7 @@ import type {
   AgentRunStatus,
   AgentProvider,
   AgentSession,
+  AgentSessionId,
   AgentTurn,
   ApprovalDecision,
   ApprovalRequest,
@@ -1481,8 +1482,9 @@ function primaryAction(project: ProjectSnapshot, provider: AgentProvider | undef
     return { id: "open-approvals", label: "Open approvals", method: "agents.respondToApproval" };
   }
   if (project.runtimeState === "stale") {
-    if (providerAvailable && capabilities?.canResumeSession) {
-      return { id: "resume-session", label: "Resume session", method: "agents.resumeSession" };
+    const sessionId = staleSessionId(project);
+    if (sessionId && providerAvailable && capabilities?.canResumeSession) {
+      return { id: "resume-session", label: "Resume session", method: "agents.resumeSession", sessionId };
     }
     if (providerAvailable && capabilities?.canStartSession) {
       return { id: "recover-session", label: "Start recovery task", method: "agents.startSession" };
@@ -1519,9 +1521,19 @@ function primaryAction(project: ProjectSnapshot, provider: AgentProvider | undef
 function secondaryActions(project: ProjectSnapshot, evidence: EvidenceRef[], provider: AgentProvider | undefined): DashboardAction[] {
   const capabilities = provider?.capabilities;
   const providerAvailable = provider?.availability.status === "available";
+  const sessionId = staleSessionId(project);
   return [
     primaryAction(project, provider),
-    ...(project.runtimeState === "stale" ? [{ id: "stop-session", label: "Stop session", method: "agents.stopSession" }] : []),
+    ...(project.runtimeState === "stale"
+      ? [{
+          id: "stop-session",
+          label: "Stop session",
+          method: "agents.stopSession",
+          sessionId,
+          disabled: !sessionId,
+          disabledReason: sessionId ? undefined : "No stale session is available to stop."
+        }]
+      : []),
     ...(providerAvailable && capabilities?.canImportExistingSessions
       ? [{ id: "import-sessions", label: "Import sessions", method: "agents.importSessions" }]
       : []),
@@ -1529,6 +1541,10 @@ function secondaryActions(project: ProjectSnapshot, evidence: EvidenceRef[], pro
     ...(evidence.length > 0 ? [{ id: "open-evidence", label: "Open evidence", method: "dashboard.explainMode" }] : []),
     ...(project.git.isRepo ? [{ id: "open-diff", label: "Open diff review", method: "git.openDiff" }] : [])
   ];
+}
+
+function staleSessionId(project: ProjectSnapshot): AgentSessionId | undefined {
+  return Object.values(project.sessions).find((session) => session.state === "stale_or_disconnected")?.id;
 }
 
 function diffFiles(project: ProjectSnapshot): ProjectCardViewModel["diffFiles"] {
