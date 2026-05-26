@@ -2462,14 +2462,24 @@ function ActionRequestDialog({
       ? (["queued", "running", "waiting", "blocked", "review", "done"] as const).flatMap((column) => selectedWorkspace.agentBoard[column])
       : [];
     const homeRuns = dashboard.home.runningAgents.filter((run) => run.projectId === values.projectId);
+    const providerById = new Map(providers.map((provider) => [provider.providerId, provider]));
     return uniqueOptions(
-      [...workspaceRuns, ...homeRuns].map((run) => ({
-        value: run.runId,
-        label: run.roleName,
-        detail: `${run.status.replaceAll("_", " ")} · ${run.linkedWorkItemTitle}`
-      }))
+      [...workspaceRuns, ...homeRuns].map((run) => {
+        const provider = providerById.get(run.providerId);
+        const providerUnavailableForStart = action.method === "agentRuns.start" && (!provider || !providerCanStartSession(provider));
+        return {
+          value: run.runId,
+          label: run.roleName,
+          detail: [
+            run.status.replaceAll("_", " "),
+            run.linkedWorkItemTitle,
+            providerUnavailableForStart ? "provider unavailable" : undefined
+          ].filter(Boolean).join(" · "),
+          disabled: providerUnavailableForStart
+        };
+      })
     );
-  }, [dashboard.home.runningAgents, selectedWorkspace, values.projectId]);
+  }, [action.method, dashboard.home.runningAgents, providers, selectedWorkspace, values.projectId]);
   const sessionOptions = useMemo<FormOption[]>(() => {
     const workspaceRuns = selectedWorkspace
       ? (["queued", "running", "waiting", "blocked", "review", "done"] as const).flatMap((column) => selectedWorkspace.agentBoard[column])
@@ -3138,6 +3148,12 @@ function actionBlockedReason(
       return "No available provider can start sessions. Configure a provider or use the fake provider.";
     }
   }
+  if (method === "agentRuns.start") {
+    const selectedRun = optionContext.agentRunOptions.find((run) => run.value === values.agentRunId);
+    if (selectedRun?.disabled) {
+      return "Selected agent run's provider is not available for starting sessions.";
+    }
+  }
   return undefined;
 }
 
@@ -3159,6 +3175,9 @@ function actionPrerequisiteBlockedReason(method: string, options: ActionOptionCo
     options.agentRunOptions.length === 0
   ) {
     return "Create an agent run before using this agent run action.";
+  }
+  if (method === "agentRuns.start" && options.agentRunOptions.length > 0 && options.agentRunOptions.every((option) => option.disabled)) {
+    return "No queued agent run has an available provider. Configure a provider or assign the run to an available provider.";
   }
   if (
     (method === "agents.resumeSession" || method === "agents.stopSession" || method === "agents.sendTurn") &&

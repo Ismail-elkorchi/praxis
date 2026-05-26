@@ -708,6 +708,32 @@ test("start dialogs block submission when no provider is available", async ({ pa
   await expect(dialog.getByRole("button", { name: "Run action" })).toBeDisabled();
 });
 
+test("queued agent runs cannot start when their provider is unavailable", async ({ page }) => {
+  await page.route("**/api", async (route) => {
+    const request = route.request().postDataJSON() as { id: string; method: string };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: request.id,
+        result: request.method === "dashboard.getSnapshot" ? queuedUnavailableAgentRunDashboard() : {}
+      })
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: /^Projects/ }).click();
+
+  const queuedAgents = page.getByRole("region", { name: "queued agents" });
+  await queuedAgents.getByRole("button", { name: "Start agent run" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Start agent run" });
+  const agentRunSelect = dialog.getByRole("combobox", { name: "Agent run", exact: true });
+  await expect(agentRunSelect.locator('option[value="run-unavailable-provider"]')).toHaveAttribute("disabled", "");
+  await expect(dialog).toContainText("No queued agent run has an available provider.");
+  await expect(dialog.getByRole("button", { name: "Run action" })).toBeDisabled();
+});
+
 test("provider status cards show capability and compatibility details", async ({ page }) => {
   await page.goto("/");
 
@@ -1370,6 +1396,59 @@ function unavailableOnlyStartProviderDashboard(): DashboardProjection {
     providerStatus: [
       providerStatusWithId("provider-unavailable", "Unavailable runner", "unavailable", { canStartSession: true })
     ]
+  };
+}
+
+function queuedUnavailableAgentRunDashboard(): DashboardProjection {
+  const dashboard = noCheckWorkspaceDashboard();
+  const workspace = dashboard.selectedWorkspace!;
+  const now = new Date(0).toISOString();
+  const workItem: ProjectWorkItem = {
+    id: "work-unavailable-provider" as ProjectWorkItem["id"],
+    projectId: workspace.projectId,
+    title: "Run unavailable provider work",
+    goal: "Start a run only after its provider is available.",
+    workModes: ["operate"],
+    status: "queued",
+    priority: 1,
+    sourceIds: [],
+    artifactIds: [],
+    createdAt: now,
+    updatedAt: now,
+    metadata: {}
+  };
+  const run: AgentRunCardViewModel = {
+    runId: "run-unavailable-provider" as AgentRunCardViewModel["runId"],
+    projectId: workspace.projectId,
+    workItemId: workItem.id,
+    roleName: "Operator",
+    rolePreset: "operator",
+    providerLabel: "Unavailable runner",
+    providerId: "provider-unavailable" as AgentRunCardViewModel["providerId"],
+    linkedWorkItemTitle: workItem.title,
+    status: "queued",
+    lastEvent: "agent.run.queued",
+    pendingDecisionCount: 0,
+    pendingInput: false,
+    producedArtifactCount: 0,
+    primaryAction: { id: "start-agent-run", label: "Start agent run", method: "agentRuns.start" },
+    evidence: [],
+    advanced: {}
+  };
+  return {
+    ...dashboard,
+    providerStatus: [providerStatusWithId("provider-unavailable", "Unavailable runner", "unavailable", { canStartSession: true })],
+    selectedWorkspace: {
+      ...workspace,
+      workItems: {
+        ...workspace.workItems,
+        queued: [workItem]
+      },
+      agentBoard: {
+        ...workspace.agentBoard,
+        queued: [run]
+      }
+    }
   };
 }
 
