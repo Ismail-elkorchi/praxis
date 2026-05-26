@@ -367,6 +367,32 @@ describe("provider-neutral application workflow", () => {
         disabled: true
       })])
     });
+
+    const workItem = await app.workItems.create({
+      projectId: project.id,
+      title: "Provider-gated work",
+      goal: "Do not create an unrunnable agent run."
+    });
+    await expect(app.agentRuns.create({
+      projectId: project.id,
+      workItemId: workItem.id,
+      providerId: provider.id,
+      roleName: "Operator",
+      goal: "Attempt to use an unrunnable provider."
+    })).rejects.toMatchObject({ code: "capability_unavailable" });
+
+    const runnableRun = await app.agentRuns.create({
+      projectId: project.id,
+      workItemId: workItem.id,
+      providerId: providerId("fake"),
+      roleName: "Fallback operator",
+      goal: "Use the fake provider."
+    });
+    await expect(app.agentRuns.assignProvider({
+      projectId: project.id,
+      agentRunId: runnableRun.id,
+      providerId: provider.id
+    })).rejects.toMatchObject({ code: "capability_unavailable" });
   });
 
   it("imports provider sessions only when the selected provider supports import", async () => {

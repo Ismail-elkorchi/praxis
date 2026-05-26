@@ -24,7 +24,7 @@ import type { AppSnapshot, DashboardAction, HomeViewModel, ProjectCardViewModel,
 import type { AppEventLog } from "../events/AppEventLog";
 import { createDomainEvent } from "../events/eventFactory";
 import type { ProviderService } from "./ProviderService";
-import { notFoundError, PraxisError } from "./errors";
+import { capabilityError, notFoundError, PraxisError } from "./errors";
 
 type SnapshotProvider = () => AppSnapshot;
 
@@ -306,6 +306,7 @@ export class AgentRunService {
     metadata?: Record<string, unknown>;
   }): Promise<AgentRun> {
     requireWorkItem(this.getSnapshot(), input.projectId, input.workItemId);
+    requireRunnableProvider(this.getSnapshot(), input.providerId);
     const timestamp = now();
     const run: AgentRun = {
       id: agentRunId(),
@@ -331,6 +332,7 @@ export class AgentRunService {
   async start(input: { projectId: ProjectId; agentRunId: AgentRunId; instruction?: string }): Promise<AgentRun> {
     const existing = requireAgentRun(this.getSnapshot(), input.projectId, input.agentRunId);
     const workItem = requireWorkItem(this.getSnapshot(), input.projectId, existing.workItemId);
+    requireRunnableProvider(this.getSnapshot(), existing.providerId);
     const starting = { ...existing, status: "starting" as const, updatedAt: now() };
     await this.events.append(agentRunEvent("agent.run.started", starting, "agentRuns.start"));
     try {
@@ -395,6 +397,7 @@ export class AgentRunService {
         agentRunId: input.agentRunId
       });
     }
+    requireRunnableProvider(this.getSnapshot(), input.providerId);
     return this.replaceRun({ ...run, providerId: input.providerId, updatedAt: now() }, "agent.run.statusChanged", "agentRuns.assignProvider");
   }
 
@@ -482,6 +485,17 @@ function requireWorkItem(snapshot: AppSnapshot, projectId: ProjectId, workItemId
   const item = requireProject(snapshot, projectId).workItems.find((candidate) => candidate.id === workItemId);
   if (!item) throw notFoundError("Project work item was not found.", { projectId, workItemId });
   return item;
+}
+
+function requireRunnableProvider(snapshot: AppSnapshot, providerId: ProviderId): void {
+  const provider = snapshot.providers[providerId]?.provider;
+  if (!provider) throw notFoundError("Provider is not registered.", { providerId });
+  if (!provider.capabilities.canStartSession) {
+    throw capabilityError("Provider does not support starting sessions.", { providerId });
+  }
+  if (provider.availability.status !== "available") {
+    throw new PraxisError("provider_unavailable", provider.availability.reason ?? "Provider is not available.", { providerId });
+  }
 }
 
 function requireAgentRun(snapshot: AppSnapshot, projectId: ProjectId, agentRunId: AgentRunId): AgentRun {
