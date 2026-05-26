@@ -259,6 +259,7 @@ export function App() {
       {pendingAction ? (
         <ActionRequestDialog
           action={pendingAction}
+          apiStatus={apiStatus}
           selectedProjectId={selectedProjectId}
           dashboard={dashboard}
           onClose={() => setPendingAction(undefined)}
@@ -2351,6 +2352,7 @@ function selectedProjectIdForDashboard(dashboard: DashboardProjection, selectedP
 
 function ActionRequestDialog({
   action,
+  apiStatus,
   selectedProjectId,
   dashboard,
   onClose,
@@ -2358,6 +2360,7 @@ function ActionRequestDialog({
   onRun
 }: {
   action: PendingActionRequest;
+  apiStatus: ApiStatus;
   selectedProjectId: string;
   dashboard: DashboardProjection;
   onClose(): void;
@@ -2518,7 +2521,10 @@ function ActionRequestDialog({
     checkOptions,
     checkRunOptions
   };
-  const blockedReason = actionBlockedReason(action.method, values, providerOptions, projectOptions, optionContext);
+  const runtimeBlockedReason =
+    apiStatus === "live" ? undefined : "Connect the local runtime before executing this action.";
+  const blockedReason =
+    runtimeBlockedReason ?? actionBlockedReason(action.method, values, providerOptions, projectOptions, optionContext);
 
   useEffect(() => {
     dialogRef.current?.querySelector<HTMLInputElement>("input, select, textarea")?.focus();

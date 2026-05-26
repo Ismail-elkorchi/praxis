@@ -1017,6 +1017,17 @@ test("command palette opens executable project action flows", async ({ page }) =
   await expect(page.getByRole("region", { name: "Diff review details" })).toBeFocused();
 });
 
+test("action dialogs block execution when the local runtime is unavailable", async ({ page }) => {
+  await page.route("**/api", async (route) => route.abort());
+  await page.goto("/");
+
+  await page.getByRole("region", { name: "Universal composer" }).getByRole("button", { name: "Create project" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Create project" });
+  await expect(dialog).toContainText("Connect the local runtime before executing this action.");
+  await expect(dialog.getByRole("button", { name: "Run action" })).toBeDisabled();
+});
+
 test("project-scoped composer actions do not reuse stale selected projects", async ({ page }) => {
   await page.route("**/api", async (route) => {
     const request = route.request().postDataJSON() as { id: string; method: string };
