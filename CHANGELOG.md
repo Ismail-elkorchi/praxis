@@ -78,3 +78,5 @@
 - Hardened project workspace action wiring so Home and Projects share the same dispatcher, workspace header actions stay contextual, query actions show results, provider setup empty states are actionable, and agent details expand without dead API dialogs.
 - Wired workspace source removal, work-item lifecycle, artifact review decisions, agent-run stop/cancel, and provider session import through explicit action dialogs with project/provider context, and gated start/default-provider controls on provider availability.
 - Added provider-neutral command overrides in Settings so optional provider binaries can be configured from the provider setup panel and applied on the next runtime startup.
+- Routed provider-status entry points from empty states and the command palette directly into the focused provider setup panel so users land on the actionable checklist instead of a generic Settings page.
+- Fail closed when agent runs are created, assigned, or started with providers that are missing, unavailable, or unable to start sessions, with UI coverage for unavailable queued runs.
